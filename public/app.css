@@ -1,0 +1,3487 @@
+/* ———————————————————————————————————————————————————————— */
+/* slop-review · modern minimal (Linear-/Vercel-inspired)     */
+/* Neutral grays, single accent, system fonts, sharp 4px      */
+/* corners, no paper grain. Lane colors retained for diff     */
+/* status semantics + state pills.                            */
+/* ———————————————————————————————————————————————————————— */
+
+:root {
+  /* Light mode — clean off-white surface */
+  --bg:             #fafafa;       /* page bg */
+  --bg-deep:        #f4f4f5;       /* sunken surfaces (banner, hover) */
+  --card:           #ffffff;       /* elevated surfaces */
+  --fg:             #18181b;       /* primary text */
+  --ink:            #09090b;       /* strong text (titles, links on hover) */
+  --fg-soft:        #3f3f46;       /* secondary text */
+  --fg-muted:       #71717a;       /* tertiary text */
+  --hairline:       #e4e4e7;       /* faint dividers */
+  --hairline-strong:#d4d4d8;       /* visible borders */
+  --accent:         #5b6cff;       /* indigo — calm, distinctive, not loud */
+  --accent-soft:    #8a96ff;
+
+  /* Lane accents — semantic colors for diff statuses + state pills.
+     Tuned a touch more saturated than taiou's earth-toned palette so
+     the green / blue / amber / red read clearly against neutral grays. */
+  --lane-unstarted: #71717a;       /* zinc */
+  --lane-explain:   #3b82f6;       /* blue */
+  --lane-working:   #f59e0b;       /* amber */
+  --lane-review:    #ca8a04;       /* yellow-amber (slightly warmer than explain) */
+  --lane-done:      #16a34a;       /* green */
+
+  /* System fonts — no Google Fonts dependency. SF Pro / Segoe UI / etc.
+     based on the user's OS so chrome reads as native. */
+  --font-display:   ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  --font-sans:      ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  --font-mono:      ui-monospace, "SF Mono", "Menlo", "Cascadia Code", "Consolas", monospace;
+
+  /* Motion */
+  --ease:           cubic-bezier(.22, 1, .36, 1);
+  --ease-out:       cubic-bezier(.16, 1, .3, 1);
+
+  /* Geometry */
+  --radius-sm:      4px;
+  --radius-md:      6px;
+  --radius-lg:      8px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    /* Dark mode — Linear-style near-black with subtle blue tilt */
+    --bg:             #0a0a0a;
+    --bg-deep:        #050505;
+    --card:           #141416;
+    --fg:             #fafafa;
+    --ink:            #ffffff;
+    --fg-soft:        #a1a1aa;
+    --fg-muted:       #71717a;
+    --hairline:       #27272a;
+    --hairline-strong:#3f3f46;
+    --accent:         #818cf8;       /* lighter indigo for dark backgrounds */
+    --accent-soft:    #a5b4fc;
+
+    --lane-unstarted: #a1a1aa;
+    --lane-explain:   #60a5fa;
+    --lane-working:   #fbbf24;
+    --lane-review:    #eab308;
+    --lane-done:      #4ade80;
+  }
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0; padding: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  font-feature-settings: "ss01", "ss03";
+  min-height: 100vh;
+}
+
+/* (paper-grain overlay removed for the modern minimal theme) */
+
+/* ——— Links ——— */
+a {
+  color: inherit;
+  text-decoration: underline;
+  text-decoration-thickness: 0.5px;
+  text-decoration-color: var(--hairline-strong);
+  text-underline-offset: 3px;
+  transition: text-decoration-color .2s var(--ease);
+}
+a:hover { text-decoration-color: var(--accent); }
+
+button, input, select, textarea { font: inherit; color: inherit; }
+
+/* ——————————————————— Header ——————————————————— */
+header.app {
+  position: sticky; top: 0; z-index: 10;
+  background: color-mix(in srgb, var(--bg) 80%, transparent);
+  backdrop-filter: blur(8px);
+  border-bottom: 1px solid var(--hairline);
+  padding: 12px 20px;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 20px;
+  align-items: center;
+}
+
+@media (max-width: 720px) {
+  header.app {
+    padding: 12px 16px;
+    gap: 16px;
+  }
+}
+
+.brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  text-decoration: none;
+  flex-shrink: 0;
+}
+
+/* Monospace wordmark — reads as a CLI tool's brand. The dot in the middle
+   of "slop-review" gets a subtle accent dot inserted via CSS so the wordmark
+   has a small graphic mark without needing any actual SVG. */
+.brand-name {
+  font-family: var(--font-mono);
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  line-height: 1;
+  color: var(--ink);
+}
+.brand-name::before {
+  content: "▸ ";
+  color: var(--accent);
+  font-weight: 700;
+}
+
+/* hanko-style stamp for 対応 */
+.brand-sub {
+  display: inline-block;
+  font-family: 'Hiragino Mincho ProN', 'Yu Mincho', 'Noto Serif JP', serif;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: 0.04em;
+  color: var(--accent);
+  border: 1.5px solid var(--accent);
+  padding: 5px 5px 3px;
+  transform: rotate(-2deg);
+  transition: transform .25s var(--ease), background .25s var(--ease);
+}
+.brand:hover .brand-sub {
+  transform: rotate(2deg);
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+}
+
+.crumb {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--fg-soft);
+  text-transform: none;
+  letter-spacing: 0;
+  overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
+  min-width: 0;
+}
+.crumb a {
+  text-decoration: none;
+  color: var(--fg-soft);
+  transition: color .15s var(--ease);
+}
+.crumb a:hover { color: var(--accent); }
+.crumb .sep { color: var(--fg-muted); margin: 0 8px; opacity: 0.6; }
+
+/* ——————————————————— Main ——————————————————— */
+main {
+  position: relative; z-index: 2;
+  padding: 40px 28px 96px;
+  max-width: 1700px;
+  margin: 0 auto;
+  animation: fade-in .3s var(--ease-out);
+}
+@media (max-width: 720px) {
+  main { padding: 24px 16px 72px; }
+}
+
+/* ——— Page head ——— */
+.page-head {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 24px;
+  align-items: baseline;
+  margin-bottom: 40px;
+  padding-bottom: 20px;
+  border-bottom: 1px solid var(--hairline);
+}
+.page-head h1 {
+  font-family: var(--font-sans);
+  font-weight: 600;
+  font-size: clamp(20px, 2.4vw, 28px);
+  line-height: 1.2;
+  letter-spacing: -0.02em;
+  margin: 0;
+  color: var(--ink);
+}
+.page-head h1 a {
+  color: inherit;
+  text-decoration: none;
+  border-bottom: 1.5px solid transparent;
+  padding-bottom: 2px;
+  transition: border-color .2s var(--ease);
+}
+.page-head h1 a:hover {
+  border-bottom-color: var(--accent);
+}
+.page-head .actions { display: flex; gap: 8px; align-items: center; }
+@media (max-width: 720px) {
+  .page-head { grid-template-columns: 1fr; gap: 14px; margin-bottom: 28px; }
+  .page-head .actions { justify-content: flex-start; }
+}
+
+/* ——— Buttons ——— */
+button {
+  font-family: var(--font-sans);
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+  padding: 7px 12px;
+  background: transparent;
+  color: var(--fg);
+  border: 1px solid var(--hairline-strong);
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  transition: border-color .15s var(--ease), color .15s var(--ease),
+              background .15s var(--ease);
+}
+button:hover:not(:disabled) { border-color: var(--ink); color: var(--ink); background: var(--card); }
+button:disabled { opacity: .4; cursor: not-allowed; }
+button.primary {
+  background: var(--accent); color: #ffffff; border-color: var(--accent);
+}
+button.primary:hover:not(:disabled) {
+  background: var(--accent-soft); border-color: var(--accent-soft);
+}
+button.danger { color: var(--accent); border-color: var(--hairline); }
+button.danger:hover:not(:disabled) {
+  color: var(--accent); border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 7%, transparent);
+}
+
+/* ——— Inputs ——— */
+input[type=text], input[type=number], textarea {
+  font-family: var(--font-sans);
+  font-size: 13px;
+  padding: 9px 12px;
+  background: var(--card);
+  color: var(--ink);
+  border: 1px solid var(--hairline-strong);
+  border-radius: var(--radius-sm);
+  width: 100%;
+  transition: border-color .15s var(--ease), box-shadow .15s var(--ease);
+}
+input:focus, textarea:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent);
+}
+textarea {
+  min-height: 88px;
+  resize: vertical;
+  font-family: var(--font-sans);
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+/* ——————————————————— List pages ——————————————————— */
+.list { max-width: 920px; margin: 0 auto; }
+
+.list-item {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 20px;
+  align-items: center;
+  padding: 22px 0;
+  border-bottom: 1px solid var(--hairline);
+  transition: background .15s var(--ease), padding .15s var(--ease),
+              margin .15s var(--ease);
+}
+.list-item:first-child { border-top: 1px solid var(--hairline); }
+.list-item:hover {
+  background: color-mix(in srgb, var(--card) 60%, transparent);
+  margin: 0 -16px;
+  padding-left: 16px;
+  padding-right: 16px;
+}
+.list-item .title {
+  font-family: var(--font-display);
+  font-size: 20px;
+  font-weight: 400;
+  font-variation-settings: "opsz" 72, "SOFT" 30;
+  color: var(--ink);
+  margin: 0 0 6px;
+  letter-spacing: -0.012em;
+  line-height: 1.2;
+}
+.list-item .title a {
+  font-family: var(--font-mono);
+  font-size: 0.68em;
+  color: var(--accent);
+  text-decoration: none;
+  margin-right: 0.5em;
+  letter-spacing: 0;
+  vertical-align: 0.12em;
+  border-bottom: 1px solid transparent;
+  transition: border-color .2s var(--ease);
+}
+.list-item .title a:hover { border-color: var(--accent); }
+.list-item .title a.title-main {
+  font-family: inherit;
+  font-size: inherit;
+  color: inherit;
+  margin-right: 0;
+  letter-spacing: inherit;
+  vertical-align: baseline;
+}
+.list-item .title a.title-main:hover { border-color: var(--ink); }
+.list-item .sub {
+  font-family: var(--font-sans);
+  font-size: 12px;
+  color: var(--fg-soft);
+}
+.list-item .sub a {
+  color: var(--fg-soft);
+  text-decoration-color: var(--hairline-strong);
+}
+.list-item .row-actions { display: flex; gap: 8px; align-items: center; }
+
+@media (max-width: 600px) {
+  .list-item { grid-template-columns: 1fr; gap: 14px; }
+  .list-item .row-actions { justify-content: flex-start; }
+}
+
+.empty {
+  padding: 56px 24px;
+  text-align: center;
+  color: var(--fg-muted);
+  font-family: var(--font-sans);
+  font-style: normal;
+  font-size: 15px;
+  font-variation-settings: "opsz" 48;
+  border: 1px dashed var(--hairline-strong);
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--card) 40%, transparent);
+}
+.empty b { font-style: normal; font-weight: 600; color: var(--fg-soft); }
+
+/* ——— Badges ——— */
+.badge {
+  display: inline-block;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  padding: 3px 7px 2px;
+  border-radius: 2px;
+  border: 1px solid var(--hairline-strong);
+  color: var(--fg-soft);
+  background: transparent;
+  margin-left: 10px;
+  vertical-align: 0.22em;
+}
+.badge.seeded {
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+  background: color-mix(in srgb, var(--accent) 6%, transparent);
+}
+
+/* Draft PR marker — muted hollow badge */
+.draft-badge {
+  display: inline-block;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  padding: 2px 6px 1px;
+  border-radius: 2px;
+  margin-left: 6px;
+  vertical-align: 0.1em;
+  color: var(--fg-muted);
+  background: transparent;
+  border: 1px solid var(--hairline-strong);
+}
+
+/* GitHub label badges — full label color bg, contrast-picked text via inline style */
+.label-badge {
+  display: inline-block;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  padding: 2px 6px 1px;
+  border-radius: 2px;
+  margin-left: 6px;
+  vertical-align: 0.1em;
+  color: var(--label-ink, var(--fg));
+  background: var(--label-color, var(--bg-deep));
+  border: 1px solid color-mix(in srgb, var(--label-color, var(--hairline-strong)) 75%, var(--ink) 15%);
+}
+
+/* ——————————————————— Board ——————————————————— */
+.board-wrap { margin-top: -8px; }
+
+/* ——————————————————— PR meta (branch chip + description) ———————————————————
+   Compact single-row layout when collapsed: branch chip + "Description ▸" inline.
+   Expanded: <details> promotes to its own row via flex: 1 1 100%, keeping the
+   branch chip pinned to row 1 and the body spanning the full width of row 2.
+   No bottom hairline — the board's own top border handles the separation. */
+/* Two logical groups in one row: left = info toggles (description, commits),
+   right = action buttons (terminal pill, diff-view). Each <details> uses
+   `position: absolute` for its expanded content so opening one never
+   shifts the row's button positions. */
+.pr-meta {
+  position: relative;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  column-gap: 14px;
+  row-gap: 6px;
+  margin: 0 0 12px;
+}
+.pr-meta-left {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 14px;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.pr-meta-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 0 0 auto;
+}
+
+/* Diff view button — peer of the terminal pill on the right side of the
+   meta row. Same pill shape and typography as the terminal pill so the
+   group reads as a coherent action cluster. No state dot — it just opens
+   a modal, no live-runtime semantics. */
+.pr-diff {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 12px;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.04em;
+  color: var(--fg-muted);
+  background: var(--bg-deep);
+  border: 1px solid var(--hairline);
+  border-radius: 999px;
+  cursor: pointer;
+  text-transform: none;
+  transition: border-color .15s var(--ease), color .15s var(--ease);
+}
+.pr-diff:hover { color: var(--ink); border-color: var(--hairline-strong); }
+
+/* Worktree-on-disk badge — same pill shape as the branch chip, with a tiny
+   steady dot to signal "this exists right now". Injected asynchronously
+   from the board page after /api/items/:id/worktree reports exists:true.
+   Split-pill: the main button copies the path; the ×  opens the gtreer
+   confirm modal for removal. */
+.pr-worktree-group {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: stretch;
+  /* Pin to the trailing edge of the meta row, regardless of how many
+     other chips precede it. When the row has room, this leaves a gap
+     between branch/description and the worktree pill. */
+  margin-left: auto;
+  border: 1px solid var(--hairline);
+  border-radius: 999px;
+  background: var(--bg-deep);
+  overflow: hidden;
+  transition: border-color .15s var(--ease);
+}
+.pr-worktree-group:hover { border-color: var(--hairline-strong); }
+
+.pr-worktree {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 10px;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--fg-muted);
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  transition: color .15s var(--ease);
+}
+.pr-worktree:hover { color: var(--ink); }
+.pr-worktree-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #3fa352;                         /* subdued green, matches the live-session dot */
+  box-shadow: 0 0 0 2px rgba(63, 163, 82, 0.15);
+}
+.pr-worktree-label { letter-spacing: 0.04em; }
+
+.pr-worktree-remove {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 8px;
+  min-width: 22px;
+  font-family: var(--font-sans);
+  font-size: 13px;
+  line-height: 1;
+  color: var(--fg-muted);
+  background: transparent;
+  border: 0;
+  border-left: 1px solid var(--hairline);
+  cursor: pointer;
+  transition: color .15s var(--ease), background .15s var(--ease);
+}
+.pr-worktree-remove:hover {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+
+/* Inactive variant: shown when neither a worktree nor a tmux session
+   exists yet. The pill becomes a single-button affordance — clicking it
+   opens the worktree-choice modal (the only entry point for spinning up
+   a runtime under the decoupled lifecycle). Visual cue: hollow dot, no
+   green halo, dashed border, lighter weight — reads as "available, not
+   active". Hover lifts toward the active styling so it still feels
+   clickable. */
+.pr-worktree-group.is-inactive {
+  border-style: dashed;
+  background: transparent;
+  opacity: 0.7;
+  transition: opacity .15s var(--ease), border-color .15s var(--ease);
+}
+.pr-worktree-group.is-inactive:hover {
+  opacity: 1;
+  border-style: solid;
+}
+.pr-worktree-group.is-inactive .pr-worktree-dot {
+  background: transparent;
+  border: 1px solid var(--fg-muted);
+  box-shadow: none;
+  /* Re-center the visual weight after swapping fill for a 1px border. */
+  width: 7px;
+  height: 7px;
+}
+.pr-worktree-group.is-inactive:hover .pr-worktree-dot {
+  border-color: var(--ink);
+}
+
+.wt-remove-list {
+  margin: 10px 0 14px 18px;
+  padding: 0;
+  font-size: 13px;
+  color: var(--fg-soft);
+  line-height: 1.6;
+}
+.wt-remove-list li { margin-bottom: 4px; }
+.wt-remove-list code {
+  font-family: var(--font-mono);
+  font-size: 0.92em;
+  padding: 1px 5px;
+  background: rgba(0,0,0,0.05);
+  border-radius: 2px;
+  word-break: break-all;
+}
+
+/* The summary stays inline (a small button); the expanded content is
+   absolutely positioned so opening never reflows the row. The pr-meta
+   parent is `position: relative`, anchoring the popover. On mobile we
+   drop position:absolute so the panel falls back to inline expansion —
+   row width is too tight for a popover to look good. */
+.pr-body {
+  flex: 0 0 auto;
+  font-size: 13px;
+  color: var(--fg);
+  min-width: 0;
+}
+
+.pr-body > summary {
+  font-family: var(--font-sans);
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--fg-muted);
+  cursor: pointer;
+  list-style: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  user-select: none;
+  padding: 2px 0;
+}
+.pr-body > summary::-webkit-details-marker { display: none; }
+.pr-body > summary::after {
+  content: "▸";
+  font-size: 9px;
+  transition: transform .15s var(--ease);
+}
+.pr-body[open] > summary::after { transform: rotate(90deg); }
+.pr-body > summary:hover { color: var(--ink); }
+
+.pr-body-content {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  margin-top: 6px;
+  z-index: 5;
+  padding: 10px 12px;
+  background: var(--bg-deep);
+  border: 1px solid var(--hairline-strong);
+  border-radius: 2px;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.06);
+  max-height: 50vh;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  line-height: 1.55;
+  font-size: 13px;
+}
+.pr-body-content code {
+  font-family: var(--font-mono);
+  font-size: 0.92em;
+  padding: 1px 5px;
+  background: rgba(0,0,0,0.05);
+  border-radius: 2px;
+}
+.pr-body-content pre.code-block {
+  white-space: pre;
+  overflow-x: auto;
+  margin: 8px 0;
+  padding: 10px 12px;
+  background: rgba(0,0,0,0.08);
+  font-size: 12px;
+}
+.pr-body-content pre.code-block code {
+  padding: 0;
+  background: transparent;
+}
+
+.board {
+  display: flex;
+  overflow-x: auto;
+  scroll-snap-type: x mandatory;
+  -webkit-overflow-scrolling: touch;
+  border-top: 1px solid var(--hairline-strong);
+  border-bottom: 1px solid var(--hairline);
+  background:
+    repeating-linear-gradient(to right,
+      transparent 0, transparent calc(20% - 1px),
+      var(--hairline) calc(20% - 1px), var(--hairline) 20%);
+}
+.board::-webkit-scrollbar { height: 6px; }
+.board::-webkit-scrollbar-thumb { background: var(--hairline-strong); border-radius: 0; }
+
+.column {
+  flex: 1 1 0;
+  min-width: 232px;
+  scroll-snap-align: start;
+  padding: 0 18px 24px;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  background: transparent;
+}
+@media (max-width: 1180px) {
+  .board { background: none; }
+  .column { flex: 0 0 min(320px, 85vw); border-right: 1px solid var(--hairline); }
+  .column:last-child { border-right: none; }
+}
+
+.column::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 2px;
+  background: var(--lane-color, var(--fg-muted));
+}
+.column[data-lane="unstarted"] { --lane-color: var(--lane-unstarted); }
+.column[data-lane="explain"]   { --lane-color: var(--lane-explain); }
+.column[data-lane="working"]   { --lane-color: var(--lane-working); }
+.column[data-lane="review"]    { --lane-color: var(--lane-review); }
+.column[data-lane="done"]      { --lane-color: var(--lane-done); }
+
+.column-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 22px 0 18px;
+  margin-bottom: 10px;
+  border-bottom: 1px solid var(--hairline);
+}
+.column-name {
+  font-family: var(--font-sans);
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
+  color: var(--fg-soft);
+  line-height: 1;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 8px;
+}
+.column-glyph {
+  font-family: var(--font-display);
+  font-size: 16px;
+  line-height: 1;
+  color: var(--lane-color);
+  letter-spacing: 0;
+  text-transform: none;
+  font-weight: 400;
+  vertical-align: -0.05em;
+}
+.column-reaction {
+  font-size: 13px;
+  line-height: 1;
+  letter-spacing: 0;
+  text-transform: none;
+  opacity: 0.75;
+  margin-left: 2px;
+  vertical-align: -0.1em;
+  /* Nudge color emoji to feel cohesive with the paper palette */
+  filter: saturate(0.85);
+}
+.column-count {
+  font-family: var(--font-display);
+  font-weight: 300;
+  font-size: 36px;
+  font-variation-settings: "opsz" 144, "SOFT" 40;
+  font-variant-numeric: tabular-nums lining-nums;
+  color: var(--lane-color);
+  line-height: 1;
+  letter-spacing: -0.04em;
+}
+
+.column-body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+.column-empty {
+  font-family: var(--font-display);
+  font-style: normal;
+  font-size: 12px;
+  color: var(--fg-muted);
+  padding: 18px 0;
+  text-align: center;
+  opacity: .55;
+  font-variation-settings: "opsz" 12;
+}
+
+/* ——————————————————— Card ——————————————————— */
+.card {
+  padding: 16px 0 18px;
+  border-bottom: 1px dashed var(--hairline);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  position: relative;
+  animation: card-in .32s var(--ease-out) backwards;
+}
+.card:nth-child(1) { animation-delay: 0ms; }
+.card:nth-child(2) { animation-delay: 50ms; }
+.card:nth-child(3) { animation-delay: 100ms; }
+.card:nth-child(4) { animation-delay: 150ms; }
+.card:nth-child(5) { animation-delay: 200ms; }
+.card:nth-child(6) { animation-delay: 250ms; }
+.card:nth-child(7) { animation-delay: 300ms; }
+.card:nth-child(n+8) { animation-delay: 350ms; }
+.card:last-child { border-bottom: none; }
+.card:hover {
+  background: color-mix(in srgb, var(--card) 55%, transparent);
+  margin: 0 -10px;
+  padding-left: 10px;
+  padding-right: 10px;
+}
+
+.card-head {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--fg-muted);
+}
+.card-dot {
+  width: 6px; height: 6px;
+  flex-shrink: 0;
+  transform: rotate(45deg);
+}
+.card-dot.active {
+  background: var(--lane-done);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--lane-done) 20%, transparent);
+}
+.card-dot.idle { background: var(--fg-muted); }
+.card-dot.none { background: transparent; border: 1px solid var(--hairline-strong); }
+
+.card-file {
+  flex: 1;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0;
+  color: var(--fg-muted);
+  text-decoration: none;
+  border-bottom: 1px solid transparent;
+  transition: color .15s var(--ease), border-color .15s var(--ease);
+  padding-bottom: 1px;
+}
+a.card-file:hover {
+  color: var(--ink);
+  border-bottom-color: var(--hairline-strong);
+  text-decoration: none;
+}
+.card-file-mark {
+  margin-left: 4px;
+  opacity: 0.5;
+  color: var(--fg-muted);
+  transition: opacity .15s var(--ease), color .15s var(--ease);
+}
+a.card-file:hover .card-file-mark {
+  opacity: 1;
+  color: var(--accent);
+}
+.card-body {
+  font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: 1.55;
+}
+.card-author {
+  font-weight: 600;
+  color: var(--ink);
+  font-size: 13px;
+}
+.card-preview {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  width: 100%;
+  margin-top: 4px;
+  padding: 0;
+  text-align: left;
+  font: inherit;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--fg-soft);
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  cursor: pointer;
+  transition: color .15s var(--ease);
+}
+.card-preview:hover:not(:disabled) {
+  color: var(--ink);
+  background: transparent;
+  border-color: transparent;
+}
+.card-preview code {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  background: var(--bg-deep);
+  color: var(--ink);
+  padding: 1px 4px;
+  border-radius: 2px;
+}
+
+.card-count {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--fg-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+}
+
+/* .card-tmux removed: session launch moved to the PR-level worktree pill
+   (one session per branch, so the affordance belongs once on the page
+   instead of once per card). */
+
+/* ——————————————————— Lane picker ——————————————————— */
+.card-pickers {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  margin-top: 10px;
+  position: relative;
+}
+.picker-primary { flex: 0 1 auto; }
+.picker-overflow {
+  padding: 6px 8px;
+  min-width: 30px;
+  justify-content: center;
+  color: var(--fg-muted);
+  letter-spacing: 0;
+  font-size: 14px;
+  line-height: 1;
+}
+.picker-overflow:hover:not(:disabled) {
+  color: var(--ink);
+  border-color: var(--hairline-strong);
+  background: var(--bg-deep);
+}
+
+.picker-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  min-width: 140px;
+  padding: 4px;
+  background: var(--card);
+  border: 1px solid var(--hairline-strong);
+  border-radius: 2px;
+  box-shadow: 0 12px 32px -8px color-mix(in srgb, var(--ink) 30%, transparent);
+  animation: slide-up .15s var(--ease-out);
+}
+.picker-menu[hidden] { display: none; }
+.picker-menu-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 8px 12px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 2px;
+  cursor: pointer;
+  color: var(--fg);
+  font-family: var(--font-sans);
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  line-height: 1;
+  transition: border-color .15s var(--ease), background .15s var(--ease),
+              color .15s var(--ease);
+}
+
+.picker-btn {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 6px 10px;
+  background: var(--card);
+  border: 1px solid var(--hairline);
+  border-radius: 2px;
+  cursor: pointer;
+  color: var(--fg);
+  font-family: var(--font-sans);
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  line-height: 1;
+  transition: border-color .15s var(--ease), background .15s var(--ease),
+              color .15s var(--ease), transform .12s var(--ease);
+}
+.picker-btn:hover:not(:disabled) { border-color: var(--ink); background: var(--bg-deep); }
+.picker-btn:active:not(:disabled) { transform: scale(0.96); }
+.picker-btn:disabled { opacity: .35; cursor: not-allowed; }
+
+/* Lane-colored hover tints — each next-lane button carries its own identity */
+.lane-btn[data-target-lane="explain"]:hover:not(:disabled) {
+  border-color: var(--lane-explain);
+  color: var(--lane-explain);
+  background: color-mix(in srgb, var(--lane-explain) 9%, var(--card));
+}
+.lane-btn[data-target-lane="working"]:hover:not(:disabled) {
+  border-color: var(--lane-working);
+  color: var(--lane-working);
+  background: color-mix(in srgb, var(--lane-working) 9%, var(--card));
+}
+.lane-btn[data-target-lane="review"]:hover:not(:disabled) {
+  border-color: var(--lane-review);
+  color: var(--lane-review);
+  background: color-mix(in srgb, var(--lane-review) 9%, var(--card));
+}
+.lane-btn[data-target-lane="done"]:hover:not(:disabled) {
+  border-color: var(--lane-done);
+  color: var(--lane-done);
+  background: color-mix(in srgb, var(--lane-done) 9%, var(--card));
+}
+
+.thread-list {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  margin-top: 4px;
+}
+.msg {
+  padding-left: 12px;
+  border-left: 2px solid var(--hairline);
+}
+.msg:hover { border-left-color: var(--hairline-strong); }
+/* Optional flex wrapper around .msg-who + .msg-when. Old markup (without
+   .msg-head) still works because nothing here depends on the wrapper —
+   the named children carry their own typography. */
+.msg-head { display: flex; align-items: baseline; gap: 0; }
+.msg-who { font-family: var(--font-sans); font-weight: 600; font-size: 13px; color: var(--ink); }
+.msg-when {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--fg-muted);
+  margin-left: 8px;
+  letter-spacing: 0.02em;
+}
+/* Per-comment `×` in the thread modal. Same idiom as .diff-thread-remove
+   so the affordance reads identically across the two surfaces. */
+.msg-remove {
+  margin-left: auto;
+  padding: 0;
+  width: 18px; height: 18px;
+  background: transparent;
+  border: 0;
+  color: var(--fg-muted);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: 1;
+  letter-spacing: 0;
+  text-transform: none;
+  cursor: pointer;
+  border-radius: 3px;
+  opacity: 0.55;
+  transition: opacity .15s var(--ease), color .15s var(--ease), background .15s var(--ease);
+}
+.msg:hover .msg-remove { opacity: 1; }
+.msg-remove:hover {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+.msg-remove:disabled { opacity: 0.3; cursor: not-allowed; }
+.msg-body {
+  font-size: 14px;
+  color: var(--fg);
+  line-height: 1.6;
+  margin-top: 4px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.msg-body code {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  background: var(--bg-deep);
+  padding: 1px 5px;
+  color: var(--accent);
+  border-radius: 2px;
+}
+.code-block {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.55;
+  background: var(--bg-deep);
+  color: var(--fg);
+  padding: 10px 12px;
+  border: 1px solid var(--hairline);
+  border-radius: 2px;
+  margin: 8px 0;
+  overflow-x: auto;
+  white-space: pre;
+  word-break: normal;
+}
+.code-block[data-lang]::before {
+  content: attr(data-lang);
+  display: block;
+  font-family: var(--font-sans);
+  font-size: 9px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  color: var(--fg-muted);
+  margin-bottom: 6px;
+  padding-bottom: 5px;
+  border-bottom: 1px solid var(--hairline);
+}
+.msg-body .code-block code,
+.code-block code {
+  font: inherit;
+  background: transparent;
+  color: inherit;
+  padding: 0;
+  border-radius: 0;
+}
+
+/* ——————————————————— Modal ——————————————————— */
+.modal-backdrop {
+  position: fixed; inset: 0;
+  background: color-mix(in srgb, var(--ink) 45%, transparent);
+  backdrop-filter: blur(6px);
+  display: flex;
+  align-items: flex-end; justify-content: center;
+  z-index: 50;
+  animation: fade-in .15s var(--ease);
+}
+@media (min-width: 600px) { .modal-backdrop { align-items: center; } }
+
+.modal {
+  background: var(--card);
+  border: 1px solid var(--hairline-strong);
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+  width: 100%;
+  max-width: 600px;
+  max-height: 90vh;
+  overflow-y: auto;
+  padding: 24px 24px 20px;
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--ink) 4%, transparent),
+    0 20px 40px -16px color-mix(in srgb, var(--ink) 30%, transparent);
+  animation: slide-up .22s var(--ease-out);
+  position: relative;
+}
+@media (min-width: 600px) { .modal { border-radius: var(--radius-lg); } }
+
+.modal h2 {
+  font-family: var(--font-sans);
+  font-weight: 600;
+  font-size: 17px;
+  letter-spacing: -0.01em;
+  margin: 0 0 4px;
+  padding-right: 32px;
+  color: var(--ink);
+  line-height: 1.3;
+}
+
+.modal-close {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 2px;
+  font-family: var(--font-sans);
+  font-size: 22px;
+  font-weight: 300;
+  line-height: 1;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--fg-muted);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: color .15s var(--ease), border-color .15s var(--ease),
+              background .15s var(--ease);
+}
+.modal-close:hover:not(:disabled) {
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 35%, transparent);
+  background: color-mix(in srgb, var(--accent) 7%, transparent);
+}
+.modal .sub {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--fg-soft);
+  margin: 0 0 20px;
+  padding-bottom: 18px;
+  border-bottom: 1px solid var(--hairline);
+  word-break: break-all;
+}
+.modal .sub a {
+  color: inherit;
+  text-decoration: none;
+  border-bottom: 1px solid transparent;
+  padding-bottom: 1px;
+  transition: color .15s var(--ease), border-color .15s var(--ease);
+}
+.modal .sub a:hover {
+  color: var(--ink);
+  border-bottom-color: var(--hairline-strong);
+}
+.sub-mark {
+  margin-left: 4px;
+  opacity: 0.5;
+  color: var(--fg-muted);
+  transition: opacity .15s var(--ease), color .15s var(--ease);
+}
+.modal .sub a:hover .sub-mark {
+  opacity: 1;
+  color: var(--accent);
+}
+.modal label.block {
+  display: block;
+  font-family: var(--font-sans);
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  color: var(--fg-soft);
+  margin: 18px 0 6px;
+}
+
+.prompt-count {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 400;
+  letter-spacing: 0.02em;
+  text-transform: none;
+  color: var(--fg-muted);
+  margin-left: 8px;
+}
+
+/* Copy-prompt affordance, sibling to the token counter inside the
+   "Prompt" label. Same monospace voice as the counter; bordered so it
+   reads as actionable without competing with the primary footer button. */
+.prompt-copy {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 400;
+  letter-spacing: 0.04em;
+  text-transform: lowercase;
+  color: var(--fg-muted);
+  background: transparent;
+  border: 1px solid var(--hairline);
+  border-radius: 999px;
+  padding: 1px 9px;
+  margin-left: 8px;
+  cursor: pointer;
+  transition: color .15s var(--ease), border-color .15s var(--ease);
+}
+.prompt-copy:hover {
+  color: var(--ink);
+  border-color: var(--hairline-strong);
+}
+
+.radios {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+.radios label {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 11px 14px;
+  border: 1px solid var(--hairline-strong);
+  border-radius: 2px;
+  cursor: pointer;
+  font-family: var(--font-sans);
+  font-size: 13px;
+  font-weight: 500;
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--fg);
+  background: var(--card);
+  transition: border-color .15s var(--ease), background .15s var(--ease),
+              color .15s var(--ease);
+  margin: 0;
+}
+.radios input {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 14px; height: 14px;
+  border: 1.5px solid var(--hairline-strong);
+  border-radius: 50%;
+  margin: 0;
+  cursor: pointer;
+  position: relative;
+  transition: all .15s var(--ease);
+}
+.radios input:checked {
+  border-color: var(--accent);
+  background: radial-gradient(circle, var(--accent) 0 40%, transparent 41%);
+}
+.radios label:has(input:checked) {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 6%, var(--card));
+}
+
+/* ——— Editable prompt blocks (stacked, each removable) ———
+   No inner scroll — the parent .modal already has `max-height: 90vh;
+   overflow-y: auto`, so it's the single scroll surface. A previous nested
+   scroll container caused two bad mobile behaviors: (a) iOS users couldn't
+   reliably scroll past the trapped inner area to reach lower blocks, and
+   (b) flex-shrink compressed the last blocks to near-zero height because
+   `display: -webkit-box; line-clamp` clips text visually but doesn't bound
+   the layout box, so the inner container saw ~1600px of "content" and
+   squeezed each block proportionally to fit 400px. Removing the inner
+   scroll means each block keeps its natural (clamped) size and the modal
+   scrolls if total exceeds 90vh. */
+.preview-blocks {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 2px;
+}
+.preview-block {
+  flex-shrink: 0;
+  border: 1px solid var(--hairline);
+  border-radius: 2px;
+  background: var(--card);
+  overflow: hidden;
+  transition: border-color .15s var(--ease);
+}
+.preview-block-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 5px 6px 4px 10px;
+  background: var(--bg-deep);
+  border-bottom: 1px solid var(--hairline);
+}
+.preview-block-label {
+  font-family: var(--font-sans);
+  font-size: 9px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  color: var(--fg-soft);
+}
+.preview-block-remove {
+  background: transparent;
+  border: none;
+  padding: 0 8px;
+  min-width: 0;
+  cursor: pointer;
+  line-height: 1;
+  color: var(--fg-muted);
+  border-radius: 2px;
+  letter-spacing: 0;
+  text-transform: none;
+  font-weight: 400;
+  font-size: 16px;
+  transition: color .15s var(--ease), background .15s var(--ease);
+}
+.preview-block-remove:hover:not(:disabled) {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  border-color: transparent;
+}
+
+/* ——————————————————— Section editor (fullscreen) ———————————————————
+   Tapping the ⛶ expand button on any prompt block opens this — a
+   viewport-filling textarea modal. iOS WebKit's textarea-in-constrained-
+   container bugs (last-line clip, scroll quirks, auto-zoom on tap)
+   simply don't manifest when the textarea fills the screen with no
+   nested scroll containers. On desktop we narrow it to a comfortable
+   max-width so it doesn't feel oversized. */
+.section-editor-backdrop {
+  z-index: 70;
+  padding: 0;
+  align-items: stretch;
+  justify-content: stretch;
+}
+.section-editor-modal {
+  width: 100%;
+  max-width: none;
+  height: 100dvh;
+  max-height: 100dvh;
+  margin: 0;
+  padding: 0;
+  border-radius: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--bg);
+}
+.section-editor-head {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--hairline-strong);
+  background: var(--bg);
+}
+.section-editor-label {
+  font-family: var(--font-sans);
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  color: var(--fg-soft);
+}
+.section-editor-done { margin: 0; }
+.section-editor-content {
+  flex: 1 1 auto;
+  width: 100%;
+  padding: 16px;
+  font-family: var(--font-mono);
+  font-size: 16px;       /* anti-iOS-zoom — must be >= 16px on touch */
+  line-height: 1.55;
+  color: var(--fg);
+  background: var(--bg);
+  border: none;
+  outline: none;
+  resize: none;
+  -webkit-appearance: none;
+  appearance: none;
+  box-sizing: border-box;
+}
+@media (min-width: 600px) {
+  .section-editor-backdrop {
+    align-items: center;
+    justify-content: center;
+    padding: 5vh 24px;
+  }
+  .section-editor-modal {
+    max-width: 820px;
+    height: 90vh;
+    max-height: 90vh;
+    border-radius: 4px;
+  }
+  .section-editor-content { font-size: 13px; }
+}
+/* Per-section scroll on the wrapper (a `<div>`), with the textarea
+   auto-sizing to its content via `field-sizing: content`. This gives
+   each block its own scroll surface — touching inside a block scrolls
+   that block, not the whole modal — while sidestepping iOS WebKit's
+   textarea-internal-scroll bug (where the last line is unreachable
+   because the renderer reserves a strip at the bottom for caret/
+   selection-handle UI). Div scroll on iOS works correctly; textarea
+   scroll doesn't. The textarea grows with content, the wrapper caps
+   the visible region at max-height and scrolls when content exceeds.
+
+   Bottom buffer is a real DOM sibling (.preview-block-input-tail)
+   below the textarea, NOT padding inside the textarea. iOS WebKit
+   doesn't reliably count a field-sized textarea's own padding-bottom
+   toward the parent's scrollHeight, so any padding buffer there gets
+   stripped and the natural max-scroll lands above the last text line.
+   A real child element with explicit height *cannot* be missed by
+   the overflow calculation.
+
+   `overscroll-behavior-y: contain` keeps the rubber-band inside this
+   container so it doesn't leak up to .preview-blocks / .modal scroll. */
+/* Click-to-edit display button: shows the block's value clamped to a few
+   lines; clicking opens the fullscreen section editor. Replaces the
+   inline textarea — no native input affordance, no auto-resize, no iOS
+   tap-to-zoom edge cases. The actual canonical value lives in
+   `data-content` on the button; the visible text is purely for display. */
+.preview-block-content {
+  display: -webkit-box;
+  -webkit-line-clamp: 6;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  width: 100%;
+  padding: 10px 12px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.55;
+  text-align: left;
+  text-transform: none;
+  letter-spacing: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  background: transparent;
+  color: var(--fg);
+  border: 0;
+  border-radius: 0;
+  cursor: pointer;
+  transition: background .15s var(--ease), color .15s var(--ease);
+  /* line-clamp clips text visually but doesn't bound the layout height —
+     in `display: -webkit-box` the box still sizes to the full content.
+     Cap layout height at 6 lines * 1.55 line-height + ~20px padding so
+     parent flex layouts can't see a phantom-tall block. min-height keeps
+     empty (placeholder-only) blocks a comfortable tap target. */
+  max-height: calc(6 * 1.55em + 20px);
+  min-height: 56px;
+  box-sizing: border-box;
+}
+.preview-block-content:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--accent) 4%, transparent);
+  color: var(--ink);
+}
+.preview-block-content.is-empty {
+  font-style: normal;
+  color: var(--fg-muted);
+}
+@media (pointer: coarse) {
+  .preview-block-content { font-size: 13px; }
+}
+
+.modal-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 24px;
+  padding-top: 18px;
+  border-top: 1px solid var(--hairline);
+  flex-wrap: wrap;
+}
+.modal-actions button:first-child { margin-right: auto; }
+
+/* ——————————————————— Toast ——————————————————— */
+.toast {
+  position: fixed;
+  bottom: 28px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--ink);
+  color: var(--bg);
+  padding: 10px 18px 9px;
+  border-radius: 2px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  z-index: 100;
+  animation: toast-in .25s var(--ease-out), toast-out .25s 2.2s forwards var(--ease);
+  max-width: 85vw;
+  box-shadow: 0 12px 36px -8px color-mix(in srgb, var(--ink) 40%, transparent);
+}
+
+/* ——— Animations ——— */
+@keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes slide-up {
+  from { opacity: 0; transform: translateY(16px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes card-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes toast-in {
+  from { opacity: 0; transform: translate(-50%, 12px); }
+  to   { opacity: 1; transform: translate(-50%, 0); }
+}
+@keyframes toast-out {
+  to { opacity: 0; transform: translate(-50%, 12px); }
+}
+
+.modal-lane {
+  font-family: var(--font-display);
+  color: var(--accent);
+  font-variation-settings: "opsz" 96, "SOFT" 40;
+}
+
+/* ——————————————————— Worktree choice cards ——————————————————— */
+.wt-body { min-height: 120px; margin: 14px 0 6px; }
+.wt-choices {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.wt-status {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 18px 0 6px;
+  min-height: 80px;
+  font-family: var(--font-sans);
+  font-size: 13px;
+  color: var(--fg-soft);
+  line-height: 1.5;
+}
+.wt-status-text {
+  flex: 1;
+  word-break: break-word;
+}
+.wt-status-error {
+  color: var(--ink);
+  align-items: flex-start;
+}
+.wt-status-error .wt-status-text {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  padding: 10px 12px;
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+  border-left: 2px solid var(--accent);
+  max-height: 240px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+}
+.wt-status-icon {
+  width: 22px;
+  height: 22px;
+  flex: 0 0 22px;
+  margin-top: 10px;
+  border-radius: 50%;
+  background: var(--accent);
+  color: #fff;
+  font-family: var(--font-sans);
+  font-weight: 600;
+  font-size: 14px;
+  line-height: 22px;
+  text-align: center;
+}
+
+.wt-spinner {
+  width: 22px;
+  height: 22px;
+  flex: 0 0 22px;
+  border: 2px solid var(--hairline-strong);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: wt-spin 0.9s linear infinite;
+}
+@keyframes wt-spin {
+  to { transform: rotate(360deg); }
+}
+.wt-choice {
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  padding: 12px 14px;
+  background: var(--bg-deep);
+  border: 1px solid var(--hairline);
+  border-left: 3px solid var(--hairline-strong);
+  border-radius: 2px;
+  /* Opt out of the global button uppercase — these cards read as prose,
+     not action buttons. */
+  text-transform: none;
+  letter-spacing: normal;
+  transition: border-color .15s var(--ease), background .15s var(--ease);
+}
+.wt-choice:hover {
+  border-color: var(--hairline-strong);
+  border-left-color: var(--accent);
+  background: var(--bg);
+}
+.wt-choice-label {
+  font-family: var(--font-sans);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--ink);
+  margin-bottom: 4px;
+}
+.wt-choice-sub {
+  font-family: var(--font-sans);
+  font-size: 12px;
+  color: var(--fg-muted);
+  line-height: 1.5;
+}
+.wt-choice-sub code {
+  font-family: var(--font-mono);
+  font-size: 0.92em;
+  padding: 1px 4px;
+  background: rgba(0,0,0,0.05);
+  border-radius: 2px;
+  word-break: break-all;
+}
+
+.modal-text {
+  font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--fg-soft);
+  margin: 0 0 4px;
+}
+
+.checkbox-group {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.checkbox-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border: 1px solid var(--hairline);
+  border-radius: 2px;
+  background: var(--card);
+  cursor: pointer;
+  transition: border-color .15s var(--ease), background .15s var(--ease);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  color: var(--fg);
+}
+.checkbox-row:hover { border-color: var(--hairline-strong); }
+.checkbox-row input {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 14px; height: 14px;
+  border: 1.5px solid var(--hairline-strong);
+  border-radius: 2px;
+  margin: 0;
+  cursor: pointer;
+  display: inline-grid;
+  place-content: center;
+  transition: all .15s var(--ease);
+}
+.checkbox-row input:checked {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+.checkbox-row input:checked::after {
+  content: '';
+  width: 6px; height: 9px;
+  border: solid var(--bg);
+  border-width: 0 1.5px 1.5px 0;
+  transform: translateY(-1px) rotate(45deg);
+}
+.checkbox-row:has(input:checked) {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 6%, var(--card));
+}
+
+.hint {
+  font-family: var(--font-sans);
+  font-size: 12px;
+  color: var(--fg-muted);
+  margin: 6px 0 0;
+  line-height: 1.5;
+}
+
+/* ——————————————————— Terminal (ghostty-web) modal ———————————————————
+   Always fullscreen: sessions are long-lived and the user is typing into
+   an actual shell, so maximize vertical and horizontal real estate on
+   every viewport. The × button in the header is the only close path. */
+.term-backdrop { align-items: stretch; padding: 0; }
+.term-modal {
+  width: 100%;
+  max-width: none;
+  height: 100dvh;
+  max-height: 100dvh;
+  margin: 0;
+  padding: 0;
+  background: #13151a;
+  border-radius: 0;
+  display: flex; flex-direction: column;
+  overflow: hidden;
+}
+
+.term-head {
+  flex: 0 0 auto;
+  display: flex; align-items: center; gap: 12px;
+  padding: 10px 14px;
+  background: #1b1e24;
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+  color: #e6e6e6;
+}
+.term-title { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.term-title strong {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  letter-spacing: 0.02em;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.term-sub {
+  font-size: 11px;
+  color: rgba(230,230,230,0.55);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.term-status {
+  margin-left: auto;
+  display: flex; align-items: center; gap: 6px;
+  font-size: 11px;
+  color: rgba(230,230,230,0.6);
+}
+.term-dot {
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  background: #666;
+}
+.term-dot[data-status="connecting"] { background: #ffbd2e; animation: term-pulse 1s infinite; }
+.term-dot[data-status="connected"]  { background: #27c93f; }
+.term-dot[data-status="disconnected"] { background: #ff5f56; }
+.term-dot[data-status="error"]        { background: #ff5f56; }
+@keyframes term-pulse { 0%,100% { opacity:1 } 50% { opacity:0.4 } }
+
+.term-close {
+  position: static;
+  color: #e6e6e6;
+  background: transparent;
+}
+.term-close:hover { background: rgba(255,255,255,0.08); }
+
+.term-mount {
+  flex: 1 1 auto;
+  min-height: 0;
+  padding: 10px 12px;
+  background: #13151a;
+  overflow: hidden;
+}
+
+/* ——————————————————— Commits list (board page) ———————————————————
+   Sibling of .pr-body in the meta strip — same <details> visual language
+   so the page reads as one row of related affordances. */
+.pr-commits {
+  flex: 0 0 auto;
+  font-size: 13px;
+  color: var(--fg);
+  min-width: 0;
+}
+
+.pr-commits > summary {
+  font-family: var(--font-sans);
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--fg-muted);
+  cursor: pointer;
+  list-style: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  user-select: none;
+  padding: 2px 0;
+}
+.pr-commits > summary::-webkit-details-marker { display: none; }
+.pr-commits > summary::after {
+  content: "▸";
+  font-size: 9px;
+  transition: transform .15s var(--ease);
+}
+.pr-commits[open] > summary::after { transform: rotate(90deg); }
+.pr-commits > summary:hover { color: var(--ink); }
+.pr-commits-count { letter-spacing: 0.04em; color: var(--fg-muted); }
+
+.pr-commits-list {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  margin-top: 6px;
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-deep);
+  border: 1px solid var(--hairline-strong);
+  border-radius: 2px;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.06);
+  max-height: 50vh;
+  overflow-y: auto;
+}
+.pr-commits-loading,
+.pr-commits-empty,
+.pr-commits-error {
+  padding: 10px 12px;
+  font-family: var(--font-sans);
+  font-size: 12px;
+  color: var(--fg-muted);
+  font-style: normal;
+}
+.pr-commits-error { color: var(--accent); font-style: normal; }
+
+/* Mobile: the absolute-positioned popovers (pr-body-content, pr-commits-list)
+   anchored to the row look cramped on narrow viewports. Fall back to inline
+   expansion — the panel drops into normal flow below the row. Placed AFTER
+   the desktop rules so the cascade picks the mobile values when matched.
+
+   Three things needed for mobile to be readable:
+     1. `[open]` gets `flex: 1 1 100%` so the <details> takes a full row and
+        the parent flex container constrains its width. Without this, long
+        unbroken tokens (URLs in PR descriptions) push the flex item far
+        wider than the viewport.
+     2. `overflow-wrap: anywhere` on the content so URLs wrap rather than
+        overflow horizontally — defensive even when the parent is bounded.
+     3. Visual chrome simplifies to an inline left-border accent. Popover
+        framing (border-all-around + drop shadow) reads as noise inline. */
+@media (max-width: 768px) {
+  .pr-meta-right { width: 100%; justify-content: flex-start; }
+  .pr-body[open],
+  .pr-commits[open] { flex: 1 1 100%; }
+  .pr-body-content,
+  .pr-commits-list {
+    position: static;
+    margin-top: 6px;
+    box-shadow: none;
+    border: 0;
+    border-left: 2px solid var(--hairline-strong);
+    border-radius: 0;
+    max-height: 60vh;
+  }
+  .pr-body-content { overflow-wrap: anywhere; }
+}
+
+.pr-commit {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 10px;
+  align-items: baseline;
+  padding: 8px 12px;
+  background: transparent;
+  border: 0;
+  border-bottom: 1px dashed var(--hairline);
+  cursor: pointer;
+  text-align: left;
+  text-transform: none;
+  letter-spacing: 0;
+  font: inherit;
+  color: inherit;
+  border-radius: 0;
+  transition: background .15s var(--ease), color .15s var(--ease);
+}
+.pr-commit:last-child { border-bottom: 0; }
+.pr-commit:hover { background: var(--card); color: var(--ink); }
+.pr-commit-sha {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--accent);
+  letter-spacing: 0;
+  flex: 0 0 auto;
+}
+.pr-commit-headline {
+  font-family: var(--font-sans);
+  font-size: 13px;
+  color: var(--fg);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+.pr-commit-meta {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--fg-muted);
+  letter-spacing: 0;
+  white-space: nowrap;
+}
+
+/* "Local changes" row — same shape as .pr-commit, but italic + a slightly
+   thicker top border to visually separate it from real commits. The "local"
+   pseudo-sha reads as a label, not a hash, so it's italic and lane-explain
+   coloured (the same yellow/gold the Plan lane uses) — keeps the editorial
+   palette without inventing a new accent. */
+.pr-commit-local {
+  border-top: 1px solid var(--hairline);
+}
+.pr-commit-local .pr-commit-sha {
+  color: var(--lane-explain);
+  font-style: normal;
+}
+.pr-commit-local .pr-commit-headline,
+.pr-commit-local .pr-commit-meta {
+  font-style: normal;
+}
+
+/* ——————————————————— Diff modal ————————————————————————————————————
+   Full-viewport overlay (like the terminal modal). The header shows
+   prev/next nav + commit metadata + view toggle + close. The body is
+   a vertically-stacked list of file sections, each a monospace table
+   in either split (4 cols) or inline (still 4 cols, text colspan=2). */
+.diff-backdrop {
+  align-items: stretch;
+  padding: 0;
+  z-index: 60;       /* above the regular modal stack so opening a diff over a move modal works */
+}
+.diff-modal {
+  width: 100%;
+  max-width: none;
+  height: 100dvh;
+  max-height: 100dvh;
+  margin: 0;
+  padding: 0;
+  background: var(--bg);
+  border-radius: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.diff-head {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 12px 16px;
+  background: var(--bg);
+  border-bottom: 1px solid var(--hairline-strong);
+}
+.diff-head-left {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.diff-nav {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 4px;
+  border: 1px solid var(--hairline);
+  border-radius: 999px;
+  background: var(--bg-deep);
+  flex: 0 0 auto;
+}
+.diff-nav-btn {
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--fg-soft);
+  font-family: var(--font-sans);
+  font-size: 18px;
+  font-weight: 400;
+  line-height: 1;
+  letter-spacing: 0;
+  text-transform: none;
+  cursor: pointer;
+  border-radius: 50%;
+  transition: background .15s var(--ease), color .15s var(--ease);
+}
+.diff-nav-btn:hover:not(:disabled) {
+  color: var(--ink);
+  background: var(--card);
+}
+.diff-nav-btn:disabled { opacity: 0.3; cursor: not-allowed; }
+.diff-position {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--fg-muted);
+  letter-spacing: 0.02em;
+  padding: 0 4px;
+  white-space: nowrap;
+}
+
+.diff-meta-block { min-width: 0; flex: 1 1 auto; }
+.diff-meta-line {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.diff-sha {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--accent);
+  cursor: pointer;
+  letter-spacing: 0;
+  flex: 0 0 auto;
+  border-bottom: 1px solid transparent;
+  padding-bottom: 1px;
+  transition: border-color .15s var(--ease);
+}
+.diff-sha:hover { border-bottom-color: var(--accent); }
+.diff-headline {
+  font-family: var(--font-display);
+  font-size: 16px;
+  font-weight: 400;
+  font-variation-settings: "opsz" 36, "SOFT" 30;
+  color: var(--ink);
+  letter-spacing: -0.005em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+.diff-meta-sub {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--fg-muted);
+  letter-spacing: 0.02em;
+  margin-top: 2px;
+}
+.diff-meta-sep { opacity: 0.5; }
+
+.diff-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 0 0 auto;
+}
+.diff-view-toggle {
+  display: inline-flex;
+  border: 1px solid var(--hairline-strong);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  background: var(--card);
+}
+.diff-view-toggle button {
+  padding: 6px 12px;
+  border: 0;
+  background: transparent;
+  color: var(--fg-soft);
+  font-family: var(--font-sans);
+  font-size: 12px;
+  font-weight: 500;
+  text-transform: none;
+  letter-spacing: 0;
+  cursor: pointer;
+  transition: background .15s var(--ease), color .15s var(--ease);
+}
+.diff-view-toggle button:hover:not(.active) {
+  color: var(--ink);
+  background: var(--bg-deep);
+}
+.diff-view-toggle button.active {
+  background: var(--accent);
+  color: #ffffff;
+}
+
+/* Sibling of the Split/Inline toggle but NOT in the toggle group: same
+   height/font/uppercase typography so it sits comfortably alongside, but
+   its own border + radius so it reads as a standalone action rather than
+   another tab in the group. */
+.diff-copy-prompt {
+  padding: 6px 12px;
+  border: 1px solid var(--hairline-strong);
+  border-radius: var(--radius-sm);
+  background: var(--card);
+  color: var(--fg);
+  font-family: var(--font-sans);
+  font-size: 12px;
+  font-weight: 500;
+  text-transform: none;
+  letter-spacing: 0;
+  cursor: pointer;
+  transition: background .15s var(--ease), color .15s var(--ease), border-color .15s var(--ease);
+}
+.diff-copy-prompt:hover {
+  background: var(--bg-deep);
+  color: var(--ink);
+  border-color: var(--accent);
+}
+
+/* The copy-local-prompt modal is launched from inside the diff modal
+   (z-index 60), so it needs to stack above the diff backdrop. The regular
+   modal-backdrop sits at 50, which is correct for "modal opened from a
+   page" — this marker class is the bump for "modal opened from another
+   modal that's already at 60". */
+.copy-prompt-backdrop { z-index: 70; }
+
+.diff-close { position: static; }
+
+.diff-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  padding: 16px;
+  background: var(--bg);
+}
+
+/* Cap the per-row content width so each text column lands at a comfortable
+   ~80-char code-review width on wide displays. Without this, on a 1900px
+   modal the two text cols each stretch to ~750px and short code lines
+   leave a wasteful gap mid-row. The cap turns the modal into a centered
+   editorial spread with bg gutters on the outside — fits taiou's aesthetic. */
+.diff-body > * {
+  max-width: 1400px;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.diff-loading,
+.diff-empty,
+.diff-error {
+  padding: 40px 24px;
+  text-align: center;
+  font-family: var(--font-display);
+  font-style: normal;
+  font-size: 14px;
+  color: var(--fg-muted);
+  font-variation-settings: "opsz" 24;
+}
+.diff-error { color: var(--accent); }
+.diff-warn {
+  padding: 10px 14px;
+  margin-bottom: 14px;
+  font-family: var(--font-sans);
+  font-size: 12px;
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 6%, transparent);
+  border-left: 2px solid var(--accent);
+}
+
+/* —— File section ——
+   Margin-bottom: 0 on every file (not just collapsed). The 18px breathing
+   room created an inter-file gap that broke sticky-header handoff: file1's
+   head un-stuck at the section bottom but file2's head couldn't reach its
+   sticky position until 18px more scroll. Inside that gap the user saw
+   diff content with NO file-head context — "I forgot which file I'm in".
+   With files butting against each other, the handoff is seamless: as
+   file1's head scrolls out (constrained by section.bottom), file2's head
+   IMMEDIATELY arrives at the sticky position. The two adjacent 1px
+   borders provide enough visual separation between sections. */
+.diff-file {
+  margin-bottom: 0;
+  border: 1px solid var(--hairline);
+  border-radius: 2px;
+  background: var(--card);
+  /* No `overflow: hidden` here. Per CSS spec, any non-visible overflow
+     creates a scroll container; CSS sticky's scroll context then walks
+     up only as far as that container — which means `.diff-file-head`
+     would stick relative to its own non-scrolling section, not relative
+     to `.diff-body` (the actual scroller). The visible result: the head
+     "sticks" to the file's top edge and scrolls away with the file
+     instead of magnetizing to the modal's top. The 2px corner clip we
+     lose by removing `overflow: hidden` is imperceptible — children
+     fill the box flush and don't draw into the corner pixels. */
+}
+.diff-file-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  background: var(--bg-deep);
+  border-bottom: 1px solid var(--hairline);
+  position: sticky;
+  top: -16px;                  /* compensate for diff-body padding so the header sticks at the visual top */
+  z-index: 2;
+  cursor: pointer;             /* whole header is the click target for collapse/expand */
+  user-select: none;           /* dragging-to-select on the path bar shouldn't toggle */
+}
+/* When a review banner is sitting at the visual top, file heads stack
+   below it instead of fighting for the same y. Banner is min-height: 40,
+   minus body padding-top (16) → 24px sticky offset for the file head. */
+.diff-body:has(> .diff-review-banner) .diff-file-head {
+  top: 24px;
+}
+.diff-file.is-collapsed .diff-file-head {
+  border-bottom-color: transparent;  /* nothing under the head — drop the divider */
+}
+.diff-file.is-collapsed .diff-file-body {
+  display: none;
+}
+/* Sticky-stuck visual cue. The `.is-stuck` class is toggled by JS via
+   IntersectionObserver watching a sentinel element above each head: when
+   the sentinel scrolls out of view, the head is doing its sticky job and
+   we elevate it visually. CSS alone can't detect this state today (no
+   :stuck pseudo-class), so we do the bookkeeping in script. The
+   elevation is intentionally subtle — a thin drop-shadow + a slightly
+   stronger bg — enough to read as "pinned" without screaming. */
+.diff-file-head.is-stuck {
+  background: color-mix(in srgb, var(--bg-deep) 92%, var(--ink) 8%);
+  box-shadow: 0 2px 4px -1px color-mix(in srgb, var(--ink) 14%, transparent);
+  border-bottom-color: var(--hairline-strong);
+}
+/* The 1px sentinel is invisible — only its position is meaningful for
+   the IntersectionObserver. Sits at the top of each file section above
+   the sticky head's natural position, scrolls out as the head sticks. */
+.diff-file-stuck-sentinel {
+  position: absolute;
+  top: 0;
+  left: 0;
+  height: 1px;
+  width: 100%;
+  pointer-events: none;
+  visibility: hidden;
+}
+.diff-file { position: relative; }   /* sentinel anchors here */
+
+/* Chevron indicator. Glyph comes from CSS so the JS render stays
+   stateless — flip via parent's `.is-collapsed` class. Down-triangle
+   when expanded (matches the "open" reading direction); right-triangle
+   when collapsed (the standard tree/disclosure idiom). */
+.diff-file-toggle {
+  display: inline-block;
+  width: 10px;
+  flex: 0 0 10px;
+  font-size: 9px;
+  line-height: 1;
+  color: var(--fg-muted);
+  text-align: center;
+}
+.diff-file-toggle::before { content: "▾"; }
+.diff-file.is-collapsed .diff-file-toggle::before { content: "▸"; }
+.diff-file-status {
+  display: inline-grid;
+  place-content: center;
+  width: 18px;
+  height: 18px;
+  flex: 0 0 18px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0;
+  text-transform: none;
+  border-radius: 2px;
+  color: #fff;
+  background: var(--fg-muted);
+}
+.diff-file-status[data-status="added"]    { background: var(--lane-done); }
+.diff-file-status[data-status="removed"]  { background: var(--accent); }
+.diff-file-status[data-status="modified"],
+.diff-file-status[data-status="changed"]  { background: var(--lane-review); }
+.diff-file-status[data-status="renamed"]  { background: var(--lane-explain); }
+.diff-file-status[data-status="copied"]   { background: var(--lane-explain); }
+
+.diff-file-path {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--ink);
+  letter-spacing: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+.diff-file-stats {
+  display: inline-flex;
+  gap: 8px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  flex: 0 0 auto;
+}
+.diff-stat-add { color: var(--lane-done); }
+.diff-stat-del { color: var(--accent); }
+
+/* —— Review-batch UI: top banner + per-file controls ——
+   The banner stacks at the top of the diff body and surfaces filter /
+   reviewed-state actions. Two visual modes via .is-filter / .is-summary
+   modifiers — same shape, different accent color. */
+.diff-review-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 14px;
+  margin-bottom: 14px;
+  font-family: var(--font-sans);
+  font-size: 12px;
+  border: 1px solid var(--hairline);
+  border-radius: 2px;
+  background: var(--card);
+  flex-wrap: wrap;
+  /* Sticky at the same offset as file-heads (compensating for body
+     padding-top of 16px) so the banner stays parked at the visual top
+     while the user scrolls through long file lists. min-height locks
+     the visual height so the file-head sticky offset below can target
+     a known number — without it, slight font-metric variance would
+     leave a thin gap or cause overlap. */
+  position: sticky;
+  top: -16px;
+  z-index: 3;
+  min-height: 40px;
+  box-sizing: border-box;
+}
+.diff-review-banner.is-filter {
+  border-left: 3px solid var(--lane-explain);
+  background: color-mix(in srgb, var(--lane-explain) 5%, var(--card));
+}
+.diff-review-banner.is-summary {
+  border-left: 3px solid var(--lane-done);
+  background: color-mix(in srgb, var(--lane-done) 5%, var(--card));
+}
+.diff-review-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--ink);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.diff-review-label code {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--fg-muted);
+  background: var(--bg-deep);
+  padding: 1px 5px;
+  border-radius: 2px;
+}
+.diff-review-meta {
+  color: var(--fg-muted);
+  font-size: 11px;
+  margin-left: 2px;
+}
+.diff-review-actions {
+  display: inline-flex;
+  gap: 6px;
+  flex-shrink: 0;
+}
+.diff-review-actions button {
+  font-size: 11px;
+  padding: 4px 10px;
+}
+
+/* Per-file relate-filter button. Sits at the trailing edge of the file
+   header (after stats), pill-shaped to read as a tag rather than a
+   primary action. The active variant uses the explain-lane blue to
+   visually echo the .is-filter banner above. */
+.diff-relate-btn {
+  font-family: var(--font-sans);
+  font-size: 10px;
+  padding: 2px 8px;
+  border: 1px solid var(--hairline);
+  border-radius: 10px;
+  background: transparent;
+  color: var(--fg-muted);
+  cursor: pointer;
+  flex: 0 0 auto;
+  white-space: nowrap;
+  letter-spacing: 0.02em;
+}
+.diff-relate-btn:hover:not(:disabled) {
+  color: var(--lane-explain);
+  border-color: var(--lane-explain);
+  background: color-mix(in srgb, var(--lane-explain) 6%, transparent);
+}
+.diff-relate-btn.active {
+  color: var(--lane-explain);
+  border-color: var(--lane-explain);
+  background: color-mix(in srgb, var(--lane-explain) 12%, transparent);
+}
+
+/* Reviewed-file mark on the file header — a tiny ✓ that stays visible
+   even when the rest of the header is cramped. */
+.diff-file-reviewed {
+  font-family: var(--font-sans);
+  font-size: 11px;
+  color: var(--lane-done);
+  flex: 0 0 auto;
+  font-weight: 600;
+}
+
+/* Relationship chip on the file header — only rendered while in filter
+   mode on non-anchor files. Two-tone label: muted text carries the
+   relationship verb; colored arrow + anchor basename carries the
+   direction signal at a glance. The arrow's color encodes direction
+   (blue → outbound: this file imports the anchor, green ← inbound:
+   anchor imports this file, orange ↔ both). Whole chip is informational
+   — non-clickable — so the relate button next to it stays the only
+   interactive control on the trailing edge. */
+.diff-rel-chip {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+  font-family: var(--font-sans);
+  font-size: 10px;
+  letter-spacing: 0.02em;
+  color: var(--fg-muted);
+  flex: 0 0 auto;
+  white-space: nowrap;
+  /* Squeeze on narrow viewports — the anchor basename is the first to
+     truncate when room runs out, since the arrow + verb still convey
+     the direction. */
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 320px;
+}
+.diff-rel-arrow {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1;
+}
+.diff-rel-anchor {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--ink);
+  opacity: 0.8;
+}
+.diff-rel-imports     .diff-rel-arrow { color: var(--lane-explain); }
+.diff-rel-imported-by .diff-rel-arrow { color: var(--lane-done); }
+.diff-rel-circular    .diff-rel-arrow { color: var(--lane-working); }
+
+@media (max-width: 768px) {
+  /* On narrow viewports the file head is already cramped (path + stats +
+     reviewed mark + relate button). Drop the verb text and the anchor
+     basename, leaving just the arrow — direction is the load-bearing
+     signal anyway, and the tooltip carries the full context for a tap. */
+  .diff-rel-text,
+  .diff-rel-anchor { display: none; }
+}
+
+/* Reviewed file rendered when "Show reviewed" is on: dim the whole
+   section so the reviewer's eye skips over it. The header stays full
+   contrast so the path is still readable for navigation. */
+.diff-file.is-reviewed .diff-file-body {
+  opacity: 0.45;
+}
+.diff-file.is-reviewed .diff-file-head {
+  background: color-mix(in srgb, var(--lane-done) 4%, var(--bg-deep));
+}
+
+/* The current filter anchor gets a left accent stripe so the user can
+   spot the file the filter is centered on amid its related set. */
+.diff-file.is-filter-anchor {
+  border-left: 3px solid var(--lane-explain);
+}
+
+/* Inline button inside the "All files reviewed" empty state. Reads as a
+   text link so it doesn't compete visually with the actual primary
+   action target (the banner). */
+.diff-empty-action {
+  font-family: var(--font-sans);
+  font-size: 13px;
+  font-style: normal;
+  color: var(--accent);
+  background: none;
+  border: none;
+  padding: 0 4px;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.diff-empty-action:hover { color: var(--ink); }
+
+.diff-file-body { background: var(--card); }
+
+/* —— Diff table (split + inline) ——
+   Both layouts use a 4-col skeleton so the hunk header (colspan=4) lines
+   up regardless of mode. Column widths are declared via <colgroup> — the
+   colspan-4 first row would otherwise leave `table-layout: fixed` with
+   no info to infer per-column widths from. */
+.diff-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 1.5;
+  table-layout: fixed;
+}
+.diff-col-no   { width: 52px; }
+.diff-col-text { width: auto; }    /* text cols share remaining width equally */
+@media (max-width: 768px) {
+  .diff-col-no { width: 38px; }
+}
+
+.diff-row { vertical-align: top; }
+
+.diff-no {
+  padding: 1px 8px 1px 6px;
+  text-align: right;
+  color: var(--fg-muted);
+  background: var(--bg-deep);
+  border-right: 1px solid var(--hairline);
+  user-select: none;
+  font-variant-numeric: tabular-nums;
+  font-size: 11px;
+}
+
+.diff-text {
+  padding: 1px 8px 1px 4px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  color: var(--fg);
+}
+.diff-marker {
+  display: inline-block;
+  width: 1ch;
+  margin-right: 6px;
+  color: var(--fg-muted);
+  user-select: none;
+}
+.diff-line {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* Row-kind tints. Color-mix gives us subtle washes that read in both
+   light and dark schemes without re-declaring per-mode. */
+.diff-add {
+  background: color-mix(in srgb, var(--lane-done) 14%, transparent);
+}
+.diff-add .diff-marker { color: var(--lane-done); font-weight: 600; }
+
+.diff-del {
+  background: color-mix(in srgb, var(--accent) 11%, transparent);
+}
+.diff-del .diff-marker { color: var(--accent); font-weight: 600; }
+
+.diff-context { background: var(--card); }
+.diff-blank   { background: var(--bg-deep); }    /* empty cell in split view (no del/add on this side) */
+
+/* —— Per-line syntax highlighting ——
+   Token classes emitted by public/syntax.js. Mapped to taiou's lane
+   palette so light/dark mode comes free (lane-* vars flip per
+   prefers-color-scheme). The deliberately narrow set of classes —
+   keyword/string/number/comment/literal/builtin/class — is enough
+   to make TS/JS/JSON/YAML/Python/Go/Bash readable without pretending
+   to be a full IDE-grade tokenizer.
+
+   Backgrounds inside add/del rows are tinted (lane-done/accent washes),
+   so we keep token foregrounds vibrant enough to stay legible against
+   those tints. The wash ratios upstream (14%/11%) are tuned for this. */
+.hl-keyword { color: var(--lane-explain); font-weight: 500; }
+.hl-string  { color: var(--lane-done); }
+.hl-number  { color: var(--lane-working); }
+.hl-builtin { color: var(--lane-review); }
+.hl-class   { color: var(--lane-review); font-weight: 500; }
+.hl-literal { color: var(--accent); }
+.hl-comment { color: var(--fg-muted); }
+.hl-regex   { color: var(--lane-done); }
+
+/* —— Cross-file symbol panel ——
+   Slide-in from the right edge of the diff modal when the user double-
+   clicks an identifier in the diff body. Lists every line in the diff
+   that contains that symbol as a whole word, grouped by file. The body
+   gets right-padded so file content shifts left rather than hiding
+   behind the panel. On mobile the panel covers the body entirely. */
+.diff-symbol-panel {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 380px;
+  background: var(--card);
+  border-left: 1px solid var(--hairline);
+  box-shadow: -4px 0 12px color-mix(in srgb, var(--ink) 6%, transparent);
+  z-index: 4;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.diff-symbol-panel[hidden] { display: none; }
+
+/* Body shifts left when panel is open so file content stays visible. */
+.diff-modal.has-symbol-panel .diff-body {
+  padding-right: 396px;             /* 380 panel + 16 inset */
+}
+
+.diff-symbol-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--hairline);
+  background: var(--bg-deep);
+  flex: 0 0 auto;
+}
+.diff-symbol-name {
+  font-family: var(--font-mono);
+  font-size: 14px;
+  color: var(--lane-explain);
+  font-weight: 500;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.diff-symbol-meta {
+  font-family: var(--font-sans);
+  font-size: 11px;
+  color: var(--fg-muted);
+  margin-left: auto;
+  flex-shrink: 0;
+}
+.diff-symbol-close {
+  font-size: 18px;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  color: var(--fg-muted);
+  flex: 0 0 auto;
+}
+.diff-symbol-close:hover { color: var(--ink); }
+
+.diff-symbol-list {
+  flex: 1 1 auto;
+  overflow: auto;
+  background: var(--card);
+}
+.diff-symbol-empty {
+  padding: 32px 14px;
+  text-align: center;
+  color: var(--fg-muted);
+  font-style: normal;
+  font-family: var(--font-display);
+  font-size: 13px;
+}
+
+.diff-symbol-file:not(:last-child) {
+  border-bottom: 1px solid var(--hairline);
+}
+.diff-symbol-file.is-current .diff-symbol-file-head {
+  background: color-mix(in srgb, var(--lane-explain) 6%, var(--bg-deep));
+}
+.diff-symbol-file-head {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 14px;
+  background: var(--bg-deep);
+  border-bottom: 1px solid var(--hairline);
+}
+.diff-symbol-file-path {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--ink);
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+.diff-symbol-file-count {
+  font-family: var(--font-sans);
+  font-size: 11px;
+  color: var(--fg-muted);
+  flex: 0 0 auto;
+}
+.diff-symbol-current-pill {
+  font-family: var(--font-sans);
+  font-size: 9px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--lane-explain);
+  border: 1px solid color-mix(in srgb, var(--lane-explain) 40%, transparent);
+  border-radius: 8px;
+  padding: 0 6px;
+  flex: 0 0 auto;
+}
+
+.diff-symbol-file-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.diff-symbol-match {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 5px 14px 5px 16px;
+  cursor: pointer;
+  border-left: 2px solid transparent;
+  font-family: var(--font-mono);
+}
+.diff-symbol-match:hover,
+.diff-symbol-match:focus-visible {
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+  border-left-color: var(--accent);
+  outline: none;
+}
+.diff-symbol-match-add { background: color-mix(in srgb, var(--lane-done) 4%, transparent); }
+.diff-symbol-match-del { background: color-mix(in srgb, var(--accent) 4%, transparent); }
+.diff-symbol-match-line {
+  font-size: 10px;
+  color: var(--fg-muted);
+  flex: 0 0 auto;
+  width: 48px;
+  display: inline-flex;
+  gap: 2px;
+}
+.diff-symbol-match-mark {
+  font-weight: 600;
+  width: 8px;
+  display: inline-block;
+}
+.diff-symbol-match-add .diff-symbol-match-mark { color: var(--lane-done); }
+.diff-symbol-match-del .diff-symbol-match-mark { color: var(--accent); }
+.diff-symbol-match-text {
+  flex: 1 1 auto;
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+  color: var(--ink);
+}
+
+/* Click-to-jump flash animation. Inset box-shadow tints the cell
+   without overriding its computed background color (add/del/context
+   each have their own bg) — clean fade with no interaction with the
+   structural styles. */
+.diff-text.is-flash {
+  animation: diff-symbol-flash 1.7s ease-out;
+}
+@keyframes diff-symbol-flash {
+  0%   { box-shadow: inset 0 0 0 1000px color-mix(in srgb, var(--lane-explain) 28%, transparent); }
+  60%  { box-shadow: inset 0 0 0 1000px color-mix(in srgb, var(--lane-explain) 18%, transparent); }
+  100% { box-shadow: inset 0 0 0 1000px transparent; }
+}
+
+@media (max-width: 768px) {
+  .diff-symbol-panel { width: 100%; box-shadow: none; border-left: none; }
+  .diff-modal.has-symbol-panel .diff-body { padding-right: 0; }
+  /* Hide the open-in-editor button on mobile — the endpoint runs
+     `open -na Ghostty.app` on the server's desktop, which is unreachable
+     from a phone. Showing the affordance there would just produce
+     invisible side-effects on the wrong machine. The comment + button
+     stays visible because adding inline notes is still useful at any
+     screen size. */
+  .diff-edit-line { display: none !important; }
+}
+
+/* The dedicated empty-state messages inside file bodies (binary, rename
+   without content change). Re-uses .diff-empty class for the outer
+   message but inside .diff-file-body it should look like a small note,
+   not a 40px-padded centered display. */
+.diff-file-body > .diff-empty {
+  background: transparent;
+  padding: 14px 16px;
+  text-align: left;
+  font-style: normal;
+  font-family: var(--font-sans);
+  font-size: 12px;
+  color: var(--fg-muted);
+}
+
+/* Hunk header — runs across all 4 cells. Visually similar to a chapter
+   break in a typeset book: small caps numerals, no underlines. */
+.diff-row-hunk { background: var(--bg-deep); }
+.diff-hunk-head {
+  padding: 4px 12px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--fg-soft);
+  border-top: 1px solid var(--hairline);
+  border-bottom: 1px solid var(--hairline);
+  letter-spacing: 0;
+}
+.diff-hunk-meta { color: var(--accent); margin-right: 8px; }
+
+/* —— Mobile: shrink line-no columns + stack diff actions —— */
+@media (max-width: 768px) {
+  .diff-head {
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 10px 12px;
+  }
+  .diff-head-left { flex: 1 1 100%; }
+  /* `space-between` was leaving the Copy button in the visual middle when
+     the actions row had 3 children (toggle, Copy, Threads). Cluster them
+     instead with a leading gap and flex-end alignment so the action group
+     reads as a coherent strip on the trailing edge. */
+  .diff-actions { flex: 0 0 100%; justify-content: flex-end; gap: 8px; flex-wrap: wrap; }
+  .diff-headline { font-size: 14px; }
+  .diff-body { padding: 10px; }
+  .diff-body > * { max-width: 100%; }                /* let mobile fill the viewport */
+  .diff-no { font-size: 10px; padding: 1px 4px 1px 2px; }
+  .diff-table { font-size: 12px; }
+  .diff-file-head { top: -10px; }
+  /* Mobile: smaller body padding (10), so the banner sticks at -10 and
+     the file-head offset shifts accordingly. */
+  .diff-review-banner { top: -10px; }
+  .diff-body:has(> .diff-review-banner) .diff-file-head { top: 30px; }
+}
+
+/* ——————————————————— Local ("fake") review threads ———————————————————
+   Threads created by inline-commenting a Full-diff line in taiou. They
+   live in .reviews/ on disk and behave like GitHub-sourced cards on the
+   board (lanes, lane history, move modal) but never round-trip to GitHub.
+   Visual differentiation is carried entirely by the `local` pill in the
+   card head + the static (non-link) location chip — no extra border
+   styling, since the pill is signal enough and a left stripe added
+   visual noise without proportional clarity. */
+.card-local-pill {
+  flex: 0 0 auto;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  text-transform: lowercase;
+  color: var(--lane-explain);
+  border: 1px solid color-mix(in srgb, var(--lane-explain) 50%, transparent);
+  padding: 1px 5px;
+  border-radius: 999px;
+  font-style: normal;
+}
+/* Static (non-link) variant of .card-file — same typography, no underline
+   or hover state, default cursor. Used when a thread has no GitHub anchor
+   to navigate to (local threads). */
+.card-file-static {
+  cursor: default;
+}
+
+/* ——————————————————— Full-diff entry row (Commits list) ———————————————————
+   Same row shape as a real commit, but the SHA glyph reads "full" in the
+   accent color (hanko red) so the user immediately spots the synthetic
+   entry that opens the cumulative head←base diff (and supports inline
+   comments). Sits at the top of the commits list. */
+.pr-commit-full .pr-commit-sha {
+  color: var(--accent);
+  text-transform: lowercase;
+  font-style: normal;
+}
+.pr-commit-full {
+  border-bottom: 1px solid var(--hairline);
+}
+
+/* ——————————————————— Diff modal — inline comment affordance ———————————————————
+   Floating `+` button anchored to the hovered diff text cell (Full diff
+   view only). Position is computed in JS via getBoundingClientRect — we
+   deliberately don't render one button per row (would inflate DOM on big
+   diffs). The button stays visible after the cell is left so the cursor
+   can travel to it; scroll and navigation hide it. */
+.diff-add-comment {
+  position: fixed;
+  z-index: 70;
+  width: 22px; height: 22px;
+  padding: 0;
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  background: var(--accent);
+  color: var(--bg);
+  font-family: var(--font-sans);
+  font-size: 16px;
+  line-height: 1;
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 2px 6px color-mix(in srgb, var(--accent) 28%, transparent);
+  transition: transform .12s var(--ease-out), box-shadow .12s var(--ease-out);
+}
+.diff-add-comment:hover {
+  transform: scale(1.08);
+  box-shadow: 0 3px 10px color-mix(in srgb, var(--accent) 35%, transparent);
+}
+.diff-add-comment[hidden] { display: none; }
+
+/* Edit-in-editor button — sibling of the comment + button, paired on
+   hover. Same shape (22x22 round-ish), different color (lane-explain
+   blue) so the two affordances read as distinct actions. Anchored to
+   the right of the diff cell via JS positioning; hidden by default. */
+.diff-edit-line {
+  position: fixed;
+  z-index: 70;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 1px solid var(--lane-explain);
+  border-radius: 6px;
+  background: var(--lane-explain);
+  color: var(--bg);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+  display: inline-grid;
+  place-items: center;
+  box-shadow: 0 2px 6px color-mix(in srgb, var(--lane-explain) 30%, transparent);
+  transition: transform 0.12s ease, box-shadow 0.12s ease;
+}
+.diff-edit-line:hover {
+  transform: scale(1.08);
+  box-shadow: 0 3px 10px color-mix(in srgb, var(--lane-explain) 35%, transparent);
+}
+.diff-edit-line[hidden] { display: none; }
+
+/* Editor row spliced beneath the clicked diff line. Spans all 4 columns
+   so it reads as a separate block, not a continuation of the diff table. */
+.diff-row-editor > .diff-editor-cell {
+  padding: 12px 16px;
+  background: color-mix(in srgb, var(--lane-explain) 7%, var(--card));
+  border-top: 1px solid color-mix(in srgb, var(--lane-explain) 30%, transparent);
+  border-bottom: 1px solid color-mix(in srgb, var(--lane-explain) 30%, transparent);
+}
+.diff-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-width: 720px;
+}
+.diff-editor-anchor {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--fg-muted);
+  letter-spacing: 0;
+}
+.diff-editor-side {
+  color: var(--lane-explain);
+  font-style: normal;
+}
+.diff-editor-input {
+  width: 100%;
+  min-height: 80px;
+  padding: 10px 12px;
+  font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--ink);
+  background: var(--bg);
+  border: 1px solid var(--hairline-strong);
+  border-radius: 4px;
+  resize: vertical;
+}
+.diff-editor-input:focus {
+  outline: none;
+  border-color: var(--lane-explain);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--lane-explain) 18%, transparent);
+}
+.diff-editor-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+/* ——————————————————— Diff modal — inline thread display ———————————————————
+   Read-only display of an existing local thread anchored to a diff line.
+   Rendered post-renderBody by walking store.state.threads. Distinct from
+   the editor row (lighter background, no submit affordance). Comment
+   bodies reuse the modal `.msg-body` typography idiom for consistency. */
+.diff-row-thread > .diff-thread-cell {
+  padding: 8px 16px 12px;
+  background: color-mix(in srgb, var(--lane-explain) 4%, var(--card));
+  border-top: 1px solid color-mix(in srgb, var(--lane-explain) 22%, transparent);
+}
+.diff-thread {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-width: 720px;
+}
+.diff-thread-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--fg-muted);
+  letter-spacing: 0;
+}
+.diff-thread-anchor { letter-spacing: 0; }
+.diff-thread-side { color: var(--lane-explain); font-style: normal; }
+.diff-thread-comments {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.diff-thread-comment {
+  background: var(--bg);
+  border: 1px solid var(--hairline);
+  border-radius: 4px;
+  padding: 8px 10px;
+}
+.diff-thread-meta {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+/* Per-comment `×` — anchored to the right edge of the meta row, muted by
+   default, accent-red on hover. Always shown (not hover-revealed) inside
+   `.diff-thread-comment` so it's discoverable without an exploratory hover. */
+.diff-thread-remove {
+  margin-left: auto;
+  padding: 0;
+  width: 18px; height: 18px;
+  background: transparent;
+  border: 0;
+  color: var(--fg-muted);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 1;
+  letter-spacing: 0;
+  text-transform: none;
+  cursor: pointer;
+  border-radius: 3px;
+  opacity: 0.55;
+  transition: opacity .15s var(--ease), color .15s var(--ease), background .15s var(--ease);
+}
+.diff-thread-comment:hover .diff-thread-remove { opacity: 1; }
+.diff-thread-remove:hover {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+.diff-thread-remove:disabled { opacity: 0.3; cursor: not-allowed; }
+.diff-thread-user {
+  font-family: var(--font-sans);
+  font-weight: 600;
+  font-size: 12px;
+  color: var(--ink);
+}
+.diff-thread-when {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--fg-muted);
+  letter-spacing: 0;
+}
+.diff-thread-body {
+  font-family: var(--font-sans);
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--fg);
+  white-space: pre-wrap;
+}
+.diff-thread-body code {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  background: var(--bg-deep);
+  padding: 1px 4px;
+  border-radius: 2px;
+}
+
+/* ——————————————————— Thread modal — local-thread reply UI ———————————————————
+   Appended to openThreadModal when thread.kind === 'local'. Reuses the
+   same input + actions vocabulary as the diff editor row, scaled for
+   modal context. */
+.thread-reply {
+  margin-top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.thread-reply-input {
+  width: 100%;
+  min-height: 70px;
+  padding: 9px 11px;
+  font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--ink);
+  background: var(--bg);
+  border: 1px solid var(--hairline-strong);
+  border-radius: 4px;
+  resize: vertical;
+}
+.thread-reply-input:focus {
+  outline: none;
+  border-color: var(--lane-explain);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--lane-explain) 18%, transparent);
+}
+.thread-reply-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+/* Respect reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* ———————————————————————————————————————————————————————— */
+/* slop-review additions                                       */
+/* ———————————————————————————————————————————————————————— */
+
+/* Branch card on the repo home page */
+.repo-page .branch-card {
+  margin-top: 24px;
+  padding: 20px 24px;
+  background: var(--card);
+  border: 1px solid var(--hairline);
+  border-radius: 4px;
+}
+.branch-info > div { margin: 4px 0; color: var(--fg-soft); }
+.branch-info code { font-family: var(--font-mono); color: var(--ink); background: var(--bg-deep); padding: 1px 6px; border-radius: 3px; font-size: 12px; }
+.branch-empty {
+  padding: 20px;
+  color: var(--fg-soft);
+  font-style: normal;
+}
+.branch-empty b { color: var(--ink); font-weight: 600; }
+.branch-empty code { font-family: var(--font-mono); background: var(--bg-deep); padding: 2px 6px; border-radius: 3px; font-size: 12px; font-style: normal; }
+.branch-error { padding: 20px; color: var(--accent); }
+.branch-loading { padding: 20px; color: var(--fg-muted); font-style: normal; }
+.branch-warn { color: var(--accent); }
+.branch-note { color: var(--fg-muted); font-size: 12px; margin-top: 8px; font-style: normal; }
+
+.btn {
+  display: inline-block;
+  padding: 8px 16px;
+  border: 1px solid var(--hairline-strong);
+  background: var(--card);
+  color: var(--fg);
+  text-decoration: none;
+  border-radius: 4px;
+  font-family: var(--font-sans);
+  font-size: 13px;
+  transition: border-color .2s var(--ease);
+}
+.btn:hover { border-color: var(--accent); }
+
+/* Threads page */
+.threads-page .threads-meta {
+  margin-top: 16px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--hairline);
+  color: var(--fg-soft);
+}
+.threads-meta code { font-family: var(--font-mono); color: var(--ink); background: var(--bg-deep); padding: 1px 6px; border-radius: 3px; font-size: 12px; }
+
+.threads-counts {
+  display: flex;
+  gap: 16px;
+  align-items: center;
+  flex-wrap: wrap;
+  padding: 16px 0;
+  margin-bottom: 16px;
+  border-bottom: 1px solid var(--hairline);
+}
+.threads-total { color: var(--fg-muted); margin-left: auto; font-size: 12px; }
+
+.state-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 500;
+  border: 1px solid var(--hairline);
+}
+.state-pill.state-your-turn {
+  color: var(--lane-done);
+  border-color: var(--lane-done);
+  background: color-mix(in srgb, var(--lane-done) 10%, transparent);
+}
+.state-pill.state-awaiting {
+  color: var(--lane-explain);
+  border-color: var(--lane-explain);
+  background: color-mix(in srgb, var(--lane-explain) 10%, transparent);
+}
+.state-pill.state-read {
+  color: var(--fg-muted);
+  border-color: var(--hairline);
+}
+
+.thread-file {
+  margin-bottom: 24px;
+}
+.thread-file-head {
+  padding: 8px 12px;
+  background: var(--bg-deep);
+  border: 1px solid var(--hairline);
+  border-radius: 4px 4px 0 0;
+  border-bottom: none;
+}
+.thread-file-head code { font-family: var(--font-mono); font-size: 13px; color: var(--ink); }
+.thread-file-list {
+  border: 1px solid var(--hairline);
+  border-radius: 0 0 4px 4px;
+  background: var(--card);
+}
+.thread-row {
+  display: grid;
+  grid-template-columns: auto auto auto 1fr auto auto;
+  gap: 12px;
+  align-items: center;
+  width: 100%;
+  padding: 10px 14px;
+  border: none;
+  background: none;
+  text-align: left;
+  cursor: pointer;
+  border-bottom: 1px solid var(--hairline);
+  font-family: var(--font-sans);
+  color: var(--fg);
+  transition: background .15s var(--ease);
+}
+.thread-row:last-child { border-bottom: none; }
+.thread-row:hover { background: var(--bg-deep); }
+.thread-row-state { font-size: 14px; }
+.thread-row-anchor {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--fg-muted);
+}
+.thread-row-view {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  padding: 2px 6px;
+  border-radius: 3px;
+  text-transform: uppercase;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+.thread-row-view.view-commit { color: var(--lane-working); background: color-mix(in srgb, var(--lane-working) 12%, transparent); }
+.thread-row-view.view-full   { color: var(--lane-explain); background: color-mix(in srgb, var(--lane-explain) 12%, transparent); }
+.thread-row-view.view-local  { color: var(--lane-review); background: color-mix(in srgb, var(--lane-review) 12%, transparent); }
+.thread-row-preview {
+  font-size: 13px;
+  color: var(--fg-soft);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+.thread-row-replies {
+  font-size: 11px;
+  color: var(--fg-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.thread-row-when { font-size: 11px; color: var(--fg-muted); }
+
+.thread-row.state-your-turn .thread-row-state { animation: pulse-glow 2s ease-in-out infinite; }
+@keyframes pulse-glow {
+  0%, 100% { opacity: 0.6; }
+  50% { opacity: 1; }
+}
+
+/* In-diff thread display: state-aware emphasis on `your turn` rows */
+.diff-thread.state-your-turn {
+  border-left: 3px solid var(--lane-done);
+}
+.diff-thread.state-awaiting {
+  border-left: 3px solid var(--lane-explain);
+}
+.diff-thread.state-read {
+  border-left: 3px solid var(--hairline);
+}
+.diff-thread .state-pill {
+  margin-left: 8px;
+  font-size: 10px;
+  padding: 2px 8px;
+}
+
+/* Override the brand-sub from taiou's CSS (no kanji stamp for slop-review) */
+.brand-sub { display: none !important; }
+
+/* View-pill colors for thread-modal title badge */
+.card-local-pill.view-commit { background: color-mix(in srgb, var(--lane-working) 12%, transparent); border-color: var(--lane-working); color: var(--lane-working); }
+.card-local-pill.view-full   { background: color-mix(in srgb, var(--lane-explain) 12%, transparent); border-color: var(--lane-explain); color: var(--lane-explain); }
+.card-local-pill.view-local  { background: color-mix(in srgb, var(--lane-review) 12%, transparent); border-color: var(--lane-review); color: var(--lane-review); }
+
+.thread-side {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--fg-muted);
+}
+
+.diff-thread-anchor {
+  border: none;
+  background: none;
+  padding: 0;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--ink);
+  cursor: pointer;
+  text-decoration: underline;
+  text-decoration-thickness: 0.5px;
+  text-decoration-color: var(--hairline-strong);
+  text-underline-offset: 2px;
+}
+.diff-thread-anchor:hover { text-decoration-color: var(--accent); }
+
+/* Thread row two-line layout (with code snippet) */
+.thread-row {
+  display: block;
+  padding: 12px 16px;
+}
+.thread-row-top {
+  display: grid;
+  grid-template-columns: auto auto auto 1fr auto;
+  gap: 12px;
+  align-items: center;
+}
+.thread-row-snippet {
+  margin-top: 8px;
+  padding: 7px 10px;
+  background: var(--bg-deep);
+  border: 1px solid var(--hairline);
+  border-left: 2px solid var(--hairline-strong);
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  overflow: hidden;
+}
+.thread-row-code {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--ink);
+  white-space: pre;
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.thread-row-preview {
+  margin-top: 6px;
+  font-size: 13px;
+  color: var(--fg-soft);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ———————————————————————————————————————————————————————— */
+/* slop-review: diff as a regular page, not a modal           */
+/* ———————————————————————————————————————————————————————— */
+
+/* When a diff page is mounted, main shouldn't add its outer padding.
+   `:has()` keeps the carve-out scoped — other pages keep the padding. */
+body:has(.diff-page) main {
+  padding: 0;
+  max-width: none;
+}
+
+.diff-page {
+  position: relative;            /* containing block for the symbol panel */
+  height: calc(100dvh - 56px);   /* fill below the sticky app header */
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+  overflow: hidden;              /* let .diff-body own the scroll */
+}
+
+/* Mirror the .diff-modal.has-symbol-panel rule for the page version. */
+.diff-page.has-symbol-panel .diff-body { padding-right: 396px; }
+@media (max-width: 768px) {
+  .diff-page.has-symbol-panel .diff-body { padding-right: 0; }
+}
+
+/* Diff-header action buttons (Copy / Threads) share one compact style. */
+.diff-actions .diff-back,
+.diff-actions .btn {
+  padding: 6px 12px;
+  border: 1px solid var(--hairline-strong);
+  border-radius: var(--radius-sm);
+  background: var(--card);
+  color: var(--fg);
+  font-family: var(--font-sans);
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+  text-decoration: none;
+  cursor: pointer;
+  transition: background .15s var(--ease), color .15s var(--ease), border-color .15s var(--ease);
+}
+.diff-actions .diff-back:hover,
+.diff-actions .btn:hover {
+  background: var(--bg-deep);
+  color: var(--ink);
+  border-color: var(--accent);
+}
+
+/* ———————————————————————————————————————————————————————— */
+/* slop-review: content-visibility for huge diffs              */
+/* Browsers skip layout/paint for off-screen .diff-file
+   sections entirely. The intrinsic-size hint keeps scroll
+   position stable as files render in. The 800px estimate is
+   an average; real files render at their true height once
+   they enter the rendering window.                            */
+/* ———————————————————————————————————————————————————————— */
+.diff-file {
+  content-visibility: auto;
+  contain-intrinsic-size: 0 800px;
+  /* Layout containment: this file's internal layout cannot
+     affect anything outside the section. Lets the browser
+     skip layout work for files outside the viewport even more
+     aggressively, and shrinks the layout tree that
+     getBoundingClientRect walks for visible cells. */
+  contain: layout style paint;
+}
+
+/* Per-file mark-reviewed toggle button on each .diff-file-head.
+   Sits trailing-edge, peer of the relate button. Two states:
+   - inactive: hairline border, "○ mark"
+   - active:   lane-done green border + bg, "✓ reviewed" */
+/* Per-file mark-reviewed toggle on each .diff-file-head. Compact shape
+   matching the diff-relate-btn so the trailing-edge cluster reads as a
+   coherent action strip. */
+.diff-file-mark {
+  appearance: none;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+  padding: 3px 9px;
+  margin-left: 4px;
+  border: 1px solid var(--hairline-strong);
+  border-radius: var(--radius-sm);
+  background: var(--card);
+  color: var(--fg-soft);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: border-color .15s var(--ease), color .15s var(--ease), background .15s var(--ease);
+}
+.diff-file-mark:hover {
+  border-color: var(--lane-done);
+  color: var(--lane-done);
+}
+.diff-file-mark.active {
+  border-color: var(--lane-done);
+  color: var(--lane-done);
+  background: color-mix(in srgb, var(--lane-done) 12%, transparent);
+}
+.diff-file-mark.active:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}

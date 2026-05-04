@@ -1,0 +1,6 @@
+node_modules/
+state.json
+state.json.tmp
+.reviews/
+.DS_Store
+SPEC.md

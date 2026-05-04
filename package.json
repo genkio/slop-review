@@ -1,0 +1,15 @@
+{
+  "name": "slop-review",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Local PR-review loop for human ↔ LLM",
+  "scripts": {
+    "start": "node --watch-path=./server server/index.js",
+    "dev": "node --watch-path=./server server/index.js"
+  },
+  "dependencies": {
+    "@hono/node-server": "^1.13.0",
+    "hono": "^4.6.0"
+  }
+}
