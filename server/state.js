@@ -2,7 +2,7 @@ import { readFile, writeFile, rename, chmod, mkdir } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import { dirname, join, resolve, basename } from 'node:path'
 import { homedir } from 'node:os'
-import { createHash } from 'node:crypto'
+import { createHash, randomBytes } from 'node:crypto'
 import { SEED, STATE_VERSION } from './seed.js'
 
 // state.json now lives in the user's config dir, not next to the package
@@ -83,20 +83,35 @@ export async function saveState(state) {
   await writeBaseState(state)
 }
 
+// Serialize state writes so concurrent loadState() callers can't race on
+// the temp+rename pair. Two writers sharing one `.tmp` path would have the
+// second rename fail with ENOENT once the first consumed the temp; chaining
+// also keeps the on-disk update order deterministic.
+let writeChain = Promise.resolve()
+
 async function writeBaseState(state) {
-  await mkdir(dirname(STATE_FILE), { recursive: true })
-  // Strip runtime-only fields so they don't leak into the persisted file —
-  // they're recomputed on every load.
-  const persisted = { ...state, config: { ...(state.config || {}) } }
-  delete persisted.config.home
-  delete persisted.config.bootstrap_repo_id
-  delete persisted.config.bootstrap_repo_path
-  const tmp = STATE_FILE + '.tmp'
-  await writeFile(tmp, JSON.stringify(persisted, null, 2))
-  await rename(tmp, STATE_FILE)
-  try {
-    await chmod(STATE_FILE, 0o600)
-  } catch {}
+  const run = async () => {
+    await mkdir(dirname(STATE_FILE), { recursive: true })
+    // Strip runtime-only fields so they don't leak into the persisted file —
+    // they're recomputed on every load.
+    const persisted = { ...state, config: { ...(state.config || {}) } }
+    delete persisted.config.home
+    delete persisted.config.bootstrap_repo_id
+    delete persisted.config.bootstrap_repo_path
+    // Unique tmp suffix per write defends against callers that bypass the
+    // chain (e.g. parallel tests) — fixed `.tmp` collides on rename.
+    const tmp = `${STATE_FILE}.tmp.${process.pid}.${randomBytes(6).toString('hex')}`
+    await writeFile(tmp, JSON.stringify(persisted, null, 2))
+    await rename(tmp, STATE_FILE)
+    try {
+      await chmod(STATE_FILE, 0o600)
+    } catch {}
+  }
+  // Run regardless of prior chain state so one failed write doesn't poison
+  // subsequent ones; shed errors so later awaiters don't observe them.
+  const next = writeChain.then(run, run)
+  writeChain = next.then(() => undefined, () => undefined)
+  return next
 }
 
 export function findRepo(state, id) {
