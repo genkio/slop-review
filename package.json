@@ -1,11 +1,22 @@
 {
   "name": "slop-review",
-  "version": "0.1.0",
-  "private": true,
+  "version": "0.2.0",
   "type": "module",
-  "description": "Local PR-review loop for human ↔ LLM",
+  "description": "Local PR-review loop for human ↔ LLM. Run inside any git repo.",
+  "bin": {
+    "slop-review": "bin/slop-review.js"
+  },
+  "files": [
+    "bin",
+    "server",
+    "public",
+    "SPEC.md"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
-    "start": "node --watch-path=./server server/index.js",
+    "start": "node server/index.js",
     "dev": "node --watch-path=./server server/index.js"
   },
   "dependencies": {

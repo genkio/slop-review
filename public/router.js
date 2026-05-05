@@ -22,6 +22,16 @@ export async function route() {
   // route. The diff page itself runs disposeDiffView at the top of its
   // own mount, so this only matters when leaving diff for repos/threads.
   if (!(view === 'repo' && sub === 'diff')) disposeDiffView()
+
+  // Single-repo bootstrap (npx slop-review): land directly on the
+  // bootstrapped repo's threads page rather than the Repos browser, which
+  // is empty/irrelevant in that mode.
+  const bootstrapId = store.state?.config?.bootstrap_repo_id
+  if (view === 'repos' && bootstrapId) {
+    location.hash = `#/repo/${encodeURIComponent(bootstrapId)}`
+    return
+  }
+
   if (view === 'repos') return renderReposPage()
   if (view === 'repo' && id && sub === 'diff') return renderDiffPage(id, { rest })
   if (view === 'repo' && id) return renderThreadsPage(id)

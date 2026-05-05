@@ -1,7 +1,7 @@
 import { Hono } from 'hono'
 import { serve } from '@hono/node-server'
 import { serveStatic } from '@hono/node-server/serve-static'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import { dirname, join, relative } from 'node:path'
 import { loadState } from './state.js'
 import { registerRepoRoutes } from './routes/repos.js'
@@ -13,35 +13,61 @@ import { shutdownAllWatchers } from './watcher.js'
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const PROJECT_ROOT = join(__dirname, '..')
 const PUBLIC_DIR_REL = relative(process.cwd(), join(PROJECT_ROOT, 'public')) || '.'
-const PORT = 4919
 
-const app = new Hono()
+const DEFAULT_PORT = 4919
 
-app.get('/api/state', async (c) => {
-  const state = await loadState()
-  return c.json(state)
-})
+/**
+ * Build and start the slop-review server. Returned promise resolves once
+ * the listener is actually accepting connections — this is what the bin
+ * shim awaits before opening the user's browser.
+ *
+ * Exported as a function so the same module is reusable from:
+ *   - `npm start` (runs this file as the entry; the run-as-main check at
+ *     the bottom kicks off `start()` with env-derived defaults)
+ *   - `bin/slop-review.js` (imports and awaits `start({ port })` directly)
+ */
+export async function start({ port = DEFAULT_PORT, hostname = '0.0.0.0' } = {}) {
+  const app = new Hono()
 
-registerRepoRoutes(app)
-registerDiffRoutes(app)
-registerThreadRoutes(app)
-registerEventRoutes(app)
-
-app.use(
-  '/*',
-  serveStatic({
-    root: PUBLIC_DIR_REL,
-    rewriteRequestPath: (path) => (path === '/' ? '/index.html' : path),
+  app.get('/api/state', async (c) => {
+    const state = await loadState()
+    return c.json(state)
   })
-)
 
-serve({ fetch: app.fetch, port: PORT, hostname: '0.0.0.0' }, (info) => {
-  console.log(`slop-review running on http://0.0.0.0:${info.port}`)
-})
+  registerRepoRoutes(app)
+  registerDiffRoutes(app)
+  registerThreadRoutes(app)
+  registerEventRoutes(app)
 
-for (const sig of ['SIGTERM', 'SIGINT']) {
-  process.on(sig, () => {
-    shutdownAllWatchers()
-    process.exit(0)
+  app.use(
+    '/*',
+    serveStatic({
+      root: PUBLIC_DIR_REL,
+      rewriteRequestPath: (path) => (path === '/' ? '/index.html' : path),
+    })
+  )
+
+  return new Promise((resolve) => {
+    const server = serve({ fetch: app.fetch, port, hostname }, (info) => {
+      console.log(`slop-review running on http://${hostname}:${info.port}`)
+      resolve({ server, info })
+    })
+
+    for (const sig of ['SIGTERM', 'SIGINT']) {
+      process.on(sig, () => {
+        shutdownAllWatchers()
+        process.exit(0)
+      })
+    }
   })
+}
+
+// Run-as-main: if this file was invoked directly (via `node server/index.js`
+// or `npm start`), kick off the server. When imported by the bin shim, this
+// branch is skipped and the bin awaits `start()` itself.
+const isMain =
+  process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href
+if (isMain) {
+  const port = Number(process.env.SLOP_REVIEW_PORT || process.env.PORT) || DEFAULT_PORT
+  start({ port })
 }

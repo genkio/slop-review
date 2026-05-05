@@ -1,30 +1,33 @@
 import { watch, mkdirSync } from 'node:fs'
 import { join, sep } from 'node:path'
-import { REVIEWS_DIR } from './reviews.js'
 
 /**
- * Per-repo fs.watch + SSE broadcast. One watcher per `.reviews/<repo_id>/`
- * tree (recursive); subscribers register through the SSE endpoint and
- * receive `{ type, thread_id, change, branch_id }` events as JSON.
+ * Per-repo fs.watch + SSE broadcast. Watch root is `<repo_path>/.reviews/`
+ * — the repo's own review tree, not a centralized one.
+ *
+ * Subscriber bookkeeping is still keyed by `repoId` (a stable UI-side
+ * identifier) since multiple browser tabs on the same repo should share
+ * one watcher; the path is only needed once at watcher-creation time.
  *
  * Lifecycle:
- *   - Watcher created lazily on first subscriber.
+ *   - Watcher created lazily on first subscriber (with the path the caller
+ *     supplies).
  *   - Torn down when the last subscriber disconnects.
- *   - On macOS / Linux, fs.watch with `recursive: true` covers nested
+ *   - On macOS / Linux, `fs.watch` with `recursive: true` covers nested
  *     `<branch_id>/<thread_id>.json` writes from a single root handle.
  *
  * No polling fallback — slop-review is a single-user local-machine app
  * where fs.watch's quirks don't matter in practice. If they bite, the
- * user can always hit ↻ refresh.
+ * user can hit ↻ refresh.
  */
 
-const watchers = new Map()  // repoId → { fsHandle, subscribers: Set<Sub> }
+const watchers = new Map()  // repoId → { fsHandle, subscribers: Set<Sub>, root: string }
 
-function ensureWatcher(repoId) {
+function ensureWatcher(repoId, repoPath) {
   let entry = watchers.get(repoId)
   if (entry) return entry
 
-  const root = join(REVIEWS_DIR, repoId)
+  const root = join(repoPath, '.reviews')
   // fs.watch on a missing dir throws; ensure it exists first so the
   // watcher is ready before the first thread is created.
   try { mkdirSync(root, { recursive: true }) } catch {}
@@ -53,7 +56,7 @@ function ensureWatcher(repoId) {
     return null
   }
 
-  entry = { fsHandle, subscribers: new Set() }
+  entry = { fsHandle, subscribers: new Set(), root }
   watchers.set(repoId, entry)
   return entry
 }
@@ -67,8 +70,8 @@ function broadcast(repoId, payload) {
   }
 }
 
-export function subscribe(repoId, sub) {
-  const entry = ensureWatcher(repoId)
+export function subscribe(repoId, repoPath, sub) {
+  const entry = ensureWatcher(repoId, repoPath)
   if (!entry) return false
   entry.subscribers.add(sub)
   return true

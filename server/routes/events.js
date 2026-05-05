@@ -24,7 +24,7 @@ export function registerEventRoutes(app) {
       const sub = {
         write: (line) => s.write(line),
       }
-      const ok = subscribe(repo.id, sub)
+      const ok = subscribe(repo.id, repo.path, sub)
       if (!ok) {
         await s.write('event: error\ndata: {"error":"watcher init failed"}\n\n')
         return

@@ -72,7 +72,7 @@ export function openRemoveRepoConfirmModal(repoId, onDone) {
     <h2>Remove repo?</h2>
     <div class="sub">${escapeHtml(repo.display_name)} (${escapeHtml(homePath(repo.path, store.state?.config?.home))})</div>
     <p class="modal-text">
-      Removes the bookmark. <b>Threads on disk are kept</b> at <code>.reviews/${escapeHtml(repo.id)}/</code> — re-adding the same path restores them.
+      Removes the bookmark. <b>Threads on disk are kept</b> at <code>${escapeHtml(repo.path)}/.reviews/</code> — re-adding the same path restores them.
     </p>
     <div class="modal-actions">
       <button data-close>Cancel</button>
@@ -396,9 +396,9 @@ function wirePromptBlocks(backdrop) {
 }
 
 function aggregateBlocks({ repo, branch, branchInfo, threads }) {
-  const slopRoot = store.state?.config?.slop_review_root || '{SLOP_REVIEW_ROOT}'
+  const repoPath = repo?.path || '{REPO_PATH}'
   const tmpl = store.state?.prompt_templates?.copy_local || ''
-  const howTo = tmpl.replaceAll('{SLOP_REVIEW_ROOT}', slopRoot)
+  const howTo = tmpl.replaceAll('{REPO_PATH}', repoPath)
 
   const blocks = [{ id: 'how-to', label: 'How to', content: howTo }]
 
@@ -416,15 +416,14 @@ function aggregateBlocks({ repo, branch, branchInfo, threads }) {
     if (f !== 0) return f
     return (a.line || 0) - (b.line || 0)
   })
-  // Repo bookmark id is derivable from store.state.repos lookup. The path
-  // pattern matches server/reviews.js exactly so the agent can find each
-  // file from cwd-anywhere.
+  // The path pattern matches server/reviews.js exactly so the agent can
+  // find each file no matter what cwd it's invoked from.
   const branchId = (typeof window !== 'undefined' && window.__slopBranchId) || branch || 'main'
   const threadText = sorted.length === 0
     ? '(no threads on this branch yet)'
     : sorted
         .map((t) => {
-          const filePath = `${slopRoot}/.reviews/${repo.id}/${branchId}/${t.id}.json`
+          const filePath = `${repoPath}/.reviews/${branchId}/${t.id}.json`
           const header = `Source: ${t.file}:${t.line}\nFile: ${filePath}\nView: ${t.view || 'full'}`
           const body = (t.comments || [])
             .map((c) => '[' + c.user + ']\n' + c.body)

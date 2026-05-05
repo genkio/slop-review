@@ -373,10 +373,9 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
     disposed = true
     document.removeEventListener('keydown', onKey)
     if (unsubscribeSse) { try { unsubscribeSse() } catch {}; unsubscribeSse = null }
-    // Floating buttons live on document.body — their parent isn't the
-    // page root, so #main.replaceChildren() won't sweep them up.
+    // Floating button lives on document.body — its parent isn't the
+    // page root, so #main.replaceChildren() won't sweep it up.
     try { commentBtn?.remove() } catch {}
-    try { editBtn?.remove() } catch {}
   }
   activeDispose = dispose
 
@@ -414,7 +413,7 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
   })
 
   // ------------------------------------------------------------------
-  // Inline `+ comment` and `↗ open in editor` floating buttons.
+  // Inline `+ comment` floating button.
   // Per spec, comments are allowed in ALL three views (commit/full/local).
   // ------------------------------------------------------------------
   const commentBtn = document.createElement('button')
@@ -423,24 +422,15 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
   commentBtn.title = 'Add inline comment'
   commentBtn.textContent = '+'
   commentBtn.hidden = true
-  // Floating buttons are position:fixed against the viewport, so they live
-  // on document.body and get cleaned up on dispose.
+  // Floating button is position:fixed against the viewport, so it lives
+  // on document.body and gets cleaned up on dispose.
   document.body.appendChild(commentBtn)
-
-  const editBtn = document.createElement('button')
-  editBtn.type = 'button'
-  editBtn.className = 'diff-edit-line'
-  editBtn.title = 'Open in editor'
-  editBtn.textContent = '↗'
-  editBtn.hidden = true
-  document.body.appendChild(editBtn)
 
   let hoveredCell = null
   let pendingCell = null
   let rafScheduled = false
   const hideHoverButtons = () => {
     commentBtn.hidden = true
-    editBtn.hidden = true
     hoveredCell = null
     pendingCell = null
   }
@@ -460,11 +450,6 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
     commentBtn.style.top  = `${r.top + r.height / 2 - 11}px`
     commentBtn.style.left = `${r.left - 24}px`
     commentBtn.hidden = false
-    if (!isMobile) {
-      editBtn.style.top  = `${r.top + r.height / 2 - 11}px`
-      editBtn.style.left = `${r.right + 4}px`
-      editBtn.hidden = false
-    }
   }
   $('[data-body]').addEventListener('mouseover', (e) => {
     const cell = e.target.closest?.('.diff-text[data-side]')
@@ -477,23 +462,6 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
     }
   }, { passive: true })
   $('[data-body]').addEventListener('scroll', hideHoverButtons, { passive: true })
-
-  editBtn.addEventListener('click', async () => {
-    if (!hoveredCell) return
-    const file = hoveredCell.dataset.path
-    const line = Number(hoveredCell.dataset.line)
-    if (!file || !line) return
-    hideHoverButtons()
-    try {
-      await api(`/api/repos/${encodeURIComponent(repo.id)}/edit`, {
-        method: 'POST',
-        body: JSON.stringify({ file, line }),
-      })
-      toast(`Opened in editor: ${file.split('/').pop()}:${line}`)
-    } catch (e) {
-      toast('Edit failed: ' + (e.message || 'unknown'))
-    }
-  })
 
   commentBtn.addEventListener('click', () => {
     if (!hoveredCell) return

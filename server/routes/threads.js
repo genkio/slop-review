@@ -25,7 +25,7 @@ export function registerThreadRoutes(app) {
   app.get('/api/repos/:id/threads', async (c) => {
     const { repo, branchId, branch, error } = await withRepoAndBranch(c)
     if (error) return error
-    const threads = await listThreadsWithState(repo.id, branchId)
+    const threads = await listThreadsWithState(repo.path, branchId)
     return c.json({ branch, branch_id: branchId, threads })
   })
 
@@ -70,8 +70,8 @@ export function registerThreadRoutes(app) {
         },
       ],
     }
-    await writeThread(repo.id, branchId, thread)
-    const threads = await listThreadsWithState(repo.id, branchId)
+    await writeThread(repo.path, branchId, thread)
+    const threads = await listThreadsWithState(repo.path, branchId)
     return c.json({ ok: true, thread_id: id, branch, branch_id: branchId, threads })
   })
 
@@ -83,7 +83,7 @@ export function registerThreadRoutes(app) {
     const text = String(body?.body || '').trim()
     if (!text) return c.json({ error: 'body required' }, 400)
 
-    const thread = await readThread(repo.id, branchId, tid)
+    const thread = await readThread(repo.path, branchId, tid)
     if (!thread) return c.json({ error: 'thread not found' }, 404)
     const now = new Date().toISOString()
     const user = await currentGhLogin()
@@ -91,8 +91,8 @@ export function registerThreadRoutes(app) {
     const comment = { id: `${tid}_${n}`, user, body: text, posted_at: now }
     thread.comments = [...(thread.comments || []), comment]
     thread.last_read_at = now    // user-authored reply implies they've seen prior context
-    await writeThread(repo.id, branchId, thread)
-    const threads = await listThreadsWithState(repo.id, branchId)
+    await writeThread(repo.path, branchId, thread)
+    const threads = await listThreadsWithState(repo.path, branchId)
     return c.json({ ok: true, comment, branch, branch_id: branchId, threads })
   })
 
@@ -101,16 +101,16 @@ export function registerThreadRoutes(app) {
     if (error) return error
     const tid = c.req.param('thread_id')
     const cid = c.req.param('comment_id')
-    const thread = await readThread(repo.id, branchId, tid)
+    const thread = await readThread(repo.path, branchId, tid)
     if (!thread) return c.json({ error: 'thread not found' }, 404)
     thread.comments = (thread.comments || []).filter((m) => m.id !== cid)
     if (thread.comments.length === 0) {
-      await deleteThread(repo.id, branchId, tid)
-      const threads = await listThreadsWithState(repo.id, branchId)
+      await deleteThread(repo.path, branchId, tid)
+      const threads = await listThreadsWithState(repo.path, branchId)
       return c.json({ ok: true, deleted: 'thread', branch, branch_id: branchId, threads })
     } else {
-      await writeThread(repo.id, branchId, thread)
-      const threads = await listThreadsWithState(repo.id, branchId)
+      await writeThread(repo.path, branchId, thread)
+      const threads = await listThreadsWithState(repo.path, branchId)
       return c.json({ ok: true, deleted: 'comment', branch, branch_id: branchId, threads })
     }
   })
@@ -119,8 +119,8 @@ export function registerThreadRoutes(app) {
     const { repo, branchId, branch, error } = await withRepoAndBranch(c)
     if (error) return error
     const tid = c.req.param('thread_id')
-    await deleteThread(repo.id, branchId, tid)
-    const threads = await listThreadsWithState(repo.id, branchId)
+    await deleteThread(repo.path, branchId, tid)
+    const threads = await listThreadsWithState(repo.path, branchId)
     return c.json({ ok: true, branch, branch_id: branchId, threads })
   })
 
@@ -128,11 +128,11 @@ export function registerThreadRoutes(app) {
     const { repo, branchId, branch, error } = await withRepoAndBranch(c)
     if (error) return error
     const tid = c.req.param('thread_id')
-    const thread = await readThread(repo.id, branchId, tid)
+    const thread = await readThread(repo.path, branchId, tid)
     if (!thread) return c.json({ error: 'thread not found' }, 404)
     thread.last_read_at = new Date().toISOString()
-    await writeThread(repo.id, branchId, thread)
-    const threads = await listThreadsWithState(repo.id, branchId)
+    await writeThread(repo.path, branchId, thread)
+    const threads = await listThreadsWithState(repo.path, branchId)
     return c.json({ ok: true, branch, branch_id: branchId, threads })
   })
 }

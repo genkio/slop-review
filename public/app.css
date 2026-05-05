@@ -1724,76 +1724,6 @@ a.card-file:hover .card-file-mark {
   line-height: 1.5;
 }
 
-/* ——————————————————— Terminal (ghostty-web) modal ———————————————————
-   Always fullscreen: sessions are long-lived and the user is typing into
-   an actual shell, so maximize vertical and horizontal real estate on
-   every viewport. The × button in the header is the only close path. */
-.term-backdrop { align-items: stretch; padding: 0; }
-.term-modal {
-  width: 100%;
-  max-width: none;
-  height: 100dvh;
-  max-height: 100dvh;
-  margin: 0;
-  padding: 0;
-  background: #13151a;
-  border-radius: 0;
-  display: flex; flex-direction: column;
-  overflow: hidden;
-}
-
-.term-head {
-  flex: 0 0 auto;
-  display: flex; align-items: center; gap: 12px;
-  padding: 10px 14px;
-  background: #1b1e24;
-  border-bottom: 1px solid rgba(255,255,255,0.06);
-  color: #e6e6e6;
-}
-.term-title { display: flex; align-items: center; gap: 10px; min-width: 0; }
-.term-title strong {
-  font-family: var(--font-mono);
-  font-size: 12px;
-  letter-spacing: 0.02em;
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-}
-.term-sub {
-  font-size: 11px;
-  color: rgba(230,230,230,0.55);
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-}
-.term-status {
-  margin-left: auto;
-  display: flex; align-items: center; gap: 6px;
-  font-size: 11px;
-  color: rgba(230,230,230,0.6);
-}
-.term-dot {
-  width: 8px; height: 8px;
-  border-radius: 50%;
-  background: #666;
-}
-.term-dot[data-status="connecting"] { background: #ffbd2e; animation: term-pulse 1s infinite; }
-.term-dot[data-status="connected"]  { background: #27c93f; }
-.term-dot[data-status="disconnected"] { background: #ff5f56; }
-.term-dot[data-status="error"]        { background: #ff5f56; }
-@keyframes term-pulse { 0%,100% { opacity:1 } 50% { opacity:0.4 } }
-
-.term-close {
-  position: static;
-  color: #e6e6e6;
-  background: transparent;
-}
-.term-close:hover { background: rgba(255,255,255,0.08); }
-
-.term-mount {
-  flex: 1 1 auto;
-  min-height: 0;
-  padding: 10px 12px;
-  background: #13151a;
-  overflow: hidden;
-}
-
 /* ——————————————————— Commits list (board page) ———————————————————
    Sibling of .pr-body in the meta strip — same <details> visual language
    so the page reads as one row of related affordances. */
@@ -2781,13 +2711,6 @@ a.card-file:hover .card-file-mark {
 @media (max-width: 768px) {
   .diff-symbol-panel { width: 100%; box-shadow: none; border-left: none; }
   .diff-modal.has-symbol-panel .diff-body { padding-right: 0; }
-  /* Hide the open-in-editor button on mobile — the endpoint runs
-     `open -na Ghostty.app` on the server's desktop, which is unreachable
-     from a phone. Showing the affordance there would just produce
-     invisible side-effects on the wrong machine. The comment + button
-     stays visible because adding inline notes is still useful at any
-     screen size. */
-  .diff-edit-line { display: none !important; }
 }
 
 /* The dedicated empty-state messages inside file bodies (binary, rename
@@ -2917,35 +2840,6 @@ a.card-file:hover .card-file-mark {
   box-shadow: 0 3px 10px color-mix(in srgb, var(--accent) 35%, transparent);
 }
 .diff-add-comment[hidden] { display: none; }
-
-/* Edit-in-editor button — sibling of the comment + button, paired on
-   hover. Same shape (22x22 round-ish), different color (lane-explain
-   blue) so the two affordances read as distinct actions. Anchored to
-   the right of the diff cell via JS positioning; hidden by default. */
-.diff-edit-line {
-  position: fixed;
-  z-index: 70;
-  width: 22px;
-  height: 22px;
-  padding: 0;
-  border: 1px solid var(--lane-explain);
-  border-radius: 6px;
-  background: var(--lane-explain);
-  color: var(--bg);
-  font-family: var(--font-mono);
-  font-size: 13px;
-  line-height: 1;
-  cursor: pointer;
-  display: inline-grid;
-  place-items: center;
-  box-shadow: 0 2px 6px color-mix(in srgb, var(--lane-explain) 30%, transparent);
-  transition: transform 0.12s ease, box-shadow 0.12s ease;
-}
-.diff-edit-line:hover {
-  transform: scale(1.08);
-  box-shadow: 0 3px 10px color-mix(in srgb, var(--lane-explain) 35%, transparent);
-}
-.diff-edit-line[hidden] { display: none; }
 
 /* Editor row spliced beneath the clicked diff line. Spans all 4 columns
    so it reads as a separate block, not a continuation of the diff table. */

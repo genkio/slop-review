@@ -1,6 +1,3 @@
-import { execFile } from 'node:child_process'
-import { promisify } from 'node:util'
-import { resolve } from 'node:path'
 import { loadState, findRepo } from '../state.js'
 import {
   getBranchInfo,
@@ -16,10 +13,6 @@ import {
 } from '../diff-priorities.js'
 import { readReviewed, writeReviewed, clearReviewed } from '../reviewed.js'
 import { sanitizeBranchId } from '../reviews.js'
-
-const pExecFile = promisify(execFile)
-
-const DEFAULT_EDITOR_LAUNCH = "open -na Ghostty.app --args --command='nvim +%L %F'"
 
 async function withRepo(c) {
   const state = await loadState()
@@ -90,45 +83,13 @@ export function registerDiffRoutes(app) {
     }
   })
 
-  app.post('/api/repos/:id/edit', async (c) => {
-    const { repo, error } = await withRepo(c)
-    if (error) return error
-    const body = await c.req.json().catch(() => ({}))
-    const file = String(body?.file || '')
-    const line = Number(body?.line || 1)
-    if (!file) return c.json({ error: 'file is required' }, 400)
-    if (!Number.isFinite(line) || line < 1) return c.json({ error: 'invalid line' }, 400)
-
-    // Path-traversal guard: resolve `<repo>/<file>` and verify the result
-    // stays inside the repo path.
-    const target = resolve(repo.path, file)
-    const repoAbs = resolve(repo.path) + '/'
-    if (!target.startsWith(repoAbs)) {
-      return c.json({ error: 'path traversal blocked' }, 400)
-    }
-
-    const tpl = repo?.config?.editor_launch || DEFAULT_EDITOR_LAUNCH
-    const cmd = tpl
-      .replaceAll('%L', shellEscape(String(line)))
-      .replaceAll('%F', shellEscape(target))
-      .replaceAll('%S', shellEscape(sanitizeBranchId(repo.display_name || '')))
-      .replaceAll('%W', shellEscape(repo.path))
-
-    try {
-      await pExecFile('sh', ['-c', cmd], { timeout: 5000 })
-      return c.json({ ok: true, target, line, command: cmd })
-    } catch (e) {
-      return c.json({ error: e.message || 'editor launch failed', command: cmd }, 500)
-    }
-  })
-
   app.get('/api/repos/:id/reviewed', async (c) => {
     const { repo, error } = await withRepo(c)
     if (error) return error
     const head_sha = c.req.query('head_sha') || null
     const branch = (await getBranchInfo(repo.path)).current_branch
     const branchId = sanitizeBranchId(branch || 'detached')
-    const data = await readReviewed(repo.id, branchId, head_sha)
+    const data = await readReviewed(repo.path, branchId, head_sha)
     return c.json({ head_sha: head_sha || data.head_sha, paths: data.paths })
   })
 
@@ -149,8 +110,8 @@ export function registerDiffRoutes(app) {
     const branchId = sanitizeBranchId(branch || 'detached')
     const final = mode === 'replace'
       ? incoming
-      : [...new Set([...(await readReviewed(repo.id, branchId, head_sha)).paths, ...incoming])]
-    const out = await writeReviewed(repo.id, branchId, head_sha, final)
+      : [...new Set([...(await readReviewed(repo.path, branchId, head_sha)).paths, ...incoming])]
+    const out = await writeReviewed(repo.path, branchId, head_sha, final)
     return c.json({ ok: true, head_sha: out.head_sha, paths: out.paths })
   })
 
@@ -159,19 +120,7 @@ export function registerDiffRoutes(app) {
     if (error) return error
     const branch = (await getBranchInfo(repo.path)).current_branch
     const branchId = sanitizeBranchId(branch || 'detached')
-    await clearReviewed(repo.id, branchId)
+    await clearReviewed(repo.path, branchId)
     return c.json({ ok: true })
   })
-}
-
-// Minimal POSIX-ish shell escape for the editor template substitution.
-// Wraps in single quotes and escapes embedded single quotes the standard
-// way: `' \\' '`. Not bulletproof against every shell quirk but adequate
-// for the file-path / line-number domain.
-function shellEscape(s) {
-  if (s == null) return "''"
-  const str = String(s)
-  if (str === '') return "''"
-  if (/^[A-Za-z0-9_./@%+:-]+$/.test(str)) return str
-  return "'" + str.replaceAll("'", "'\\''") + "'"
 }

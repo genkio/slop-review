@@ -1,11 +1,26 @@
 import { readFile, writeFile, rename, chmod, mkdir, readdir, unlink } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
-import { fileURLToPath } from 'node:url'
 import { dirname, join, resolve } from 'node:path'
 import { currentGhLogin } from './identity.js'
 
-const __dirname = dirname(fileURLToPath(import.meta.url))
-export const REVIEWS_DIR = join(__dirname, '..', '.reviews')
+/**
+ * `.reviews/` lives **inside each repo** (`<repo_path>/.reviews/<branch_id>/<thread_id>.json`).
+ * Previously these files lived under the slop-review install dir keyed by
+ * `<repo_id>`; that made the package non-portable (every install had its
+ * own state) and decoupled review history from the repo it described.
+ *
+ * The on-disk layout is now:
+ *   <repo>/.reviews/<branch_id>/<thread_id>.json
+ *   <repo>/.reviews/<branch_id>/_reviewed.json
+ *
+ * Callers pass `repoPath` (an absolute filesystem path) — the helpers no
+ * longer accept `repoId`, since the id is just a UI-side identifier and
+ * has no role in path resolution.
+ */
+
+export function reviewsRoot(repoPath) {
+  return join(repoPath, '.reviews')
+}
 
 export function newThreadId() {
   const r = Math.floor(Math.random() * 0x100000000).toString(16).padStart(8, '0')
@@ -15,9 +30,7 @@ export function newThreadId() {
 /**
  * Sanitize a branch name for use as a directory. Same rules as taiou's
  * tmux session naming: anything outside [A-Za-z0-9_-] collapses to `-`,
- * leading/trailing dashes trimmed, capped at 80 chars. Two different
- * branches will not collide unless their pre-sanitization names already
- * differed only in characters that all become `-` AND are >80 chars.
+ * leading/trailing dashes trimmed, capped at 80 chars.
  */
 export function sanitizeBranchId(branch) {
   if (!branch) return ''
@@ -28,12 +41,12 @@ export function sanitizeBranchId(branch) {
   return s
 }
 
-export function branchDir(repoId, branchId) {
-  return join(REVIEWS_DIR, repoId, branchId)
+export function branchDir(repoPath, branchId) {
+  return join(reviewsRoot(repoPath), branchId)
 }
 
-function fileFor(repoId, branchId, threadId) {
-  return join(branchDir(repoId, branchId), `${threadId}.json`)
+function fileFor(repoPath, branchId, threadId) {
+  return join(branchDir(repoPath, branchId), `${threadId}.json`)
 }
 
 async function safeReaddir(d) {
@@ -41,13 +54,13 @@ async function safeReaddir(d) {
 }
 
 /**
- * Read every thread file under `.reviews/<repoId>/<branchId>/`. Skips
+ * Read every thread file under `<repo>/.reviews/<branchId>/`. Skips
  * leading-underscore files (`_reviewed.json`) and silently drops anything
  * that fails JSON.parse — one corrupt file should never break the UI.
  */
-export async function readBranchThreads(repoId, branchId) {
-  if (!repoId || !branchId) return []
-  const dir = branchDir(repoId, branchId)
+export async function readBranchThreads(repoPath, branchId) {
+  if (!repoPath || !branchId) return []
+  const dir = branchDir(repoPath, branchId)
   if (!existsSync(dir)) return []
   const files = await safeReaddir(dir)
   const out = []
@@ -65,14 +78,14 @@ export async function readBranchThreads(repoId, branchId) {
 }
 
 /**
- * Atomic-write-then-rename a thread file. Mirrors taiou's pattern.
- * Caller must supply repoId + branchId + a complete thread object.
+ * Atomic-write-then-rename a thread file. Caller supplies a complete
+ * thread object.
  */
-export async function writeThread(repoId, branchId, thread) {
-  if (!repoId || !branchId || !thread?.id) {
+export async function writeThread(repoPath, branchId, thread) {
+  if (!repoPath || !branchId || !thread?.id) {
     throw new Error('writeThread: missing repo/branch/id')
   }
-  const target = fileFor(repoId, branchId, thread.id)
+  const target = fileFor(repoPath, branchId, thread.id)
   await mkdir(dirname(target), { recursive: true })
   const tmp = target + '.tmp'
   await writeFile(tmp, JSON.stringify(thread, null, 2))
@@ -80,8 +93,8 @@ export async function writeThread(repoId, branchId, thread) {
   try { await chmod(target, 0o600) } catch {}
 }
 
-export async function readThread(repoId, branchId, threadId) {
-  const target = fileFor(repoId, branchId, threadId)
+export async function readThread(repoPath, branchId, threadId) {
+  const target = fileFor(repoPath, branchId, threadId)
   if (!existsSync(target)) return null
   try {
     const raw = await readFile(target, 'utf8')
@@ -91,9 +104,9 @@ export async function readThread(repoId, branchId, threadId) {
   }
 }
 
-export async function deleteThread(repoId, branchId, threadId) {
+export async function deleteThread(repoPath, branchId, threadId) {
   try {
-    await unlink(fileFor(repoId, branchId, threadId))
+    await unlink(fileFor(repoPath, branchId, threadId))
   } catch (e) {
     if (e.code !== 'ENOENT') throw e
   }
@@ -113,9 +126,9 @@ export function deriveState(thread, ghLogin) {
   return lastAt > readAt ? 'your_turn' : 'read'
 }
 
-export async function listThreadsWithState(repoId, branchId) {
+export async function listThreadsWithState(repoPath, branchId) {
   const [threads, gh] = await Promise.all([
-    readBranchThreads(repoId, branchId),
+    readBranchThreads(repoPath, branchId),
     currentGhLogin(),
   ])
   return threads.map((t) => ({
@@ -127,12 +140,12 @@ export async function listThreadsWithState(repoId, branchId) {
 
 /**
  * Resolve a path inside the .reviews tree to its absolute form. Refuses
- * any path that escapes REVIEWS_DIR — used for the agent-handoff prompt's
- * absolute-path rendering.
+ * any path that escapes the repo's `.reviews/` root.
  */
-export function absoluteThreadPath(repoId, branchId, threadId) {
-  const target = resolve(fileFor(repoId, branchId, threadId))
-  if (!target.startsWith(resolve(REVIEWS_DIR) + '/')) {
+export function absoluteThreadPath(repoPath, branchId, threadId) {
+  const root = resolve(reviewsRoot(repoPath))
+  const target = resolve(fileFor(repoPath, branchId, threadId))
+  if (!target.startsWith(root + '/')) {
     throw new Error('path traversal blocked')
   }
   return target

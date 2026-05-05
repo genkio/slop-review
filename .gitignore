@@ -1,6 +1,7 @@
 node_modules/
-state.json
-state.json.tmp
-.reviews/
 .DS_Store
 SPEC.md
+
+# .reviews/ lives inside each target repo. This entry only matters when
+# slop-review is bootstrapped against itself for dogfooding.
+.reviews/
