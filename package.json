@@ -3,6 +3,14 @@
   "version": "0.2.1",
   "type": "module",
   "description": "Local PR-review loop for human ↔ LLM. Run inside any git repo.",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/genkio/slop-review.git"
+  },
+  "homepage": "https://github.com/genkio/slop-review#readme",
+  "bugs": {
+    "url": "https://github.com/genkio/slop-review/issues"
+  },
   "bin": {
     "slop-review": "bin/slop-review.js"
   },
