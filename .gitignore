@@ -5,3 +5,6 @@ SPEC.md
 # .reviews/ lives inside each target repo. This entry only matters when
 # slop-review is bootstrapped against itself for dogfooding.
 .reviews/
+
+# Runtime state lives in ~/.config/slop-review/ — never alongside the source.
+state.json
