@@ -1,8 +1,9 @@
 import { api } from '../api.js'
 import { store } from '../store.js'
-import { escapeHtml, inlineCode, relTime, renderCrumb } from '../util.js'
+import { escapeHtml, inlineCode, relTime } from '../util.js'
 import { openThreadModal } from '../modals.js'
 import { subscribeRepoEvents, unsubscribeRepoEvents } from '../sse.js'
+import { ROUTES } from '../routes.js'
 
 let currentSseUnsub = null
 
@@ -11,9 +12,9 @@ let currentSseUnsub = null
  * pills (your turn / awaiting / read), grouped by file in priority order,
  * with counts at the top. Live-updates via SSE.
  */
-export async function renderThreadsPage(repoId) {
-  const repo = store.state.repos.find((r) => r.id === repoId)
-  if (!repo) { location.hash = '#/'; return }
+export async function renderThreadsPage() {
+  const repo = store.state.repos[0]
+  if (!repo) { location.hash = ROUTES.threads(); return }
 
   // Tear down any prior SSE subscription before rebinding to this page.
   if (currentSseUnsub) { try { currentSseUnsub() } catch {}; currentSseUnsub = null }
@@ -26,18 +27,13 @@ export async function renderThreadsPage(repoId) {
     return
   }
 
-  renderCrumb([
-    { label: 'Repos', href: '#/' },
-    { label: repo.display_name + (branchInfo.current_branch ? ` · ${branchInfo.current_branch}` : '') },
-  ])
-
   const main = document.getElementById('main')
   main.innerHTML = `
     <div class="threads-page">
       <div class="page-head">
         <h1>Threads</h1>
         <div class="actions">
-          <a class="btn" href="#/repo/${encodeURIComponent(repo.id)}/diff">Diff</a>
+          <a class="btn" href="${ROUTES.diffFull()}">Diff</a>
         </div>
       </div>
       <div class="threads-meta">${branchInfo.current_branch
@@ -49,6 +45,16 @@ export async function renderThreadsPage(repoId) {
   await refresh(repo)
 
   currentSseUnsub = subscribeRepoEvents(repo.id, () => refresh(repo))
+}
+
+/**
+ * Tear down the threads page's SSE subscription. Called by the router
+ * when navigating away from the threads page so the EventSource doesn't
+ * leak (the DOM is reclaimed by #main.innerHTML overwrites, but the
+ * EventSource lives outside the DOM and stays open until close()).
+ */
+export function disposeThreadsView() {
+  if (currentSseUnsub) { try { currentSseUnsub() } catch {}; currentSseUnsub = null }
 }
 
 async function refresh(repo) {
@@ -79,11 +85,11 @@ async function refresh(repo) {
             }))
           } catch {}
           if (t.view === 'commit' && t.sha) {
-            location.hash = `#/repo/${encodeURIComponent(repo.id)}/diff/c/${t.sha.slice(0, 12)}`
+            location.hash = ROUTES.diffCommit(t.sha)
           } else if (t.view === 'local') {
-            location.hash = `#/repo/${encodeURIComponent(repo.id)}/diff/local`
+            location.hash = ROUTES.diffLocal()
           } else {
-            location.hash = `#/repo/${encodeURIComponent(repo.id)}/diff`
+            location.hash = ROUTES.diffFull()
           }
         },
         onChanged: () => refresh(repo),
@@ -171,13 +177,6 @@ function renderThreadRow(t) {
     <div class="thread-row-preview">${commentPreview}</div>
   </button>`
 }
-
-// Clean up SSE on hashchange
-window.addEventListener('hashchange', () => {
-  if (!location.hash.includes('/threads')) {
-    if (currentSseUnsub) { try { currentSseUnsub() } catch {}; currentSseUnsub = null }
-  }
-})
 
 // Re-export for tree-shaking parity (router imports from this module)
 export { unsubscribeRepoEvents }

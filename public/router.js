@@ -1,55 +1,67 @@
 import { api } from './api.js'
 import { store, setState } from './store.js'
-import { renderReposPage } from './pages/repos.js'
 import { renderDiffPage } from './pages/diff.js'
-import { renderThreadsPage } from './pages/threads.js'
+import { renderThreadsPage, disposeThreadsView } from './pages/threads.js'
 import { disposeDiffView } from './diff.js'
+import { ROUTES, SHA_RE } from './routes.js'
+
+// Hash routes (post multi-repo removal — only one repo, so no `/repo/<id>`
+// segment in user-facing URLs):
+//
+//   #/                threads page (default home)
+//   #/diff            full diff
+//   #/diff/local      local diff
+//   #/diff/<sha>      per-commit diff (sha = SHA_RE)
+//
+// Anything else redirects to `#/`. The active repo is always the bootstrap
+// repo (state.config.bootstrap_repo_id), looked up via store.state.repos[0]
+// inside the page renderers.
 
 export function parseHash() {
   const parts = location.hash.replace(/^#\/?/, '').split('/').filter(Boolean)
-  return {
-    view: parts[0] || 'repos',
-    id:   parts[1] ? decodeURIComponent(parts[1]) : null,
-    sub:  parts[2] || null,                                                    // 'diff'
-    rest: parts.slice(3).map((p) => decodeURIComponent(p)),                     // [] | ['local'] | ['c', '<sha>']
+  if (parts.length === 0) return { kind: 'threads' }
+  if (parts[0] === 'diff') {
+    if (parts.length === 1) return { kind: 'diff', variant: 'full' }
+    if (parts[1] === 'local') return { kind: 'diff', variant: 'local' }
+    if (SHA_RE.test(parts[1])) return { kind: 'diff', variant: 'commit', sha: parts[1] }
   }
+  return { kind: 'unknown' }
 }
 
 export async function route() {
   if (!store.state) setState(await api('/api/state'))
-  const { view, id, sub, rest } = parseHash()
-  // Tear down the previous diff view (listeners + SSE) on any non-diff
-  // route. The diff page itself runs disposeDiffView at the top of its
-  // own mount, so this only matters when leaving diff for repos/threads.
-  if (!(view === 'repo' && sub === 'diff')) disposeDiffView()
+  const parsed = parseHash()
+  // Tear down each page's external resources (DOM listeners, SSE) when
+  // leaving it. Each page also disposes itself at the top of its mount,
+  // so these calls only matter on the cross-page transition.
+  if (parsed.kind !== 'diff') disposeDiffView()
+  if (parsed.kind !== 'threads') disposeThreadsView()
 
-  // Single-repo bootstrap (npx slop-review): land directly on the
-  // bootstrapped repo's threads page rather than the Repos browser, which
-  // is empty/irrelevant in that mode.
-  const bootstrapId = store.state?.config?.bootstrap_repo_id
-  if (view === 'repos' && bootstrapId) {
-    location.hash = `#/repo/${encodeURIComponent(bootstrapId)}`
+  if (!store.state?.config?.bootstrap_repo_id) {
+    document.getElementById('main').innerHTML =
+      '<div class="branch-error">No repo configured. Run via <code>npx slop-review</code> inside a git repo.</div>'
     return
   }
 
-  if (view === 'repos') return renderReposPage()
-  if (view === 'repo' && id && sub === 'diff') return renderDiffPage(id, { rest })
-  if (view === 'repo' && id) {
+  if (parsed.kind === 'diff') return renderDiffPage(parsed)
+  if (parsed.kind === 'threads') {
     // Diff is the default landing page on a repo with no threads — the
     // empty threads page would just tell the user to "open the diff",
     // so we send them there directly. Once a thread exists, the threads
     // page becomes useful and this redirect is skipped.
-    if (await repoHasNoThreads(id)) {
-      location.hash = `#/repo/${encodeURIComponent(id)}/diff`
+    if (await currentBranchHasNoThreads()) {
+      location.hash = ROUTES.diffFull()
       return
     }
-    return renderThreadsPage(id)
+    return renderThreadsPage()
   }
-  location.hash = '#/'
+  // Unknown route → home.
+  location.hash = ROUTES.threads()
 }
 
-async function repoHasNoThreads(id) {
+async function currentBranchHasNoThreads() {
   try {
+    const id = store.state.config.bootstrap_repo_id
     const r = await api(`/api/repos/${encodeURIComponent(id)}/threads`)
     return (r?.threads || []).length === 0
   } catch {

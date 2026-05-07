@@ -101,13 +101,3 @@ export function homePath(absPath, home) {
   return absPath
 }
 
-export function renderCrumb(parts) {
-  const el = document.getElementById('crumb')
-  el.innerHTML = parts
-    .map((p, i) =>
-      i === parts.length - 1
-        ? '<span>' + escapeHtml(p.label) + '</span>'
-        : '<a href="' + p.href + '">' + escapeHtml(p.label) + '</a>'
-    )
-    .join('<span class="sep">›</span>')
-}

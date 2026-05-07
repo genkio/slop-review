@@ -10,9 +10,14 @@ import { join } from 'node:path'
 // path: one rename consumed the temp, the rest crashed with ENOENT and
 // surfaced as 500s on the first /api/* burst from the browser.
 //
+// The race surface is narrower since the multi-repo removal — the bootstrap
+// no longer mutates persisted state — but the SEED-write on first load and
+// the prompt-template back-fill still go through writeBaseState, so parallel
+// loadState() callers can still race the temp+rename pair.
+//
 // The test fixes the env BEFORE importing state.js because STATE_FILE is
-// computed at module-load time. Setting SLOP_REVIEW_REPO also exercises the
-// bootstrap-upsert write branch (loadState's heaviest write path).
+// computed at module-load time. Setting SLOP_REVIEW_REPO exercises the
+// in-memory bootstrap path so we can also assert it's NOT persisted.
 test('parallel loadState() does not race on temp+rename', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'slop-state-race-'))
   const stateFile = join(dir, 'state.json')
@@ -26,14 +31,24 @@ test('parallel loadState() does not race on temp+rename', async () => {
     const states = await Promise.all(Array.from({ length: N }, () => loadState()))
     assert.equal(states.length, N, 'all parallel loadState() calls fulfilled')
 
-    // On-disk state should be the result of an idempotent upsert: one repo,
-    // not N copies. Runtime-only fields must not be persisted.
+    // Every returned state carries the in-memory bootstrap repo derived
+    // from SLOP_REVIEW_REPO — present, but never persisted.
+    for (const s of states) {
+      assert.equal(s.repos.length, 1, 'in-memory state.repos has the bootstrap entry')
+      assert.equal(s.repos[0].path, process.cwd(), 'bootstrap path matches cwd')
+      assert.equal(s.config?.bootstrap_repo_id, s.repos[0].id, 'config.bootstrap_repo_id mirrors repo id')
+    }
+
+    // On-disk state is { version, config: {}, prompt_templates } only.
+    // Runtime-only fields (repos, config.home, config.bootstrap_*) are
+    // stripped before persist.
     const onDisk = JSON.parse(readFileSync(stateFile, 'utf8'))
-    assert.equal(onDisk.repos.length, 1, 'bootstrap upsert is idempotent across parallel callers')
-    assert.equal(onDisk.repos[0].path, process.cwd(), 'bootstrap path stamped onto the upserted repo')
+    assert.equal(onDisk.repos, undefined, 'repos is not persisted (multi-repo mode removed)')
     assert.equal(onDisk.config?.home, undefined, 'runtime-only config.home stripped before persist')
     assert.equal(onDisk.config?.bootstrap_repo_id, undefined, 'runtime-only bootstrap_repo_id stripped')
     assert.equal(onDisk.config?.bootstrap_repo_path, undefined, 'runtime-only bootstrap_repo_path stripped')
+    assert.equal(typeof onDisk.version, 'number', 'schema version is persisted')
+    assert.ok(onDisk.prompt_templates?.copy_local, 'copy_local template is persisted')
 
     // No leftover unique-tmp files lying around — every writer's rename
     // either consumed its tmp or the unique-suffix layer kept them isolated.

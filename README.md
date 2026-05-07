@@ -15,23 +15,19 @@ Flags: `--port <n>`, `--host <h>`, `--no-open`, `-h`.
 
 Prerequisites: Node ≥ 20, `git` on `PATH`, `gh` authenticated (falls back to `me` if unreachable).
 
-State (bookmarks + prompt templates): `~/.config/slop-review/state.json`.
+State (prompt templates + schema version): `~/.config/slop-review/state.json`.
 
 ## Development
-
-Two ways to iterate locally:
-
-**Hacking on slop-review itself** — runs in legacy multi-repo mode (no auto-bootstrap, Repos page is the home, add bookmarks via the UI):
 
 ```bash
 git clone <this-repo> && cd slop-review
 npm install
-npm run dev    # watches server/**, reloads on save
+npm run dev    # watches server/**, restarts on save; reviews this checkout itself (cwd → SLOP_REVIEW_REPO)
 ```
 
 Frontend (`public/**`) edits don't need a restart — just hard-refresh the browser.
 
-**Testing the actual `npx slop-review` flow with hot edits**:
+**Testing the actual `npx slop-review` flow against an external repo:**
 
 ```bash
 cd /path/to/slop-review

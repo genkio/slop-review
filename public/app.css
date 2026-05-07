@@ -97,88 +97,6 @@ a:hover { text-decoration-color: var(--accent); }
 
 button, input, select, textarea { font: inherit; color: inherit; }
 
-/* ——————————————————— Header ——————————————————— */
-header.app {
-  position: sticky; top: 0; z-index: 10;
-  background: color-mix(in srgb, var(--bg) 80%, transparent);
-  backdrop-filter: blur(8px);
-  border-bottom: 1px solid var(--hairline);
-  padding: 12px 20px;
-  display: grid;
-  grid-template-columns: auto 1fr;
-  gap: 20px;
-  align-items: center;
-}
-
-@media (max-width: 720px) {
-  header.app {
-    padding: 12px 16px;
-    gap: 16px;
-  }
-}
-
-.brand {
-  display: inline-flex;
-  align-items: center;
-  gap: 12px;
-  text-decoration: none;
-  flex-shrink: 0;
-}
-
-/* Monospace wordmark — reads as a CLI tool's brand. The dot in the middle
-   of "slop-review" gets a subtle accent dot inserted via CSS so the wordmark
-   has a small graphic mark without needing any actual SVG. */
-.brand-name {
-  font-family: var(--font-mono);
-  font-size: 14px;
-  font-weight: 600;
-  letter-spacing: -0.01em;
-  line-height: 1;
-  color: var(--ink);
-}
-.brand-name::before {
-  content: "▸ ";
-  color: var(--accent);
-  font-weight: 700;
-}
-
-/* hanko-style stamp for 対応 */
-.brand-sub {
-  display: inline-block;
-  font-family: 'Hiragino Mincho ProN', 'Yu Mincho', 'Noto Serif JP', serif;
-  font-size: 14px;
-  font-weight: 600;
-  line-height: 1;
-  letter-spacing: 0.04em;
-  color: var(--accent);
-  border: 1.5px solid var(--accent);
-  padding: 5px 5px 3px;
-  transform: rotate(-2deg);
-  transition: transform .25s var(--ease), background .25s var(--ease);
-}
-.brand:hover .brand-sub {
-  transform: rotate(2deg);
-  background: color-mix(in srgb, var(--accent) 8%, transparent);
-}
-
-.crumb {
-  font-family: var(--font-mono);
-  font-size: 12px;
-  font-weight: 400;
-  color: var(--fg-soft);
-  text-transform: none;
-  letter-spacing: 0;
-  overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
-  min-width: 0;
-}
-.crumb a {
-  text-decoration: none;
-  color: var(--fg-soft);
-  transition: color .15s var(--ease);
-}
-.crumb a:hover { color: var(--accent); }
-.crumb .sep { color: var(--fg-muted); margin: 0 8px; opacity: 0.6; }
-
 /* ——————————————————— Main ——————————————————— */
 main {
   position: relative; z-index: 2;
@@ -3205,9 +3123,6 @@ a.card-file:hover .card-file-mark {
   font-size: 10px;
   padding: 2px 8px;
 }
-
-/* Override the brand-sub from taiou's CSS (no kanji stamp for slop-review) */
-.brand-sub { display: none !important; }
 
 /* View-pill colors for thread-modal title badge */
 .card-local-pill.view-commit { background: color-mix(in srgb, var(--lane-working) 12%, transparent); border-color: var(--lane-working); color: var(--lane-working); }

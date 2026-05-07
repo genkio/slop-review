@@ -24,8 +24,8 @@
     "node": ">=20"
   },
   "scripts": {
-    "start": "node server/index.js",
-    "dev": "node --watch-path=./server server/index.js",
+    "start": "node bin/slop-review.js",
+    "dev": "node --watch-path=./server bin/slop-review.js --no-open",
     "test": "node --test"
   },
   "dependencies": {

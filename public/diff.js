@@ -3,6 +3,7 @@ import { escapeHtml, inlineCode, relTime, copyToClipboard, toast } from './util.
 import { openCopyAggregateModal, openThreadModal, confirmRemoveComment } from './modals.js'
 import { languageForPath, highlightLine } from './syntax.js'
 import { subscribeRepoEvents } from './sse.js'
+import { ROUTES } from './routes.js'
 
 const DIFF_CACHE_PREFIX = 'slop-review:diff:v1:'
 
@@ -259,9 +260,9 @@ export function disposeDiffView() {
 
 /**
  * Render the full diff view as a regular page (not a modal). Mounts into
- * #main directly; URL is governed by the router's `#/repo/:id/diff[/...]`
- * routing. Caller (pages/diff.js) supplies branch info + commits and the
- * page handles its own keyboard nav, SSE subscription, and URL sync.
+ * #main directly; URL is governed by the router's `#/diff[/...]` routing.
+ * Caller (pages/diff.js) supplies branch info + commits and the page
+ * handles its own keyboard nav, SSE subscription, and URL sync.
  *
  * Returns when the initial load+render completes. The caller doesn't need
  * to await it for navigation; it's awaited mainly so `scrollToAnchor`
@@ -329,7 +330,7 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
           <button type="button" data-view="inline" class="${state.mode === 'inline' ? 'active' : ''}" role="tab">Inline</button>
         </div>
         <button type="button" class="diff-copy-prompt" data-copy-prompt title="Copy aggregate-comments prompt for the agent">Copy</button>
-        <a class="btn diff-back" data-threads-link href="#/repo/${encodeURIComponent(repo.id)}" hidden>Threads</a>
+        <a class="btn diff-back" data-threads-link href="${ROUTES.threads()}" hidden>Threads</a>
       </div>
     </header>
     <div class="diff-body" data-body>
@@ -349,19 +350,18 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
   const $$ = (sel) => root.querySelectorAll(sel)
 
   // ------------------------------------------------------------------
-  // URL sync — page owns the `/diff[/...]` tail of `#/repo/:id`
+  // URL sync — page owns the entire `#/diff[/...]` route shape.
   // The router will run on hashchange anyway; we use replaceState here
   // so prev/next nav doesn't add 100 history entries when walking commits.
   // ------------------------------------------------------------------
-  const repoPrefix = `#/repo/${encodeURIComponent(repo.id)}`
-  function urlTailForIndex(idx) {
-    if (state.hasLocal && idx === state.commits.length + 1) return '/diff/local'
-    if (idx === state.commits.length) return '/diff'
+  function urlForIndex(idx) {
+    if (state.hasLocal && idx === state.commits.length + 1) return ROUTES.diffLocal()
+    if (idx === state.commits.length) return ROUTES.diffFull()
     const c = state.commits[idx]
-    return c?.sha ? `/diff/c/${c.sha.slice(0, 12)}` : '/diff'
+    return c?.sha ? ROUTES.diffCommit(c.sha) : ROUTES.diffFull()
   }
   function syncUrl() {
-    const next = repoPrefix + urlTailForIndex(state.index)
+    const next = urlForIndex(state.index)
     if (location.hash === next) return
     history.replaceState(null, '', next)
   }

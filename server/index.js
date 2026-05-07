@@ -4,7 +4,6 @@ import { serveStatic } from '@hono/node-server/serve-static'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { dirname, join, relative } from 'node:path'
 import { loadState } from './state.js'
-import { registerRepoRoutes } from './routes/repos.js'
 import { registerDiffRoutes } from './routes/diff.js'
 import { registerThreadRoutes } from './routes/threads.js'
 import { registerEventRoutes } from './routes/events.js'
@@ -27,6 +26,16 @@ const DEFAULT_PORT = 4919
  *   - `bin/slop-review.js` (imports and awaits `start({ port })` directly)
  */
 export async function start({ port = DEFAULT_PORT, hostname = '0.0.0.0' } = {}) {
+  // Hard requirement: the active repo is derived from this env var. The
+  // bin shim sets it from cwd; running `node server/index.js` directly
+  // (without the env) is unsupported now that bookmark-CRUD is gone.
+  if (!process.env.SLOP_REVIEW_REPO) {
+    console.error('slop-review: SLOP_REVIEW_REPO is not set.')
+    console.error('Run via `npx slop-review` (or `slop-review` after `npm link`) inside a git repo,')
+    console.error('or set SLOP_REVIEW_REPO=$PWD before invoking the server directly.')
+    process.exit(1)
+  }
+
   const app = new Hono()
 
   app.get('/api/state', async (c) => {
@@ -34,7 +43,6 @@ export async function start({ port = DEFAULT_PORT, hostname = '0.0.0.0' } = {}) 
     return c.json(state)
   })
 
-  registerRepoRoutes(app)
   registerDiffRoutes(app)
   registerThreadRoutes(app)
   registerEventRoutes(app)

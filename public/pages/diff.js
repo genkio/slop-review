@@ -1,7 +1,8 @@
 import { api } from '../api.js'
 import { store } from '../store.js'
-import { escapeHtml, renderCrumb } from '../util.js'
+import { escapeHtml } from '../util.js'
 import { renderDiffView, disposeDiffView } from '../diff.js'
+import { ROUTES } from '../routes.js'
 
 /**
  * Diff page. Owns the empty states (detached HEAD, on-base, no origin/HEAD)
@@ -9,24 +10,19 @@ import { renderDiffView, disposeDiffView } from '../diff.js'
  * disposeDiffView at the top so a previous mount's listeners + SSE are
  * cleaned up before this mount takes over.
  *
- * URL `rest` segments:
- *   []           → Full diff (default)
- *   ['local']    → Local diff
- *   ['c', sha]   → Per-commit diff matching that SHA prefix
+ * `parsed` is the router's parsed-hash record:
+ *   { kind: 'diff', variant: 'full' }
+ *   { kind: 'diff', variant: 'local' }
+ *   { kind: 'diff', variant: 'commit', sha: '<sha-prefix>' }
  */
-export async function renderDiffPage(repoId, { rest = [] } = {}) {
+export async function renderDiffPage(parsed = { variant: 'full' }) {
   // Always tear down a previous diff view's listeners + SSE before deciding
   // what to render here. Running this even on empty-state branches is safe
   // — the function no-ops when nothing is mounted.
   disposeDiffView()
 
-  const repo = store.state.repos.find((r) => r.id === repoId)
-  if (!repo) { location.hash = '#/'; return }
-
-  renderCrumb([
-    { label: 'Repos', href: '#/' },
-    { label: repo.display_name },
-  ])
+  const repo = store.state.repos[0]
+  if (!repo) { location.hash = ROUTES.threads(); return }
 
   const main = document.getElementById('main')
   main.innerHTML = `<div class="branch-loading">Loading…</div>`
@@ -39,15 +35,6 @@ export async function renderDiffPage(repoId, { rest = [] } = {}) {
     return
   }
 
-  // Update the breadcrumb with the current branch (or empty-state hint).
-  if (branchInfo.current_branch) {
-    renderCrumb([
-      { label: 'Repos', href: '#/' },
-      { label: repo.display_name, href: `#/repo/${encodeURIComponent(repo.id)}` },
-      { label: branchInfo.current_branch + ' · diff' },
-    ])
-  }
-
   // Empty-state branches: render an explanatory card and stop.
   if (branchInfo.detached || !branchInfo.has_origin_head ||
       (branchInfo.on_base && !branchInfo.has_local_changes)) {
@@ -56,7 +43,7 @@ export async function renderDiffPage(repoId, { rest = [] } = {}) {
         <div class="page-head">
           <h1>${escapeHtml(repo.display_name)}</h1>
           <div class="actions">
-            <a class="btn" href="#/repo/${encodeURIComponent(repo.id)}">Threads</a>
+            <a class="btn" href="${ROUTES.threads()}">Threads</a>
           </div>
         </div>
         <div class="branch-card">${renderBranchCard(branchInfo)}</div>
@@ -75,12 +62,11 @@ export async function renderDiffPage(repoId, { rest = [] } = {}) {
 
   const hasLocal = !!branchInfo.has_local_changes
 
-  // Resolve initialIndex from URL `rest`.
+  // Resolve initialIndex from the parsed-hash variant.
   let initialIndex = commits.length                               // default: Full
-  if (rest[0] === 'local' && hasLocal) initialIndex = commits.length + 1
-  else if (rest[0] === 'c' && rest[1]) {
-    const wanted = rest[1]
-    const idx = commits.findIndex((c) => (c.sha || '').startsWith(wanted))
+  if (parsed.variant === 'local' && hasLocal) initialIndex = commits.length + 1
+  else if (parsed.variant === 'commit' && parsed.sha) {
+    const idx = commits.findIndex((c) => (c.sha || '').startsWith(parsed.sha))
     if (idx >= 0) initialIndex = idx
   }
 

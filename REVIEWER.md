@@ -49,7 +49,7 @@ Use `view: "full"` for full-branch review comments, `view: "commit"` for a speci
 If a thread was resolved by a commit, prefer reviewing the per-commit URL:
 
 ```text
-#/repo/:id/diff/c/:sha
+#/diff/<sha>
 ```
 
 Resolved threads should be relocated onto the commit that addressed them, so the per-commit view shows the original comment, the agent reply, and the resolving diff together.

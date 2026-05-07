@@ -5,7 +5,7 @@ import { homedir } from 'node:os'
 import { createHash, randomBytes } from 'node:crypto'
 import { SEED, STATE_VERSION } from './seed.js'
 
-// state.json now lives in the user's config dir, not next to the package
+// state.json lives in the user's config dir, not next to the package
 // source. This makes the package installable via `npx slop-review` without
 // every install creating its own state file. Honors XDG_CONFIG_HOME and
 // allows full override via SLOP_REVIEW_STATE_FILE for tests / power users.
@@ -52,28 +52,27 @@ export async function loadState() {
   state.config ??= {}
   state.config.home = homedir()
 
-  // Bootstrap-from-cwd: when launched via `npx slop-review` (or any caller
-  // that sets SLOP_REVIEW_REPO), make sure that repo is registered and tell
-  // the frontend which repo to land on.
+  // Bootstrap: SLOP_REVIEW_REPO is required (validated at server start in
+  // server/index.js). The active repo is synthesized in-memory on every
+  // load and never persisted — there's exactly one, derived from cwd.
   const bootstrapPath = process.env.SLOP_REVIEW_REPO
   if (bootstrapPath) {
     const abs = resolve(bootstrapPath)
     const id = deriveRepoId(abs)
-    if (!state.repos.find((r) => r.id === id)) {
-      state.repos.push({
-        id,
-        path: abs,
-        display_name: basename(abs),
-        added_at: new Date().toISOString(),
-      })
-      await writeBaseState(state)
-      if (!bootstrappedLogged) {
-        console.log(`[slop-review] bootstrapped repo: ${abs} (${id})`)
-        bootstrappedLogged = true
-      }
-    }
+    state.repos = [{
+      id,
+      path: abs,
+      display_name: basename(abs),
+      added_at: new Date().toISOString(),
+    }]
     state.config.bootstrap_repo_id = id
     state.config.bootstrap_repo_path = abs
+    if (!bootstrappedLogged) {
+      console.log(`[slop-review] bootstrapped repo: ${abs} (${id})`)
+      bootstrappedLogged = true
+    }
+  } else {
+    state.repos = []
   }
 
   return state
@@ -93,11 +92,13 @@ async function writeBaseState(state) {
   const run = async () => {
     await mkdir(dirname(STATE_FILE), { recursive: true })
     // Strip runtime-only fields so they don't leak into the persisted file —
-    // they're recomputed on every load.
+    // they're recomputed on every load. `repos` is also runtime-only now;
+    // the persisted shape is { version, config: {}, prompt_templates }.
     const persisted = { ...state, config: { ...(state.config || {}) } }
     delete persisted.config.home
     delete persisted.config.bootstrap_repo_id
     delete persisted.config.bootstrap_repo_path
+    delete persisted.repos
     // Unique tmp suffix per write defends against callers that bypass the
     // chain (e.g. parallel tests) — fixed `.tmp` collides on rename.
     const tmp = `${STATE_FILE}.tmp.${process.pid}.${randomBytes(6).toString('hex')}`

@@ -1,4 +1,10 @@
-export const STATE_VERSION = 1
+// v1 → v2: dropped the persisted `repos[]` bookmark list. The active repo
+// is now derived purely from SLOP_REVIEW_REPO at runtime, so state.json
+// only carries schema-version + prompt templates. Bumping the version
+// triggers loadState's reseed path, which wipes any leftover `repos[]`
+// from older installs (and also resets prompt_templates — users who
+// customized them will see the seeded copy_local return).
+export const STATE_VERSION = 2
 
 export const SEED = {
   version: STATE_VERSION,
@@ -7,5 +13,4 @@ export const SEED = {
     copy_local:
       "You are working through review comments left on a feature branch. Each thread is stored as its own JSON file at `{REPO_PATH}/.reviews/<branch_id>/<thread_id>.json` — every thread block below carries its `File:` path so you can read and edit it from any working directory.\n\nResolve threads one at a time. Default to one git commit per thread (only fold threads into one commit if they're truly the same edit). Never push to the remote — that's the human's call.\n\nFor each thread:\n\n1. Read the file at the `File:` path. `comments[]` is the conversation: index 0 is the user's original note anchored at the `Source:` line; later entries are prior replies.\n\n2. Open the source file referenced by `Source:` (path:line) and decide whether a code change is warranted. If so, edit the code.\n\n3. If you edited code:\n   a. Stage the changed files and `git commit` with a conventional-commits subject (`fix:`, `feat:`, `test:`, `refactor:`, `docs:`, `chore:`, etc.) describing the resolution. One commit per thread.\n   b. Relocate the thread's anchor to the new commit by editing these fields IN PLACE in the thread JSON:\n      - `view`        → `\"commit\"`\n      - `sha`         → the new commit's full SHA (`git rev-parse HEAD`)\n      - `file`        → path of the most semantically-relevant file in the new commit's diff (usually the file you edited)\n      - `line`        → line number of the most relevant line in that file at the new SHA\n      - `anchor_text` → the literal text of that line at the new SHA\n   Do NOT change `id`, `created_at`, `last_read_at`, or any existing entry of `comments[]`. The relocation makes the thread render inline next to the resolution diff in slop-review's per-commit view, so the human sees comment + reply + the actual diff side by side.\n\n4. Append exactly one new entry to `comments[]` with this shape:\n\n       {\n         \"id\":        \"<thread_id>_<N>\",\n         \"user\":      \"claude\",\n         \"posted_at\": \"<current UTC ISO 8601>\",\n         \"body\":      \"<your reply; reference the commit short SHA when describing what changed>\"\n       }\n\n   - `<thread_id>` = the file's basename without `.json` (also stored in the file's `id` field).\n   - `N` = `comments.length + 1` measured *before* you append.\n\n5. Write the thread JSON back, preserving its 2-space indentation.\n\nAfter resolving every thread, summarize the commits you made (no file write needed for the summary).",
   },
-  repos: [],
 }

@@ -1,6 +1,6 @@
 import { api } from './api.js'
-import { store, setState } from './store.js'
-import { escapeHtml, inlineCode, relTime, toast, copyToClipboard, homePath } from './util.js'
+import { store } from './store.js'
+import { escapeHtml, inlineCode, relTime, toast, copyToClipboard } from './util.js'
 
 export function makeModal(innerHtml) {
   const backdrop = document.createElement('div')
@@ -33,63 +33,6 @@ export function makeModal(innerHtml) {
   backdrop.addEventListener('click', (e) => { if (e.target === backdrop) close() })
   backdrop.querySelectorAll('[data-close]').forEach((b) => b.addEventListener('click', close))
   return backdrop
-}
-
-export function openAddRepoModal(onDone) {
-  const backdrop = makeModal(`
-    <h2>Add repo</h2>
-    <div class="sub">Paste an absolute path to a local git repo.</div>
-    <label class="block">Local path</label>
-    <input id="new-repo-path" type="text" placeholder="/Users/you/code/myproject" autofocus>
-    <div class="modal-actions">
-      <button data-close>Cancel</button>
-      <button class="primary" data-save>Add</button>
-    </div>`)
-
-  backdrop.querySelector('[data-save]').onclick = async () => {
-    const path = backdrop.querySelector('#new-repo-path').value.trim()
-    if (!path) return toast('Path required')
-    try {
-      const res = await api('/api/repos', {
-        method: 'POST',
-        body: JSON.stringify({ path }),
-      })
-      setState(res.state)
-      backdrop.remove()
-      onDone?.()
-      // Drop the user straight into the new repo's diff page.
-      if (res.repo_id) location.hash = `#/repo/${encodeURIComponent(res.repo_id)}`
-    } catch (e) {
-      toast('Error: ' + e.message)
-    }
-  }
-}
-
-export function openRemoveRepoConfirmModal(repoId, onDone) {
-  const repo = store.state.repos.find((r) => r.id === repoId)
-  if (!repo) return
-  const backdrop = makeModal(`
-    <h2>Remove repo?</h2>
-    <div class="sub">${escapeHtml(repo.display_name)} (${escapeHtml(homePath(repo.path, store.state?.config?.home))})</div>
-    <p class="modal-text">
-      Removes the bookmark. <b>Threads on disk are kept</b> at <code>${escapeHtml(repo.path)}/.reviews/</code> — re-adding the same path restores them.
-    </p>
-    <div class="modal-actions">
-      <button data-close>Cancel</button>
-      <button class="primary" data-confirm>Remove</button>
-    </div>`)
-
-  backdrop.querySelector('[data-confirm]').onclick = async () => {
-    try {
-      const res = await api('/api/repos/' + encodeURIComponent(repo.id), { method: 'DELETE' })
-      setState(res.state)
-      backdrop.remove()
-      onDone?.()
-      toast('Repo removed')
-    } catch (e) {
-      toast('Error: ' + e.message)
-    }
-  }
 }
 
 function commentHtml(c, removable = false) {
