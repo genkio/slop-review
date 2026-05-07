@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.0](https://github.com/genkio/slop-review/compare/v0.3.1...v0.4.0) (2026-05-07)
+
+
+### Features
+
+* codex-generated branch overview page ([7616635](https://github.com/genkio/slop-review/commit/76166357d4d3d0cc0eddc7ed3360c5f0787a400f))
+
 ## [0.3.1](https://github.com/genkio/slop-review/compare/v0.3.0...v0.3.1) (2026-05-07)
 
 
