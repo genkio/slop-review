@@ -2506,6 +2506,28 @@ a.card-file:hover .card-file-mark {
   flex: 0 0 auto;
 }
 .diff-symbol-close:hover { color: var(--ink); }
+.diff-symbol-back {
+  font-family: var(--font-sans);
+  font-size: 11px;
+  padding: 3px 8px;
+  border: 1px solid var(--hairline);
+  border-radius: 6px;
+  background: transparent;
+  cursor: pointer;
+  color: var(--fg-muted);
+  flex: 0 0 auto;
+}
+.diff-symbol-back:hover { color: var(--ink); border-color: var(--lane-explain); }
+.diff-symbol-back[hidden] { display: none; }
+
+/* Inline highlight on every occurrence of the active symbol in the
+   diff body. Applied via TreeWalker on panel-open (see diff.js). Uses
+   background only (no padding/outline) to keep monospace alignment
+   intact in side-by-side split view. */
+.diff-symbol-occurrence {
+  background: color-mix(in srgb, var(--lane-explain) 26%, transparent);
+  border-radius: 2px;
+}
 
 .diff-symbol-list {
   flex: 1 1 auto;

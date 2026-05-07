@@ -290,7 +290,7 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
     reviewedSha: null,
     collapsedPaths: new Set(),
     filter:   null,
-    symbolPanel: { open: false, symbol: null, matches: [], currentPath: null },
+    symbolPanel: { open: false, symbol: null, matches: [], currentPath: null, jumpStack: [], currentAnchor: null },
     // One-shot flag: true on initial mount + on goto(); cleared by renderBody
     // after applying scrollTop=0. Subsequent renders triggered by
     // refreshReviewed / SSE / filter-toggle preserve the user's scroll
@@ -338,6 +338,7 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
     </div>
     <aside class="diff-symbol-panel" data-symbol-panel hidden>
       <header class="diff-symbol-head">
+        <button type="button" class="diff-symbol-back" data-symbol-back hidden title="Back to previous location (Backspace)" aria-label="Back to previous location">↩ back</button>
         <code class="diff-symbol-name" data-symbol-name></code>
         <span class="diff-symbol-meta" data-symbol-meta></span>
         <button type="button" class="diff-symbol-close" data-symbol-close aria-label="Close panel">×</button>
@@ -386,6 +387,9 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
       // Layered Escape: close symbol panel if open; otherwise no-op (the
       // page is the page — Escape doesn't navigate away).
       if (state.symbolPanel.open) { closeSymbolPanel(); e.preventDefault() }
+    }
+    else if (e.key === 'Backspace' && state.symbolPanel.open && state.symbolPanel.jumpStack.length > 0) {
+      popSymbolJump(); e.preventDefault()
     }
     else if (e.key === 'ArrowLeft' || e.key === '[')  { goto(state.index - 1); e.preventDefault() }
     else if (e.key === 'ArrowRight' || e.key === ']') { goto(state.index + 1); e.preventDefault() }
@@ -479,10 +483,12 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
     const sel = window.getSelection()?.toString().trim() || ''
     if (!IDENT_RE.test(sel)) return
     const cell = e.target.closest('.diff-text[data-path]')
-    openSymbolPanel(sel, cell?.dataset.path || null)
+    const anchor = cell ? { path: cell.dataset.path, line: cell.dataset.line, side: cell.dataset.side } : null
+    openSymbolPanel(sel, cell?.dataset.path || null, anchor)
   })
 
   $('[data-symbol-close]').addEventListener('click', closeSymbolPanel)
+  $('[data-symbol-back]').addEventListener('click', popSymbolJump)
   $('[data-symbol-panel]').addEventListener('click', (e) => {
     const match = e.target.closest('[data-path][data-line][data-side]')
     if (!match) return
@@ -519,21 +525,27 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
     return matches
   }
 
-  function openSymbolPanel(symbol, currentPath) {
+  function openSymbolPanel(symbol, currentPath, anchor) {
     const matches = findSymbolMatches(symbol)
-    state.symbolPanel = { open: true, symbol, matches, currentPath }
+    // jumpStack starts empty per panel session; the dblclick origin lives
+    // in currentAnchor and is pushed onto the stack on the first jump.
+    state.symbolPanel = { open: true, symbol, matches, currentPath, jumpStack: [], currentAnchor: anchor }
     const panel = $('[data-symbol-panel]')
     if (panel) panel.hidden = false
     root.classList.add('has-symbol-panel')
     renderSymbolPanel()
+    renderSymbolBackButton()
+    applySymbolHighlights()
   }
 
   function closeSymbolPanel() {
     if (!state.symbolPanel.open) return
-    state.symbolPanel = { open: false, symbol: null, matches: [], currentPath: null }
+    state.symbolPanel = { open: false, symbol: null, matches: [], currentPath: null, jumpStack: [], currentAnchor: null }
     const panel = $('[data-symbol-panel]')
     if (panel) panel.hidden = true
     root.classList.remove('has-symbol-panel')
+    renderSymbolBackButton()
+    clearSymbolHighlights()
   }
 
   function renderSymbolPanel() {
@@ -580,6 +592,27 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
   }
 
   function scrollToMatch(path, line, side) {
+    // Push the current anchor so the back button can return here. The
+    // anchor is either the dblclick origin (first jump) or the previous
+    // jump target (subsequent jumps in the same panel session).
+    if (state.symbolPanel.currentAnchor) {
+      state.symbolPanel.jumpStack.push(state.symbolPanel.currentAnchor)
+    }
+    state.symbolPanel.currentAnchor = { path, line, side }
+    scrollToDiffCell(path, line, side)
+    renderSymbolBackButton()
+  }
+
+  function popSymbolJump() {
+    const stack = state.symbolPanel.jumpStack
+    if (stack.length === 0) return
+    const target = stack.pop()
+    state.symbolPanel.currentAnchor = target
+    scrollToDiffCell(target.path, target.line, target.side)
+    renderSymbolBackButton()
+  }
+
+  function scrollToDiffCell(path, line, side) {
     let needsRender = false
     if (state.filter?.kind === 'related') {
       const visible = computeVisibleFiles().some((f) => f.path === path)
@@ -601,6 +634,83 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
     cell.classList.remove('is-flash')
     requestAnimationFrame(() => cell.classList.add('is-flash'))
     setTimeout(() => cell.classList.remove('is-flash'), 1700)
+  }
+
+  function renderSymbolBackButton() {
+    const btn = $('[data-symbol-back]')
+    if (!btn) return
+    const n = state.symbolPanel.jumpStack.length
+    if (n === 0) {
+      btn.hidden = true
+      btn.textContent = '↩ back'
+    } else {
+      btn.hidden = false
+      btn.textContent = n === 1 ? '↩ back' : `↩ back (${n})`
+    }
+  }
+
+  // Highlight every occurrence of the active symbol in the diff body so
+  // the eye can spot it without reading line numbers in the panel. We
+  // only walk cells listed in state.symbolPanel.matches (computed from
+  // the same regex as the panel itself), so the cost is bounded by match
+  // count, not the total cell count of the diff.
+  function applySymbolHighlights() {
+    if (!state.symbolPanel.open || !state.symbolPanel.symbol) return
+    clearSymbolHighlights()
+    const { symbol, matches } = state.symbolPanel
+    const escaped = symbol.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    const re = new RegExp(`\\b${escaped}\\b`, 'g')
+    const seen = new Set()
+    for (const m of matches) {
+      const key = `${m.path}|${m.line}|${m.side}`
+      if (seen.has(key)) continue
+      seen.add(key)
+      const cell = root.querySelector(
+        `.diff-text[data-path="${cssEscape(m.path)}"][data-line="${m.line}"][data-side="${m.side}"]`
+      )
+      if (cell) wrapSymbolInCell(cell, re)
+    }
+  }
+
+  function wrapSymbolInCell(cell, re) {
+    // TreeWalker iterates text nodes only — syntax-token <span> wrappers
+    // and their attributes (e.g. class="hl-keyword") are never visited,
+    // so we can't accidentally match inside markup.
+    const walker = document.createTreeWalker(cell, NodeFilter.SHOW_TEXT)
+    const targets = []
+    let node
+    while ((node = walker.nextNode())) {
+      re.lastIndex = 0
+      if (re.test(node.nodeValue)) targets.push(node)
+    }
+    for (const textNode of targets) {
+      const text = textNode.nodeValue
+      const frag = document.createDocumentFragment()
+      let lastIdx = 0
+      re.lastIndex = 0
+      let match
+      while ((match = re.exec(text)) !== null) {
+        if (match.index > lastIdx) {
+          frag.appendChild(document.createTextNode(text.slice(lastIdx, match.index)))
+        }
+        const span = document.createElement('span')
+        span.className = 'diff-symbol-occurrence'
+        span.textContent = match[0]
+        frag.appendChild(span)
+        lastIdx = match.index + match[0].length
+      }
+      if (lastIdx < text.length) {
+        frag.appendChild(document.createTextNode(text.slice(lastIdx)))
+      }
+      textNode.parentNode.replaceChild(frag, textNode)
+    }
+  }
+
+  function clearSymbolHighlights() {
+    const spans = root.querySelectorAll('.diff-symbol-occurrence')
+    for (const span of spans) {
+      span.parentNode.replaceChild(document.createTextNode(span.textContent), span)
+    }
   }
 
   function viewForCurrentIndex() {
@@ -1058,6 +1168,7 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
     }
     renderInlineComments()
     maybeScrollToAnchor()
+    applySymbolHighlights()
   }
 
   // One-shot scroll: when the user clicked "Jump to diff" from the threads
