@@ -3069,6 +3069,7 @@ a.card-file:hover .card-file-mark {
   transition: border-color .2s var(--ease);
 }
 .btn:hover { border-color: var(--accent); }
+.btn[hidden] { display: none; }
 
 /* Threads page */
 .threads-page .threads-meta {

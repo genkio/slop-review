@@ -329,7 +329,7 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
           <button type="button" data-view="inline" class="${state.mode === 'inline' ? 'active' : ''}" role="tab">Inline</button>
         </div>
         <button type="button" class="diff-copy-prompt" data-copy-prompt title="Copy aggregate-comments prompt for the agent">Copy</button>
-        <a class="btn diff-back" href="#/repo/${encodeURIComponent(repo.id)}">Threads</a>
+        <a class="btn diff-back" data-threads-link href="#/repo/${encodeURIComponent(repo.id)}" hidden>Threads</a>
       </div>
     </header>
     <div class="diff-body" data-body>
@@ -1241,6 +1241,10 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
       const r = await api(`/api/repos/${encodeURIComponent(repo.id)}/threads`)
       state.threads = r?.threads || []
       renderInlineComments()
+      // Threads button only makes sense once at least one thread exists —
+      // otherwise it'd just bounce the router straight back here.
+      const link = root.querySelector('[data-threads-link]')
+      if (link) link.hidden = state.threads.length === 0
     } catch {}
   }
 

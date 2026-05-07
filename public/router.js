@@ -34,6 +34,27 @@ export async function route() {
 
   if (view === 'repos') return renderReposPage()
   if (view === 'repo' && id && sub === 'diff') return renderDiffPage(id, { rest })
-  if (view === 'repo' && id) return renderThreadsPage(id)
+  if (view === 'repo' && id) {
+    // Diff is the default landing page on a repo with no threads — the
+    // empty threads page would just tell the user to "open the diff",
+    // so we send them there directly. Once a thread exists, the threads
+    // page becomes useful and this redirect is skipped.
+    if (await repoHasNoThreads(id)) {
+      location.hash = `#/repo/${encodeURIComponent(id)}/diff`
+      return
+    }
+    return renderThreadsPage(id)
+  }
   location.hash = '#/'
+}
+
+async function repoHasNoThreads(id) {
+  try {
+    const r = await api(`/api/repos/${encodeURIComponent(id)}/threads`)
+    return (r?.threads || []).length === 0
+  } catch {
+    // On error (no current branch, repo missing, etc.) fall through to the
+    // threads page so its own error handling can show the message.
+    return false
+  }
 }
