@@ -2520,11 +2520,10 @@ a.card-file:hover .card-file-mark {
 .diff-symbol-back:hover { color: var(--ink); border-color: var(--lane-explain); }
 .diff-symbol-back[hidden] { display: none; }
 
-/* Inline highlight on every occurrence of the active symbol in the
-   diff body. Applied via TreeWalker on panel-open (see diff.js). Uses
-   background only (no padding/outline) to keep monospace alignment
-   intact in side-by-side split view. */
-.diff-symbol-occurrence {
+/* Line-level symbol highlight. Kept at the `.diff-line` layer so the
+   add/del/context cell backgrounds stay intact, and implemented without
+   mutating text nodes inside the rendered diff table. */
+.diff-text.is-symbol-hit .diff-line {
   background: color-mix(in srgb, var(--lane-explain) 26%, transparent);
   border-radius: 2px;
 }
@@ -3277,6 +3276,16 @@ body:has(.diff-page) main {
      aggressively, and shrinks the layout tree that
      getBoundingClientRect walks for visible cells. */
   contain: layout style paint;
+}
+
+/* Brave/Chromium can renderer-crash when a large table uses
+   content-visibility:auto, the symbol panel changes the page width, and the
+   user resumes regular scrolling. Keep the default optimization for normal
+   review, but disable it for the current diff view after symbol navigation. */
+.diff-page.disable-content-visibility .diff-file {
+  content-visibility: visible;
+  contain-intrinsic-size: auto;
+  contain: none;
 }
 
 /* Per-file mark-reviewed toggle button on each .diff-file-head.

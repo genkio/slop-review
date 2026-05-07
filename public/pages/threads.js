@@ -12,9 +12,10 @@ let currentSseUnsub = null
  * pills (your turn / awaiting / read), grouped by file in priority order,
  * with counts at the top. Live-updates via SSE.
  */
-export async function renderThreadsPage() {
+export async function renderThreadsPage(isCurrent = () => true) {
   const repo = store.state.repos[0]
   if (!repo) { location.hash = ROUTES.threads(); return }
+  if (!isCurrent()) return
 
   // Tear down any prior SSE subscription before rebinding to this page.
   if (currentSseUnsub) { try { currentSseUnsub() } catch {}; currentSseUnsub = null }
@@ -22,7 +23,9 @@ export async function renderThreadsPage() {
   let branchInfo
   try {
     branchInfo = await api(`/api/repos/${encodeURIComponent(repo.id)}/branch`)
+    if (!isCurrent()) return
   } catch (e) {
+    if (!isCurrent()) return
     document.getElementById('main').innerHTML = `<div class="branch-error">Failed to read branch info: ${escapeHtml(e.message)}</div>`
     return
   }
@@ -42,9 +45,10 @@ export async function renderThreadsPage() {
       <div id="threads-list">Loading…</div>
     </div>`
 
-  await refresh(repo)
+  await refresh(repo, isCurrent)
+  if (!isCurrent()) return
 
-  currentSseUnsub = subscribeRepoEvents(repo.id, () => refresh(repo))
+  currentSseUnsub = subscribeRepoEvents(repo.id, () => refresh(repo, isCurrent))
 }
 
 /**
@@ -57,14 +61,18 @@ export function disposeThreadsView() {
   if (currentSseUnsub) { try { currentSseUnsub() } catch {}; currentSseUnsub = null }
 }
 
-async function refresh(repo) {
+async function refresh(repo, isCurrent = () => true) {
+  if (!isCurrent()) return
   let payload
   try {
     payload = await api(`/api/repos/${encodeURIComponent(repo.id)}/threads`)
+    if (!isCurrent()) return
   } catch (e) {
+    if (!isCurrent()) return
     document.getElementById('threads-list').innerHTML = `<div class="branch-error">Failed to load threads: ${escapeHtml(e.message)}</div>`
     return
   }
+  if (!document.getElementById('threads-list')) return
   const threads = payload?.threads || []
   document.getElementById('threads-list').innerHTML = renderThreadsList(threads)
 
@@ -92,7 +100,7 @@ async function refresh(repo) {
             location.hash = ROUTES.diffFull()
           }
         },
-        onChanged: () => refresh(repo),
+        onChanged: () => refresh(repo, isCurrent),
       })
     })
   })

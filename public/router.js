@@ -5,6 +5,8 @@ import { renderThreadsPage, disposeThreadsView } from './pages/threads.js'
 import { disposeDiffView } from './diff.js'
 import { ROUTES, SHA_RE } from './routes.js'
 
+let routeRunId = 0
+
 // Hash routes (post multi-repo removal — only one repo, so no `/repo/<id>`
 // segment in user-facing URLs):
 //
@@ -29,7 +31,14 @@ export function parseHash() {
 }
 
 export async function route() {
-  if (!store.state) setState(await api('/api/state'))
+  const runId = ++routeRunId
+  const isCurrent = () => runId === routeRunId
+
+  if (!store.state) {
+    const nextState = await api('/api/state')
+    if (!isCurrent()) return
+    setState(nextState)
+  }
   const parsed = parseHash()
   // Tear down each page's external resources (DOM listeners, SSE) when
   // leaving it. Each page also disposes itself at the top of its mount,
@@ -38,24 +47,28 @@ export async function route() {
   if (parsed.kind !== 'threads') disposeThreadsView()
 
   if (!store.state?.config?.bootstrap_repo_id) {
+    if (!isCurrent()) return
     document.getElementById('main').innerHTML =
       '<div class="branch-error">No repo configured. Run via <code>npx slop-review</code> inside a git repo.</div>'
     return
   }
 
-  if (parsed.kind === 'diff') return renderDiffPage(parsed)
+  if (parsed.kind === 'diff') return renderDiffPage(parsed, isCurrent)
   if (parsed.kind === 'threads') {
     // Diff is the default landing page on a repo with no threads — the
     // empty threads page would just tell the user to "open the diff",
     // so we send them there directly. Once a thread exists, the threads
     // page becomes useful and this redirect is skipped.
     if (await currentBranchHasNoThreads()) {
+      if (!isCurrent()) return
       location.hash = ROUTES.diffFull()
       return
     }
-    return renderThreadsPage()
+    if (!isCurrent()) return
+    return renderThreadsPage(isCurrent)
   }
   // Unknown route → home.
+  if (!isCurrent()) return
   location.hash = ROUTES.threads()
 }
 

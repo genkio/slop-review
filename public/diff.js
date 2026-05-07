@@ -268,9 +268,11 @@ export function disposeDiffView() {
  * to await it for navigation; it's awaited mainly so `scrollToAnchor`
  * fires on the freshly-rendered DOM.
  */
-export async function renderDiffView({ repo, branch, branchId, branchInfo, commits, initialIndex = 0, hasLocal = false, scrollToAnchor = null }) {
+export async function renderDiffView({ repo, branch, branchId, branchInfo, commits, initialIndex = 0, hasLocal = false, scrollToAnchor = null, isCurrent = () => true }) {
+  if (!isCurrent()) return
   // Tear down any previous diff view's listeners + SSE before we re-mount.
   disposeDiffView()
+  if (!isCurrent()) return
 
   const isMobile = window.matchMedia('(max-width: 768px)').matches
   const maxIdx = commits.length + (hasLocal ? 1 : 0)
@@ -369,11 +371,14 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
 
   let unsubscribeSse = null
   let disposed = false
+  let flashTimer = null
+  const isStale = () => disposed || !isCurrent()
   const dispose = () => {
     if (disposed) return
     disposed = true
     document.removeEventListener('keydown', onKey)
     if (unsubscribeSse) { try { unsubscribeSse() } catch {}; unsubscribeSse = null }
+    if (flashTimer) { clearTimeout(flashTimer); flashTimer = null }
     // Floating button lives on document.body — its parent isn't the
     // page root, so #main.replaceChildren() won't sweep it up.
     try { commentBtn?.remove() } catch {}
@@ -532,7 +537,7 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
     state.symbolPanel = { open: true, symbol, matches, currentPath, jumpStack: [], currentAnchor: anchor }
     const panel = $('[data-symbol-panel]')
     if (panel) panel.hidden = false
-    root.classList.add('has-symbol-panel')
+    root.classList.add('has-symbol-panel', 'disable-content-visibility')
     renderSymbolPanel()
     renderSymbolBackButton()
     applySymbolHighlights()
@@ -541,8 +546,11 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
   function closeSymbolPanel() {
     if (!state.symbolPanel.open) return
     state.symbolPanel = { open: false, symbol: null, matches: [], currentPath: null, jumpStack: [], currentAnchor: null }
+    clearActiveFlash()
     const panel = $('[data-symbol-panel]')
     if (panel) panel.hidden = true
+    const list = $('[data-symbol-list]')
+    if (list) list.textContent = ''
     root.classList.remove('has-symbol-panel')
     renderSymbolBackButton()
     clearSymbolHighlights()
@@ -597,6 +605,7 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
     // jump target (subsequent jumps in the same panel session).
     if (state.symbolPanel.currentAnchor) {
       state.symbolPanel.jumpStack.push(state.symbolPanel.currentAnchor)
+      if (state.symbolPanel.jumpStack.length > 100) state.symbolPanel.jumpStack.shift()
     }
     state.symbolPanel.currentAnchor = { path, line, side }
     scrollToDiffCell(path, line, side)
@@ -612,7 +621,28 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
     renderSymbolBackButton()
   }
 
+  function flashCell(cell) {
+    if (!cell || !cell.isConnected) return
+    clearActiveFlash()
+    requestAnimationFrame(() => {
+      if (!isStale() && cell.isConnected) cell.classList.add('is-flash')
+    })
+    flashTimer = setTimeout(() => {
+      if (cell.isConnected) cell.classList.remove('is-flash')
+      flashTimer = null
+    }, 1700)
+  }
+
+  function clearActiveFlash() {
+    if (flashTimer) {
+      clearTimeout(flashTimer)
+      flashTimer = null
+    }
+    root.querySelectorAll('.diff-text.is-flash').forEach((el) => el.classList.remove('is-flash'))
+  }
+
   function scrollToDiffCell(path, line, side) {
+    if (isStale()) return
     let needsRender = false
     if (state.filter?.kind === 'related') {
       const visible = computeVisibleFiles().some((f) => f.path === path)
@@ -630,10 +660,8 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
       `.diff-text[data-path="${cssEscape(path)}"][data-line="${line}"][data-side="${side}"]`
     )
     if (!cell) return
-    cell.scrollIntoView({ behavior: 'smooth', block: 'center' })
-    cell.classList.remove('is-flash')
-    requestAnimationFrame(() => cell.classList.add('is-flash'))
-    setTimeout(() => cell.classList.remove('is-flash'), 1700)
+    cell.scrollIntoView({ behavior: 'auto', block: 'center' })
+    flashCell(cell)
   }
 
   function renderSymbolBackButton() {
@@ -649,17 +677,14 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
     }
   }
 
-  // Highlight every occurrence of the active symbol in the diff body so
-  // the eye can spot it without reading line numbers in the panel. We
-  // only walk cells listed in state.symbolPanel.matches (computed from
-  // the same regex as the panel itself), so the cost is bounded by match
-  // count, not the total cell count of the diff.
+  // Highlight every line containing the active symbol. This deliberately
+  // marks cells instead of wrapping text nodes inside the diff table; Brave
+  // can renderer-crash after repeated text-node mutations followed by a
+  // close-panel reflow and normal scrolling on large diffs.
   function applySymbolHighlights() {
     if (!state.symbolPanel.open || !state.symbolPanel.symbol) return
     clearSymbolHighlights()
-    const { symbol, matches } = state.symbolPanel
-    const escaped = symbol.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-    const re = new RegExp(`\\b${escaped}\\b`, 'g')
+    const { matches } = state.symbolPanel
     const seen = new Set()
     for (const m of matches) {
       const key = `${m.path}|${m.line}|${m.side}`
@@ -668,49 +693,12 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
       const cell = root.querySelector(
         `.diff-text[data-path="${cssEscape(m.path)}"][data-line="${m.line}"][data-side="${m.side}"]`
       )
-      if (cell) wrapSymbolInCell(cell, re)
-    }
-  }
-
-  function wrapSymbolInCell(cell, re) {
-    // TreeWalker iterates text nodes only — syntax-token <span> wrappers
-    // and their attributes (e.g. class="hl-keyword") are never visited,
-    // so we can't accidentally match inside markup.
-    const walker = document.createTreeWalker(cell, NodeFilter.SHOW_TEXT)
-    const targets = []
-    let node
-    while ((node = walker.nextNode())) {
-      re.lastIndex = 0
-      if (re.test(node.nodeValue)) targets.push(node)
-    }
-    for (const textNode of targets) {
-      const text = textNode.nodeValue
-      const frag = document.createDocumentFragment()
-      let lastIdx = 0
-      re.lastIndex = 0
-      let match
-      while ((match = re.exec(text)) !== null) {
-        if (match.index > lastIdx) {
-          frag.appendChild(document.createTextNode(text.slice(lastIdx, match.index)))
-        }
-        const span = document.createElement('span')
-        span.className = 'diff-symbol-occurrence'
-        span.textContent = match[0]
-        frag.appendChild(span)
-        lastIdx = match.index + match[0].length
-      }
-      if (lastIdx < text.length) {
-        frag.appendChild(document.createTextNode(text.slice(lastIdx)))
-      }
-      textNode.parentNode.replaceChild(frag, textNode)
+      if (cell) cell.classList.add('is-symbol-hit')
     }
   }
 
   function clearSymbolHighlights() {
-    const spans = root.querySelectorAll('.diff-symbol-occurrence')
-    for (const span of spans) {
-      span.parentNode.replaceChild(document.createTextNode(span.textContent), span)
-    }
+    root.querySelectorAll('.diff-text.is-symbol-hit').forEach((cell) => cell.classList.remove('is-symbol-hit'))
   }
 
   function viewForCurrentIndex() {
@@ -908,6 +896,7 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
   }
 
   async function refreshReviewed() {
+    if (isStale()) return
     if (!isFullIndex(state.index)) {
       if (state.reviewed.size || state.reviewedSha) {
         state.reviewed    = new Set()
@@ -921,6 +910,7 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
     if (state.reviewedSha === sha) return
     try {
       const r = await api(`/api/repos/${encodeURIComponent(repo.id)}/reviewed?head_sha=${encodeURIComponent(sha)}`)
+      if (isStale()) return
       state.reviewed    = new Set(r?.paths || [])
       state.reviewedSha = sha
       // Auto-fold reviewed files on hydration. The mark-time auto-fold in
@@ -1036,6 +1026,7 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
   }
 
   function renderHead() {
+    if (isStale()) return
     const shaEl       = $('[data-sha]')
     const isFull      = isFullIndex(state.index)
     const isLocal     = isLocalIndex(state.index)
@@ -1093,6 +1084,7 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
   }
 
   function renderBody() {
+    if (isStale()) return
     const body = $('[data-body]')
     if (state.loading) {
       body.innerHTML = '<div class="diff-loading">Loading diff…</div>'
@@ -1187,14 +1179,13 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
     }
     // Defer one frame so the body's just-set innerHTML has laid out.
     requestAnimationFrame(() => {
+      if (isStale()) return
       const cell = root.querySelector(
         `.diff-text[data-path="${cssEscape(file)}"][data-line="${line}"][data-side="${side || 'new'}"]`
       )
       if (cell) {
-        cell.scrollIntoView({ behavior: 'smooth', block: 'center' })
-        cell.classList.remove('is-flash')
-        requestAnimationFrame(() => cell.classList.add('is-flash'))
-        setTimeout(() => cell.classList.remove('is-flash'), 1700)
+        cell.scrollIntoView({ behavior: 'auto', block: 'center' })
+        flashCell(cell)
       } else {
         toast(`${file.split('/').pop()}:${line} not in this diff (anchor lost)`)
       }
@@ -1288,8 +1279,10 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
   // Diff load with cache
   // ------------------------------------------------------------------
   async function loadDiff({ cacheKey, fetchUrl, errorPrefix }) {
+    if (isStale()) return
     const cached = cacheKey ? loadCachedDiff(cacheKey) : null
     if (cached) {
+      if (isStale()) return
       state.loading = false
       state.diff    = cached
       renderHead()
@@ -1301,6 +1294,7 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
     renderBody()
     try {
       const diff = await api(fetchUrl)
+      if (isStale()) return
       const writeKey = isFullIndex(expectedIndex) && diff?.sha ? `full:${diff.sha}` : cacheKey
       if (state.index !== expectedIndex) {
         if (writeKey) saveCachedDiff(writeKey, diff)
@@ -1312,6 +1306,7 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
       renderHead()
       renderBody()
     } catch (e) {
+      if (isStale()) return
       if (state.index !== expectedIndex) return
       state.loading = false
       $('[data-body]').innerHTML = `<div class="diff-error">${errorPrefix}: ${escapeHtml(e.message)}</div>`
@@ -1319,6 +1314,7 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
   }
 
   async function load() {
+    if (isStale()) return
     renderHead()
     if (isLocalIndex(state.index)) {
       await loadDiff({
@@ -1341,6 +1337,7 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
         errorPrefix: 'Failed to load diff',
       })
     }
+    if (isStale()) return
     refreshReviewed()
   }
 
@@ -1348,8 +1345,10 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
   // Threads: initial fetch + SSE subscribe
   // ------------------------------------------------------------------
   async function loadThreads() {
+    if (isStale()) return
     try {
       const r = await api(`/api/repos/${encodeURIComponent(repo.id)}/threads`)
+      if (isStale()) return
       state.threads = r?.threads || []
       renderInlineComments()
       // Threads button only makes sense once at least one thread exists —
@@ -1360,10 +1359,12 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
   }
 
   unsubscribeSse = subscribeRepoEvents(repo.id, (payload) => {
+    if (isStale()) return
     if (payload?.branch_id !== state.branchId) return
     loadThreads()
   })
 
   await loadThreads()
+  if (isStale()) return
   await load()
 }

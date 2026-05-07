@@ -15,7 +15,7 @@ import { ROUTES } from '../routes.js'
  *   { kind: 'diff', variant: 'local' }
  *   { kind: 'diff', variant: 'commit', sha: '<sha-prefix>' }
  */
-export async function renderDiffPage(parsed = { variant: 'full' }) {
+export async function renderDiffPage(parsed = { variant: 'full' }, isCurrent = () => true) {
   // Always tear down a previous diff view's listeners + SSE before deciding
   // what to render here. Running this even on empty-state branches is safe
   // — the function no-ops when nothing is mounted.
@@ -23,6 +23,7 @@ export async function renderDiffPage(parsed = { variant: 'full' }) {
 
   const repo = store.state.repos[0]
   if (!repo) { location.hash = ROUTES.threads(); return }
+  if (!isCurrent()) return
 
   const main = document.getElementById('main')
   main.innerHTML = `<div class="branch-loading">Loading…</div>`
@@ -30,7 +31,9 @@ export async function renderDiffPage(parsed = { variant: 'full' }) {
   let branchInfo
   try {
     branchInfo = await api(`/api/repos/${encodeURIComponent(repo.id)}/branch`)
+    if (!isCurrent()) return
   } catch (e) {
+    if (!isCurrent()) return
     main.innerHTML = `<div class="branch-error">Failed to read branch info: ${escapeHtml(e.message)}</div>`
     return
   }
@@ -56,8 +59,11 @@ export async function renderDiffPage(parsed = { variant: 'full' }) {
   if (branchInfo.has_commits_ahead) {
     try {
       const r = await api(`/api/repos/${encodeURIComponent(repo.id)}/commits`)
+      if (!isCurrent()) return
       commits = r?.commits || []
-    } catch {}
+    } catch {
+      if (!isCurrent()) return
+    }
   }
 
   const hasLocal = !!branchInfo.has_local_changes
@@ -85,6 +91,7 @@ export async function renderDiffPage(parsed = { variant: 'full' }) {
 
   const branchId = sanitizeBranchId(branchInfo.current_branch || '')
 
+  if (!isCurrent()) return
   await renderDiffView({
     repo,
     branch: branchInfo.current_branch,
@@ -94,6 +101,7 @@ export async function renderDiffPage(parsed = { variant: 'full' }) {
     initialIndex,
     hasLocal,
     scrollToAnchor,
+    isCurrent,
   })
 }
 
