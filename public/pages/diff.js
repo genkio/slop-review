@@ -3,6 +3,14 @@ import { store } from '../store.js'
 import { escapeHtml } from '../util.js'
 import { renderDiffView, disposeDiffView } from '../diff.js'
 import { ROUTES } from '../routes.js'
+import { setupOverviewNav } from '../overview-nav.js'
+
+let emptyOverviewNavDispose = null
+
+export function disposeDiffPage() {
+  disposeDiffView()
+  if (emptyOverviewNavDispose) { try { emptyOverviewNavDispose() } catch {}; emptyOverviewNavDispose = null }
+}
 
 /**
  * Diff page. Owns the empty states (detached HEAD, on-base, no origin/HEAD)
@@ -19,7 +27,7 @@ export async function renderDiffPage(parsed = { variant: 'full' }, isCurrent = (
   // Always tear down a previous diff view's listeners + SSE before deciding
   // what to render here. Running this even on empty-state branches is safe
   // — the function no-ops when nothing is mounted.
-  disposeDiffView()
+  disposeDiffPage()
 
   const repo = store.state.repos[0]
   if (!repo) { location.hash = ROUTES.threads(); return }
@@ -46,11 +54,13 @@ export async function renderDiffPage(parsed = { variant: 'full' }, isCurrent = (
         <div class="page-head">
           <h1>${escapeHtml(repo.display_name)}</h1>
           <div class="actions">
+            <span data-overview-nav class="overview-nav-slot"></span>
             <a class="btn" href="${ROUTES.threads()}">Threads</a>
           </div>
         </div>
         <div class="branch-card">${renderBranchCard(branchInfo)}</div>
       </div>`
+    emptyOverviewNavDispose = setupOverviewNav(main.querySelector('[data-overview-nav]'), repo.id)
     return
   }
 

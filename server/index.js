@@ -7,7 +7,9 @@ import { loadState } from './state.js'
 import { registerDiffRoutes } from './routes/diff.js'
 import { registerThreadRoutes } from './routes/threads.js'
 import { registerEventRoutes } from './routes/events.js'
+import { registerOverviewRoutes } from './routes/overview.js'
 import { shutdownAllWatchers } from './watcher.js'
+import { shutdownAllOverviewJobs } from './overview.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const PROJECT_ROOT = join(__dirname, '..')
@@ -46,6 +48,7 @@ export async function start({ port = DEFAULT_PORT, hostname = '0.0.0.0' } = {}) 
   registerDiffRoutes(app)
   registerThreadRoutes(app)
   registerEventRoutes(app)
+  registerOverviewRoutes(app)
 
   app.use(
     '/*',
@@ -64,6 +67,7 @@ export async function start({ port = DEFAULT_PORT, hostname = '0.0.0.0' } = {}) 
     for (const sig of ['SIGTERM', 'SIGINT']) {
       process.on(sig, () => {
         shutdownAllWatchers()
+        shutdownAllOverviewJobs()
         process.exit(0)
       })
     }

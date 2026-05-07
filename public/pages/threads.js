@@ -4,8 +4,10 @@ import { escapeHtml, inlineCode, relTime } from '../util.js'
 import { openThreadModal } from '../modals.js'
 import { subscribeRepoEvents, unsubscribeRepoEvents } from '../sse.js'
 import { ROUTES } from '../routes.js'
+import { setupOverviewNav } from '../overview-nav.js'
 
 let currentSseUnsub = null
+let currentOverviewNavDispose = null
 
 /**
  * Thread browser page. Lists every thread on the current branch with state
@@ -19,6 +21,7 @@ export async function renderThreadsPage(isCurrent = () => true) {
 
   // Tear down any prior SSE subscription before rebinding to this page.
   if (currentSseUnsub) { try { currentSseUnsub() } catch {}; currentSseUnsub = null }
+  if (currentOverviewNavDispose) { try { currentOverviewNavDispose() } catch {}; currentOverviewNavDispose = null }
 
   let branchInfo
   try {
@@ -36,6 +39,7 @@ export async function renderThreadsPage(isCurrent = () => true) {
       <div class="page-head">
         <h1>Threads</h1>
         <div class="actions">
+          <span data-overview-nav class="overview-nav-slot"></span>
           <a class="btn" href="${ROUTES.diffFull()}">Diff</a>
         </div>
       </div>
@@ -48,6 +52,7 @@ export async function renderThreadsPage(isCurrent = () => true) {
   await refresh(repo, isCurrent)
   if (!isCurrent()) return
 
+  currentOverviewNavDispose = setupOverviewNav(main.querySelector('[data-overview-nav]'), repo.id)
   currentSseUnsub = subscribeRepoEvents(repo.id, () => refresh(repo, isCurrent))
 }
 
@@ -59,6 +64,7 @@ export async function renderThreadsPage(isCurrent = () => true) {
  */
 export function disposeThreadsView() {
   if (currentSseUnsub) { try { currentSseUnsub() } catch {}; currentSseUnsub = null }
+  if (currentOverviewNavDispose) { try { currentOverviewNavDispose() } catch {}; currentOverviewNavDispose = null }
 }
 
 async function refresh(repo, isCurrent = () => true) {

@@ -1,8 +1,8 @@
 import { api } from './api.js'
 import { store, setState } from './store.js'
-import { renderDiffPage } from './pages/diff.js'
+import { renderDiffPage, disposeDiffPage } from './pages/diff.js'
 import { renderThreadsPage, disposeThreadsView } from './pages/threads.js'
-import { disposeDiffView } from './diff.js'
+import { renderOverviewPage, disposeOverviewView } from './pages/overview.js'
 import { ROUTES, SHA_RE } from './routes.js'
 
 let routeRunId = 0
@@ -11,6 +11,7 @@ let routeRunId = 0
 // segment in user-facing URLs):
 //
 //   #/                threads page (default home)
+//   #/overview        generated branch overview
 //   #/diff            full diff
 //   #/diff/local      local diff
 //   #/diff/<sha>      per-commit diff (sha = SHA_RE)
@@ -22,6 +23,7 @@ let routeRunId = 0
 export function parseHash() {
   const parts = location.hash.replace(/^#\/?/, '').split('/').filter(Boolean)
   if (parts.length === 0) return { kind: 'threads' }
+  if (parts[0] === 'overview' && parts.length === 1) return { kind: 'overview' }
   if (parts[0] === 'diff') {
     if (parts.length === 1) return { kind: 'diff', variant: 'full' }
     if (parts[1] === 'local') return { kind: 'diff', variant: 'local' }
@@ -43,8 +45,9 @@ export async function route() {
   // Tear down each page's external resources (DOM listeners, SSE) when
   // leaving it. Each page also disposes itself at the top of its mount,
   // so these calls only matter on the cross-page transition.
-  if (parsed.kind !== 'diff') disposeDiffView()
+  if (parsed.kind !== 'diff') disposeDiffPage()
   if (parsed.kind !== 'threads') disposeThreadsView()
+  if (parsed.kind !== 'overview') disposeOverviewView()
 
   if (!store.state?.config?.bootstrap_repo_id) {
     if (!isCurrent()) return
@@ -54,6 +57,7 @@ export async function route() {
   }
 
   if (parsed.kind === 'diff') return renderDiffPage(parsed, isCurrent)
+  if (parsed.kind === 'overview') return renderOverviewPage(isCurrent)
   if (parsed.kind === 'threads') {
     // Diff is the default landing page on a repo with no threads — the
     // empty threads page would just tell the user to "open the diff",

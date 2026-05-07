@@ -9,6 +9,7 @@
 
 export const ROUTES = {
   threads:    () => '#/',
+  overview:   () => '#/overview',
   diffFull:   () => '#/diff',
   diffLocal:  () => '#/diff/local',
   diffCommit: (sha) => `#/diff/${sha.slice(0, 12)}`,

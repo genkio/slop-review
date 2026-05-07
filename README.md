@@ -1,6 +1,6 @@
 # slop-review
 
-A local PR-review loop for human ↔ LLM. Run it inside any git repo to leave inline comments on your feature branch's diff, hand the threads off to Claude Code or Codex CLI via clipboard, and watch the agent's replies stream back over SSE.
+A local PR-review loop for human ↔ LLM. Run it inside any git repo to generate a high-level Codex overview of the feature branch, leave inline comments on the diff, hand the threads off to Claude Code or Codex CLI via clipboard, and watch the agent's replies stream back over SSE.
 
 ## Getting started
 
@@ -14,6 +14,8 @@ That's it. The cwd is auto-bootstrapped as the review target, the server picks a
 Flags: `--port <n>`, `--host <h>`, `--no-open`, `-h`.
 
 Prerequisites: Node ≥ 20, `git` on `PATH`, `gh` authenticated (falls back to `me` if unreachable).
+
+The Overview page uses `codex exec` in read-only non-interactive mode. If `codex` is not on `PATH` or not logged in, the page shows the captured CLI error and a retry button.
 
 State (prompt templates + schema version): `~/.config/slop-review/state.json`.
 

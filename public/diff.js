@@ -4,6 +4,7 @@ import { openCopyAggregateModal, openThreadModal, confirmRemoveComment } from '.
 import { languageForPath, highlightLine } from './syntax.js'
 import { subscribeRepoEvents } from './sse.js'
 import { ROUTES } from './routes.js'
+import { setupOverviewNav } from './overview-nav.js'
 
 const DIFF_CACHE_PREFIX = 'slop-review:diff:v1:'
 
@@ -332,6 +333,7 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
           <button type="button" data-view="inline" class="${state.mode === 'inline' ? 'active' : ''}" role="tab">Inline</button>
         </div>
         <button type="button" class="diff-copy-prompt" data-copy-prompt title="Copy aggregate-comments prompt for the agent">Copy</button>
+        <span data-overview-nav class="overview-nav-slot"></span>
         <a class="btn diff-back" data-threads-link href="${ROUTES.threads()}" hidden>Threads</a>
       </div>
     </header>
@@ -370,6 +372,7 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
   }
 
   let unsubscribeSse = null
+  let disposeOverviewNav = null
   let disposed = false
   let flashTimer = null
   const isStale = () => disposed || !isCurrent()
@@ -378,6 +381,7 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
     disposed = true
     document.removeEventListener('keydown', onKey)
     if (unsubscribeSse) { try { unsubscribeSse() } catch {}; unsubscribeSse = null }
+    if (disposeOverviewNav) { try { disposeOverviewNav() } catch {}; disposeOverviewNav = null }
     if (flashTimer) { clearTimeout(flashTimer); flashTimer = null }
     // Floating button lives on document.body — its parent isn't the
     // page root, so #main.replaceChildren() won't sweep it up.
@@ -401,6 +405,7 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
   }
   document.addEventListener('keydown', onKey)
   syncUrl()
+  disposeOverviewNav = setupOverviewNav($('[data-overview-nav]'), repo.id)
 
   $$('[data-view]').forEach((b) => {
     b.addEventListener('click', () => {
