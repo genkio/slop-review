@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.1](https://github.com/genkio/slop-review/compare/v0.3.0...v0.3.1) (2026-05-07)
+
+
+### Bug Fixes
+
+* stabilize symbol navigation ([5e82e48](https://github.com/genkio/slop-review/commit/5e82e482235ff0579e9ab39c4c446dde159a296c))
+
 ## [0.3.0](https://github.com/genkio/slop-review/compare/v0.2.2...v0.3.0) (2026-05-07)
 
 
