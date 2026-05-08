@@ -1994,6 +1994,7 @@ a.card-file:hover .card-file-mark {
   flex: 1 1 auto;
   min-height: 0;
   overflow: auto;
+  overflow-anchor: none;
   padding: 16px;
   background: var(--bg);
 }
@@ -2467,25 +2468,36 @@ a.card-file:hover .card-file-mark {
    that contains that symbol as a whole word, grouped by file. The body
    gets right-padded so file content shifts left rather than hiding
    behind the panel. On mobile the panel covers the body entirely. */
+/* Panel container floats over the right edge of the diff body — no
+   body-width change when sessions open/close. The container itself is
+   transparent; each .diff-symbol-session inside provides its own card
+   styling. Multiple parked sessions stack horizontally (newest rightmost),
+   each at 32px when minimized; at most one is active (380px) at a time.
+   Sessions in the DOM are listed oldest-first so the newest opens on the
+   right edge — the most prominent position. */
 .diff-symbol-panel {
   position: absolute;
   top: 0;
   right: 0;
   bottom: 0;
-  width: 380px;
-  background: var(--card);
-  border-left: 1px solid var(--hairline);
-  box-shadow: -4px 0 12px color-mix(in srgb, var(--ink) 6%, transparent);
   z-index: 4;
   display: flex;
-  flex-direction: column;
-  overflow: hidden;
+  flex-direction: row;
 }
 .diff-symbol-panel[hidden] { display: none; }
 
-/* Body shifts left when panel is open so file content stays visible. */
-.diff-modal.has-symbol-panel .diff-body {
-  padding-right: 396px;             /* 380 panel + 16 inset */
+.diff-symbol-session {
+  height: 100%;
+  background: var(--card);
+  border-left: 1px solid var(--hairline);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  flex: 0 0 auto;
+}
+.diff-symbol-session.is-active {
+  width: 380px;
+  box-shadow: -4px 0 12px color-mix(in srgb, var(--ink) 6%, transparent);
 }
 
 .diff-symbol-head {
@@ -2514,7 +2526,8 @@ a.card-file:hover .card-file-mark {
   margin-left: auto;
   flex-shrink: 0;
 }
-.diff-symbol-close {
+.diff-symbol-close,
+.diff-symbol-minimize {
   font-size: 18px;
   width: 24px;
   height: 24px;
@@ -2524,8 +2537,67 @@ a.card-file:hover .card-file-mark {
   cursor: pointer;
   color: var(--fg-muted);
   flex: 0 0 auto;
+  line-height: 1;
 }
-.diff-symbol-close:hover { color: var(--ink); }
+.diff-symbol-close:hover,
+.diff-symbol-minimize:hover { color: var(--ink); }
+.diff-symbol-minimize { font-size: 22px; } /* '−' looks lighter than '×'; bump it up to match weight */
+
+/* Minimized strip — a 32px-wide parked-session handle. Lays out as a
+   vertical column: chevron at top (restore), rotated symbol name in the
+   middle (reads top-to-bottom via writing-mode: vertical-rl, glyphs upright
+   via text-orientation: mixed), × at bottom (close session). Click on the
+   chevron OR on empty strip surface restores; click × closes. Each session
+   is its own card with its own border — multiple strips stack side-by-side. */
+.diff-symbol-session.is-minimized {
+  width: 32px;
+  cursor: pointer;
+  align-items: center;
+  padding: 12px 0;
+  gap: 8px;
+  transition: background-color 120ms var(--ease-out);
+}
+.diff-symbol-session.is-minimized:hover {
+  background: color-mix(in srgb, var(--accent) 6%, var(--card));
+}
+.diff-symbol-mini-chevron,
+.diff-symbol-mini-close {
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  color: var(--fg-muted);
+  font-family: var(--font-sans);
+  font-size: 18px;
+  line-height: 1;
+  flex: 0 0 auto;
+}
+.diff-symbol-mini-chevron { font-size: 18px; }
+.diff-symbol-mini-close   { font-size: 18px; margin-top: auto; } /* push to bottom */
+.diff-symbol-session.is-minimized:hover .diff-symbol-mini-chevron,
+.diff-symbol-mini-close:hover {
+  color: var(--accent);
+}
+.diff-symbol-mini-name {
+  /* Rotated label: vertical-rl plus upright-mixed glyphs gives a clean
+     top-to-bottom read of the symbol name without per-letter side rotation
+     looking awkward. Truncates with ellipsis if it would overflow the
+     strip's available height. */
+  writing-mode: vertical-rl;
+  text-orientation: mixed;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--lane-explain);
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  pointer-events: none; /* clicks fall through to the strip-restore handler */
+  letter-spacing: 0.01em;
+}
 .diff-symbol-back {
   font-family: var(--font-sans);
   font-size: 11px;
@@ -2668,8 +2740,15 @@ a.card-file:hover .card-file-mark {
 }
 
 @media (max-width: 768px) {
-  .diff-symbol-panel { width: 100%; box-shadow: none; border-left: none; }
-  .diff-modal.has-symbol-panel .diff-body { padding-right: 0; }
+  /* On phones the active session takes the full width — the parked strips
+     still stack at 32px each to its left, but realistically you won't have
+     many parked at once on a phone screen. */
+  .diff-symbol-panel       { width: 100%; }
+  .diff-symbol-session.is-active {
+    width: 100%;
+    box-shadow: none;
+    border-left: none;
+  }
 }
 
 /* The dedicated empty-state messages inside file bodies (binary, rename
@@ -3249,11 +3328,10 @@ body:has(.diff-page) main {
   overflow: hidden;              /* let .diff-body own the scroll */
 }
 
-/* Mirror the .diff-modal.has-symbol-panel rule for the page version. */
-.diff-page.has-symbol-panel .diff-body { padding-right: 396px; }
-@media (max-width: 768px) {
-  .diff-page.has-symbol-panel .diff-body { padding-right: 0; }
-}
+/* Page-version body padding intentionally unchanged when the symbol panel
+   opens — see the floating-panel comment above where .diff-symbol-panel is
+   defined. The panel overlays the right edge of the body instead of
+   pushing content out from under itself. */
 
 /* Diff-header action buttons (Copy / Threads) share one compact style. */
 .diff-actions .diff-back,

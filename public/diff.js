@@ -340,7 +340,11 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
     reviewedSha: null,
     collapsedPaths: new Set(),
     filter:   null,
-    symbolPanel: { open: false, symbol: null, matches: [], currentPath: null, jumpStack: [], currentAnchor: null },
+    // Multi-session symbol panel: each session = one parked symbol search
+    // with its own matches, jumpStack, and currentAnchor. activeId points
+    // at whichever session is currently expanded; null = all sessions are
+    // minimized into right-edge strips. open=false hides the panel entirely.
+    symbolPanel: { open: false, sessions: [], activeId: null },
     // One-shot flag: true on initial mount + on goto(); cleared by renderBody
     // after applying scrollTop=0. Subsequent renders triggered by
     // refreshReviewed / SSE / filter-toggle preserve the user's scroll
@@ -387,15 +391,7 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
     <div class="diff-body" data-body>
       <div class="diff-loading">Loading diff…</div>
     </div>
-    <aside class="diff-symbol-panel" data-symbol-panel hidden>
-      <header class="diff-symbol-head">
-        <button type="button" class="diff-symbol-back" data-symbol-back hidden title="Back to previous location (Backspace)" aria-label="Back to previous location">↩ back</button>
-        <code class="diff-symbol-name" data-symbol-name></code>
-        <span class="diff-symbol-meta" data-symbol-meta></span>
-        <button type="button" class="diff-symbol-close" data-symbol-close aria-label="Close panel">×</button>
-      </header>
-      <div class="diff-symbol-list" data-symbol-list></div>
-    </aside>`
+    <aside class="diff-symbol-panel" data-symbol-panel hidden></aside>`
   main.replaceChildren(root)
 
   const $  = (sel) => root.querySelector(sel)
@@ -440,12 +436,17 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
     if (disposed) return
     if (e.target?.closest?.('input, textarea')) return
     if (e.key === 'Escape') {
-      // Layered Escape: close symbol panel if open; otherwise no-op (the
-      // page is the page — Escape doesn't navigate away).
-      if (state.symbolPanel.open) { closeSymbolPanel(); e.preventDefault() }
+      // Layered Escape: minimize the active session into a parked strip
+      // rather than closing it (preserves session state). To fully dismiss
+      // a session, the user clicks × on its strip or expanded header.
+      if (state.symbolPanel.activeId) { minimizeActive(); e.preventDefault() }
     }
-    else if (e.key === 'Backspace' && state.symbolPanel.open && state.symbolPanel.jumpStack.length > 0) {
-      popSymbolJump(); e.preventDefault()
+    else if (e.key === 'Backspace' && state.symbolPanel.activeId) {
+      const session = getActiveSession()
+      if (session && session.jumpStack.length > 0) {
+        popSymbolJump(state.symbolPanel.activeId)
+        e.preventDefault()
+      }
     }
     else if (e.key === 'ArrowLeft' || e.key === '[')  { goto(state.index - 1); e.preventDefault() }
     else if (e.key === 'ArrowRight' || e.key === ']') { goto(state.index + 1); e.preventDefault() }
@@ -544,19 +545,38 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
     openSymbolPanel(sel, cell?.dataset.path || null, anchor)
   })
 
-  $('[data-symbol-close]').addEventListener('click', closeSymbolPanel)
-  $('[data-symbol-back]').addEventListener('click', popSymbolJump)
+  // All panel interactions are delegated through the panel container.
+  // Each session's clickable bits carry data-action ('close'|'back'|
+  // 'minimize'|'restore'); the session's data-session-id tells us which
+  // session to operate on. Match-row clicks (jump-to-line) fall through
+  // to the existing closest('[data-path][data-line][data-side]') logic.
   $('[data-symbol-panel]').addEventListener('click', (e) => {
-    const match = e.target.closest('[data-path][data-line][data-side]')
-    if (!match) return
-    scrollToMatch(match.dataset.path, match.dataset.line, match.dataset.side)
+    const sessionEl = e.target.closest('[data-session-id]')
+    if (!sessionEl) return
+    const sessionId = sessionEl.dataset.sessionId
+    const action = e.target.closest('[data-action]')?.dataset.action
+    if (action === 'close')    { closeSession(sessionId); return }
+    if (action === 'back')     { popSymbolJump(sessionId); return }
+    if (action === 'minimize') { minimizeActive(); return }
+    if (action === 'restore')  { activateSession(sessionId); return }
+    // Match click in the active session's list.
+    const matchEl = e.target.closest('[data-path][data-line][data-side]')
+    if (matchEl) {
+      scrollToMatch(sessionId, matchEl.dataset.path, matchEl.dataset.line, matchEl.dataset.side)
+      return
+    }
+    // Click anywhere else on a minimized strip = restore that session.
+    if (!sessionEl.classList.contains('is-active')) {
+      activateSession(sessionId)
+    }
   })
   $('[data-symbol-panel]').addEventListener('keydown', (e) => {
     if (e.key !== 'Enter' && e.key !== ' ') return
-    const match = e.target.closest('[data-path][data-line][data-side]')
-    if (!match) return
+    const sessionEl = e.target.closest('[data-session-id]')
+    const matchEl   = e.target.closest('[data-path][data-line][data-side]')
+    if (!sessionEl || !matchEl) return
     e.preventDefault()
-    scrollToMatch(match.dataset.path, match.dataset.line, match.dataset.side)
+    scrollToMatch(sessionEl.dataset.sessionId, matchEl.dataset.path, matchEl.dataset.line, matchEl.dataset.side)
   })
 
   function findSymbolMatches(symbol) {
@@ -582,95 +602,202 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
     return matches
   }
 
+  // === Session-management primitives ==================================
+
+  function newSessionId() {
+    return 'sess_' + Math.random().toString(36).slice(2, 10)
+  }
+  function getSession(id) {
+    return state.symbolPanel.sessions.find((s) => s.id === id) || null
+  }
+  function getActiveSession() {
+    return getSession(state.symbolPanel.activeId)
+  }
+
+  // === Lifecycle =======================================================
+
   function openSymbolPanel(symbol, currentPath, anchor) {
+    // A dblclick always creates a NEW session and makes it active. If a
+    // previous session was expanded, it gets minimized into a parked strip
+    // automatically (it's still in state.symbolPanel.sessions). The user's
+    // existing search context is preserved and re-accessible by clicking
+    // its strip.
     const matches = findSymbolMatches(symbol)
-    // jumpStack starts empty per panel session; the dblclick origin lives
-    // in currentAnchor and is pushed onto the stack on the first jump.
-    state.symbolPanel = { open: true, symbol, matches, currentPath, jumpStack: [], currentAnchor: anchor }
-    const panel = $('[data-symbol-panel]')
-    if (panel) panel.hidden = false
+    const session = {
+      id: newSessionId(),
+      symbol,
+      matches,
+      currentPath,
+      jumpStack: [],
+      currentAnchor: anchor,
+    }
+    state.symbolPanel.sessions.push(session)
+    state.symbolPanel.activeId = session.id
+    state.symbolPanel.open = true
     root.classList.add('has-symbol-panel', 'disable-content-visibility')
     renderSymbolPanel()
-    renderSymbolBackButton()
     applySymbolHighlights()
   }
 
-  function closeSymbolPanel() {
-    if (!state.symbolPanel.open) return
-    state.symbolPanel = { open: false, symbol: null, matches: [], currentPath: null, jumpStack: [], currentAnchor: null }
-    clearActiveFlash()
-    const panel = $('[data-symbol-panel]')
-    if (panel) panel.hidden = true
-    const list = $('[data-symbol-list]')
-    if (list) list.textContent = ''
-    root.classList.remove('has-symbol-panel')
-    renderSymbolBackButton()
+  function activateSession(id) {
+    state.symbolPanel.activeId = id
+    renderSymbolPanel()
+    applySymbolHighlights()
+  }
+
+  function minimizeActive() {
+    state.symbolPanel.activeId = null
+    renderSymbolPanel()
+    // Highlights track the active session; with none active, clear them
+    // so the diff body isn't dotted with old-session match tints.
     clearSymbolHighlights()
   }
 
+  function closeSession(id) {
+    const sessions = state.symbolPanel.sessions
+    const idx = sessions.findIndex((s) => s.id === id)
+    if (idx < 0) return
+    sessions.splice(idx, 1)
+    if (state.symbolPanel.activeId === id) {
+      // When the active session goes away, fall back to the most-recent
+      // remaining session (or null if none left). Most-recent = last in
+      // array because we push on creation.
+      state.symbolPanel.activeId = sessions.length > 0 ? sessions[sessions.length - 1].id : null
+    }
+    if (sessions.length === 0) {
+      closeSymbolPanel()
+    } else {
+      renderSymbolPanel()
+      applySymbolHighlights()
+    }
+  }
+
+  function closeSymbolPanel() {
+    state.symbolPanel = { open: false, sessions: [], activeId: null }
+    clearActiveFlash()
+    const panel = $('[data-symbol-panel]')
+    if (panel) {
+      panel.hidden = true
+      panel.innerHTML = ''
+    }
+    root.classList.remove('has-symbol-panel')
+    clearSymbolHighlights()
+    // Panel floats over the diff body (no padding-right shift in CSS), so
+    // closing it doesn't reflow the body. Whatever cell the user was on is
+    // still at the same viewport position — the panel just stops covering
+    // the right edge.
+  }
+
+  function scrollToMatch(sessionId, path, line, side) {
+    // Push the current anchor so the back button can return here. Per-
+    // session — each parked search has its own jumpStack.
+    const session = getSession(sessionId)
+    if (!session) return
+    if (session.currentAnchor) {
+      session.jumpStack.push(session.currentAnchor)
+      if (session.jumpStack.length > 100) session.jumpStack.shift()
+    }
+    session.currentAnchor = { path, line, side }
+    scrollToDiffCell(path, line, side)
+    renderSymbolPanel()
+  }
+
+  function popSymbolJump(sessionId) {
+    const session = getSession(sessionId)
+    if (!session || session.jumpStack.length === 0) return
+    const target = session.jumpStack.pop()
+    session.currentAnchor = target
+    scrollToDiffCell(target.path, target.line, target.side)
+    renderSymbolPanel()
+  }
+
+  // === Rendering =======================================================
+
   function renderSymbolPanel() {
-    const { symbol, matches, currentPath } = state.symbolPanel
-    if (!symbol) return
+    const panel = $('[data-symbol-panel]')
+    if (!panel) return
+    const { sessions, activeId } = state.symbolPanel
+    if (sessions.length === 0) {
+      panel.hidden = true
+      panel.innerHTML = ''
+      return
+    }
+    panel.hidden = false
+    // Render newest-first (leftmost). The underlying array stays in
+    // creation order — push appends, sessions[length-1] is still the
+    // newest — only the visual layout reverses.
+    panel.innerHTML = [...sessions].reverse().map((s) => renderSession(s, s.id === activeId)).join('')
+  }
+
+  function renderSession(session, isActive) {
+    return isActive ? renderActiveSession(session) : renderMinimizedSession(session)
+  }
+
+  function renderActiveSession(session) {
     const grouped = new Map()
-    for (const m of matches) {
+    for (const m of session.matches) {
       if (!grouped.has(m.path)) grouped.set(m.path, [])
       grouped.get(m.path).push(m)
     }
-    $('[data-symbol-name]').textContent = symbol
+    const total     = session.matches.length
     const fileCount = grouped.size
-    const total     = matches.length
-    $('[data-symbol-meta]').textContent =
-      total === 0 ? '' :
+    const meta = total === 0 ? '' :
       `${total} match${total === 1 ? '' : 'es'} in ${fileCount} file${fileCount === 1 ? '' : 's'}`
 
+    const stackLen = session.jumpStack.length
+    const backBtn = stackLen === 0 ? '' :
+      `<button type="button" class="diff-symbol-back" data-action="back" title="Back to previous location (Backspace)" aria-label="Back to previous location">${stackLen === 1 ? '↩ back' : `↩ back (${stackLen})`}</button>`
+
+    let listHtml
     if (total === 0) {
-      $('[data-symbol-list]').innerHTML = '<div class="diff-symbol-empty">No occurrences in this diff.</div>'
-      return
-    }
-    const html = []
-    for (const [path, fileMatches] of grouped) {
-      const isCurrent = path === currentPath
-      const lang = languageForPath(path)
-      html.push(`<section class="diff-symbol-file${isCurrent ? ' is-current' : ''}">`)
-      html.push(`<header class="diff-symbol-file-head">`)
-      html.push(`<code class="diff-symbol-file-path" title="${escapeHtml(path)}">${escapeHtml(path)}</code>`)
-      html.push(`<span class="diff-symbol-file-count">${fileMatches.length}</span>`)
-      if (isCurrent) html.push(`<span class="diff-symbol-current-pill">this file</span>`)
-      html.push(`</header>`)
-      html.push(`<ul class="diff-symbol-file-list">`)
-      for (const m of fileMatches) {
-        const marker = m.kind === 'del' ? '−' : m.kind === 'add' ? '+' : ' '
-        html.push(`<li class="diff-symbol-match diff-symbol-match-${m.kind}" data-path="${escapeHtml(m.path)}" data-line="${m.line}" data-side="${m.side}" tabindex="0">`)
-        html.push(`<span class="diff-symbol-match-line"><span class="diff-symbol-match-mark">${marker}</span>L${m.line}</span>`)
-        html.push(`<code class="diff-symbol-match-text">${highlightLine(m.text, lang)}</code>`)
-        html.push(`</li>`)
+      listHtml = '<div class="diff-symbol-empty">No occurrences in this diff.</div>'
+    } else {
+      const parts = []
+      for (const [path, fileMatches] of grouped) {
+        const isCurrent = path === session.currentPath
+        const lang = languageForPath(path)
+        parts.push(`<section class="diff-symbol-file${isCurrent ? ' is-current' : ''}">`)
+        parts.push(`<header class="diff-symbol-file-head">`)
+        parts.push(`<code class="diff-symbol-file-path" title="${escapeHtml(path)}">${escapeHtml(path)}</code>`)
+        parts.push(`<span class="diff-symbol-file-count">${fileMatches.length}</span>`)
+        if (isCurrent) parts.push(`<span class="diff-symbol-current-pill">this file</span>`)
+        parts.push(`</header>`)
+        parts.push(`<ul class="diff-symbol-file-list">`)
+        for (const m of fileMatches) {
+          const marker = m.kind === 'del' ? '−' : m.kind === 'add' ? '+' : ' '
+          parts.push(`<li class="diff-symbol-match diff-symbol-match-${m.kind}" data-path="${escapeHtml(m.path)}" data-line="${m.line}" data-side="${m.side}" tabindex="0">`)
+          parts.push(`<span class="diff-symbol-match-line"><span class="diff-symbol-match-mark">${marker}</span>L${m.line}</span>`)
+          parts.push(`<code class="diff-symbol-match-text">${highlightLine(m.text, lang)}</code>`)
+          parts.push(`</li>`)
+        }
+        parts.push(`</ul>`)
+        parts.push(`</section>`)
       }
-      html.push(`</ul>`)
-      html.push(`</section>`)
+      listHtml = parts.join('')
     }
-    $('[data-symbol-list]').innerHTML = html.join('')
+
+    return `<section class="diff-symbol-session is-active" data-session-id="${session.id}">` +
+      `<header class="diff-symbol-head">` +
+        backBtn +
+        `<code class="diff-symbol-name">${escapeHtml(session.symbol)}</code>` +
+        `<span class="diff-symbol-meta">${escapeHtml(meta)}</span>` +
+        `<button type="button" class="diff-symbol-minimize" data-action="minimize" title="Minimize (Esc)" aria-label="Minimize panel">−</button>` +
+        `<button type="button" class="diff-symbol-close" data-action="close" aria-label="Close panel">×</button>` +
+      `</header>` +
+      `<div class="diff-symbol-list">${listHtml}</div>` +
+    `</section>`
   }
 
-  function scrollToMatch(path, line, side) {
-    // Push the current anchor so the back button can return here. The
-    // anchor is either the dblclick origin (first jump) or the previous
-    // jump target (subsequent jumps in the same panel session).
-    if (state.symbolPanel.currentAnchor) {
-      state.symbolPanel.jumpStack.push(state.symbolPanel.currentAnchor)
-      if (state.symbolPanel.jumpStack.length > 100) state.symbolPanel.jumpStack.shift()
-    }
-    state.symbolPanel.currentAnchor = { path, line, side }
-    scrollToDiffCell(path, line, side)
-    renderSymbolBackButton()
-  }
-
-  function popSymbolJump() {
-    const stack = state.symbolPanel.jumpStack
-    if (stack.length === 0) return
-    const target = stack.pop()
-    state.symbolPanel.currentAnchor = target
-    scrollToDiffCell(target.path, target.line, target.side)
-    renderSymbolBackButton()
+  function renderMinimizedSession(session) {
+    // Strip layout: chevron at top, rotated symbol name in middle (reads
+    // top-to-bottom via writing-mode: vertical-rl), close button at bottom.
+    // The whole strip is clickable to restore — children outside the
+    // explicit data-action elements bubble up to the panel-root handler.
+    return `<section class="diff-symbol-session is-minimized" data-session-id="${session.id}" title="${escapeHtml(session.symbol)}">` +
+      `<button type="button" class="diff-symbol-mini-chevron" data-action="restore" aria-label="Restore panel">‹</button>` +
+      `<code class="diff-symbol-mini-name">${escapeHtml(session.symbol)}</code>` +
+      `<button type="button" class="diff-symbol-mini-close" data-action="close" aria-label="Close session">×</button>` +
+    `</section>`
   }
 
   function flashCell(cell) {
@@ -716,29 +843,18 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
     flashCell(cell)
   }
 
-  function renderSymbolBackButton() {
-    const btn = $('[data-symbol-back]')
-    if (!btn) return
-    const n = state.symbolPanel.jumpStack.length
-    if (n === 0) {
-      btn.hidden = true
-      btn.textContent = '↩ back'
-    } else {
-      btn.hidden = false
-      btn.textContent = n === 1 ? '↩ back' : `↩ back (${n})`
-    }
-  }
-
-  // Highlight every line containing the active symbol. This deliberately
-  // marks cells instead of wrapping text nodes inside the diff table; Brave
-  // can renderer-crash after repeated text-node mutations followed by a
-  // close-panel reflow and normal scrolling on large diffs.
+  // Highlight every line containing the active session's symbol. Only the
+  // active session contributes highlights — minimized parked sessions stay
+  // visually quiet so the diff body isn't dotted with overlapping searches.
+  // (Marks cells instead of wrapping text nodes; Brave can renderer-crash
+  // after repeated text-node mutations followed by a close-panel reflow
+  // and normal scrolling on large diffs.)
   function applySymbolHighlights() {
-    if (!state.symbolPanel.open || !state.symbolPanel.symbol) return
     clearSymbolHighlights()
-    const { matches } = state.symbolPanel
+    const session = getActiveSession()
+    if (!session) return
     const seen = new Set()
-    for (const m of matches) {
+    for (const m of session.matches) {
       const key = `${m.path}|${m.line}|${m.side}`
       if (seen.has(key)) continue
       seen.add(key)
