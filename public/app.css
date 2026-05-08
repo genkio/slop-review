@@ -26,7 +26,8 @@
   --lane-explain:   #3b82f6;       /* blue */
   --lane-working:   #f59e0b;       /* amber */
   --lane-review:    #ca8a04;       /* yellow-amber (slightly warmer than explain) */
-  --lane-done:      #16a34a;       /* green */
+  --lane-done:      #16a34a;       /* green — diff additions */
+  --lane-removed:   #dc2626;       /* red — diff deletions (delta-style) */
 
   /* System fonts — no Google Fonts dependency. SF Pro / Segoe UI / etc.
      based on the user's OS so chrome reads as native. */
@@ -64,6 +65,7 @@
     --lane-working:   #fbbf24;
     --lane-review:    #eab308;
     --lane-done:      #4ade80;
+    --lane-removed:   #f87171;       /* lighter red for dark backgrounds */
   }
 }
 
@@ -2407,16 +2409,34 @@ a.card-file:hover .card-file-mark {
 }
 
 /* Row-kind tints. Color-mix gives us subtle washes that read in both
-   light and dark schemes without re-declaring per-mode. */
+   light and dark schemes without re-declaring per-mode. The whole-line
+   wash is deliberately gentle so the per-token intra-line highlight
+   below pops against it (the delta-style "what actually changed" cue). */
 .diff-add {
-  background: color-mix(in srgb, var(--lane-done) 14%, transparent);
+  background: color-mix(in srgb, var(--lane-done) 12%, transparent);
 }
 .diff-add .diff-marker { color: var(--lane-done); font-weight: 600; }
 
 .diff-del {
-  background: color-mix(in srgb, var(--accent) 11%, transparent);
+  background: color-mix(in srgb, var(--lane-removed) 12%, transparent);
 }
-.diff-del .diff-marker { color: var(--accent); font-weight: 600; }
+.diff-del .diff-marker { color: var(--lane-removed); font-weight: 600; }
+
+/* Within-line diff highlight. For paired (del, add) lines that share most
+   of their content, public/intra-line-diff.js wraps just the changed
+   tokens in these spans so the eye lands on what actually differs rather
+   than re-reading the whole line. Saturation is tuned to read against the
+   gentler whole-line wash above without clashing with the syntax-token
+   foreground colors (.hl-string is also lane-done; the wash ratio leaves
+   enough contrast for green-on-green to remain legible). */
+.diff-intra-add {
+  background: color-mix(in srgb, var(--lane-done) 28%, transparent);
+  border-radius: 2px;
+}
+.diff-intra-del {
+  background: color-mix(in srgb, var(--lane-removed) 28%, transparent);
+  border-radius: 2px;
+}
 
 .diff-context { background: var(--card); }
 .diff-blank   { background: var(--bg-deep); }    /* empty cell in split view (no del/add on this side) */
