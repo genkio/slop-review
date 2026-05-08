@@ -230,6 +230,15 @@ function renderFileSection(file, mode, sha, opts = {}) {
     ? `${escapeHtml(file.previous_path)} → ${escapeHtml(file.path)}`
     : escapeHtml(file.path)
 
+  // Force inline rendering for added / removed files — they have content
+  // on only one side, so split mode would dedicate half the row to blank
+  // pad cells. Inline collapses the layout to one column and uses the
+  // full body width, matching what GitHub does for new / deleted files.
+  // Modified / renamed / copied files have content on both sides and
+  // continue to honor the user's split/inline preference.
+  const isSingleSide = status === 'added' || status === 'removed'
+  const effectiveMode = (mode === 'split' && isSingleSide) ? 'inline' : mode
+
   let body
   if (file.is_binary) {
     body = '<div class="diff-empty">Binary file — diff not shown.</div>'
@@ -237,12 +246,12 @@ function renderFileSection(file, mode, sha, opts = {}) {
     body = '<div class="diff-empty">No content change shown (rename or oversized diff).</div>'
   } else {
     const hunks = parsePatch(file.patch)
-    const renderHunk = mode === 'split' ? renderHunkSplit : renderHunkInline
+    const renderHunk = effectiveMode === 'split' ? renderHunkSplit : renderHunkInline
     const language = languageForPath(file.path)
-    const colgroup = mode === 'split'
+    const colgroup = effectiveMode === 'split'
       ? '<colgroup><col class="diff-col-no"><col class="diff-col-text"><col class="diff-col-no"><col class="diff-col-text"></colgroup>'
       : '<colgroup><col class="diff-col-no"><col class="diff-col-no"><col class="diff-col-text"><col class="diff-col-text"></colgroup>'
-    body = `<table class="diff-table diff-${mode}">${colgroup}<tbody>${hunks.map((h) => renderHunk(h, file.path, sha, language)).join('')}</tbody></table>`
+    body = `<table class="diff-table diff-${effectiveMode}">${colgroup}<tbody>${hunks.map((h) => renderHunk(h, file.path, sha, language)).join('')}</tbody></table>`
   }
 
   // Per-file related-filter button: shows count of incoming+outgoing among
