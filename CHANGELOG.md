@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.5.0](https://github.com/genkio/slop-review/compare/v0.4.0...v0.5.0) (2026-05-08)
+
+
+### Features
+
+* delta-style within-line diff highlighting ([07784a1](https://github.com/genkio/slop-review/commit/07784a1b2488a44883527840171c7ee461e9b1ff))
+* delta-style within-line diff highlighting ([ae50b39](https://github.com/genkio/slop-review/commit/ae50b395872e08caff3974b6c399cd361f18ad15))
+
 ## [0.4.0](https://github.com/genkio/slop-review/compare/v0.3.1...v0.4.0) (2026-05-07)
 
 
