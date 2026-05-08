@@ -2,6 +2,7 @@ import { api } from './api.js'
 import { escapeHtml, inlineCode, relTime, copyToClipboard, toast } from './util.js'
 import { openCopyAggregateModal, openThreadModal, confirmRemoveComment } from './modals.js'
 import { languageForPath, highlightLine } from './syntax.js'
+import { intraLineSegments } from './intra-line-diff.js'
 import { subscribeRepoEvents } from './sse.js'
 import { ROUTES } from './routes.js'
 import { setupOverviewNav } from './overview-nav.js'
@@ -72,7 +73,52 @@ export function parsePatch(patch) {
     else if (line === '') cur.rows.push({ kind: 'context', oldNo: cur._oldNo++, newNo: cur._newNo++, text: '' })
   }
   if (cur) hunks.push(cur)
+  for (const h of hunks) annotateIntraLine(h.rows)
   return hunks
+}
+
+/**
+ * Walk a hunk's rows, find each (del[i], add[i]) position-paired pair,
+ * and stamp `_intraLeft` / `_intraRight` segment arrays onto the rows
+ * when the lines are similar enough to be worth within-line highlighting.
+ * Mutates rows in place. The split + inline renderers both consult these
+ * stamps; rows without them fall back to whole-line wash.
+ */
+function annotateIntraLine(rows) {
+  let dels = []
+  let adds = []
+  const flush = () => {
+    const max = Math.min(dels.length, adds.length)
+    for (let i = 0; i < max; i++) {
+      const seg = intraLineSegments(dels[i].text, adds[i].text)
+      if (!seg) continue
+      dels[i]._intraLeft  = seg.left
+      adds[i]._intraRight = seg.right
+    }
+    dels = []
+    adds = []
+  }
+  for (const row of rows) {
+    if      (row.kind === 'del') dels.push(row)
+    else if (row.kind === 'add') adds.push(row)
+    else                          flush()
+  }
+  flush()
+}
+
+function renderLineCell(row, language, side) {
+  const segs = side === 'left' ? row._intraLeft : row._intraRight
+  if (!segs) return highlightLine(row.text, language)
+  // Render each segment through the syntax highlighter independently. A
+  // string literal split across an intra-diff boundary loses its 'string'
+  // coloring on the broken half — accepted tradeoff: the existing per-line
+  // tokenizer already gives up multi-line context, and the change signal
+  // is more important than precise token color on a changed line.
+  return segs.map((s) => {
+    const html = highlightLine(s.text, language)
+    if (s.kind === 'eq') return html
+    return `<span class="diff-intra-${s.kind}">${html}</span>`
+  }).join('')
 }
 
 function pairRows(rows) {
@@ -120,9 +166,9 @@ function renderHunkSplit(hunk, path, sha, language) {
       : ''
     return `<tr class="diff-row" data-pair-kind="${p.kind}">` +
       `<td class="diff-no diff-no-old">${p.left?.oldNo ?? ''}</td>` +
-      `<td class="diff-text diff-${lk}" ${lAttrs}><span class="diff-marker">${lMark}</span><span class="diff-line">${p.left ? highlightLine(p.left.text, language) : ''}</span></td>` +
+      `<td class="diff-text diff-${lk}" ${lAttrs}><span class="diff-marker">${lMark}</span><span class="diff-line">${p.left ? renderLineCell(p.left, language, 'left') : ''}</span></td>` +
       `<td class="diff-no diff-no-new">${p.right?.newNo ?? ''}</td>` +
-      `<td class="diff-text diff-${rk}" ${rAttrs}><span class="diff-marker">${rMark}</span><span class="diff-line">${p.right ? highlightLine(p.right.text, language) : ''}</span></td>` +
+      `<td class="diff-text diff-${rk}" ${rAttrs}><span class="diff-marker">${rMark}</span><span class="diff-line">${p.right ? renderLineCell(p.right, language, 'right') : ''}</span></td>` +
       `</tr>`
   }).join('')
   return hunkHeaderRow(hunk) + body
@@ -133,10 +179,11 @@ function renderHunkInline(hunk, path, sha, language) {
     const marker = r.kind === 'add' ? '+' : r.kind === 'del' ? '-' : ' '
     const side   = r.kind === 'del' ? 'old' : 'new'
     const lineNo = r.kind === 'del' ? (r.oldNo ?? '') : (r.newNo ?? '')
+    const lineSide = r.kind === 'del' ? 'left' : 'right'
     return `<tr class="diff-row" data-pair-kind="${r.kind}">` +
       `<td class="diff-no diff-no-old">${r.oldNo ?? ''}</td>` +
       `<td class="diff-no diff-no-new">${r.newNo ?? ''}</td>` +
-      `<td class="diff-text diff-${r.kind}" colspan="2" data-side="${side}" data-line="${lineNo}" data-path="${escapeHtml(path)}" data-sha="${sha}"><span class="diff-marker">${marker}</span><span class="diff-line">${highlightLine(r.text, language)}</span></td>` +
+      `<td class="diff-text diff-${r.kind}" colspan="2" data-side="${side}" data-line="${lineNo}" data-path="${escapeHtml(path)}" data-sha="${sha}"><span class="diff-marker">${marker}</span><span class="diff-line">${renderLineCell(r, language, lineSide)}</span></td>` +
       `</tr>`
   }).join('')
   return hunkHeaderRow(hunk) + body
