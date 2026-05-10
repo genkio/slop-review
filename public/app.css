@@ -3940,3 +3940,52 @@ body:has(.diff-page) main {
   color: var(--accent);
   background: color-mix(in srgb, var(--accent) 12%, transparent);
 }
+
+/* —— Install-suggestion banner ——
+   Top-of-page strip suggesting the slop-review Claude Code skill install.
+   A deliberate exception to the "no global header" rule (§1) — informational
+   only, dismissable per session via sessionStorage. */
+#install-banner {
+  background: color-mix(in srgb, var(--accent) 7%, var(--bg-deep));
+  border-bottom: 1px solid color-mix(in srgb, var(--accent) 22%, var(--hairline));
+  color: var(--fg-soft);
+  font-size: 13px;
+}
+.install-banner-body {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 16px;
+  max-width: 1400px;
+  margin: 0 auto;
+}
+.install-banner-text {
+  flex: 1;
+  line-height: 1.45;
+}
+.install-banner-text code {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  color: var(--ink);
+  padding: 1px 6px;
+  border-radius: 3px;
+  margin-left: 4px;
+  user-select: all;
+}
+.install-banner-close {
+  appearance: none;
+  background: transparent;
+  border: none;
+  color: var(--fg-muted);
+  font-size: 18px;
+  line-height: 1;
+  padding: 4px 8px;
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  transition: background .15s var(--ease), color .15s var(--ease);
+}
+.install-banner-close:hover {
+  background: color-mix(in srgb, var(--fg-muted) 14%, transparent);
+  color: var(--ink);
+}
