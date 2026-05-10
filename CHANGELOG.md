@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.6.0](https://github.com/genkio/slop-review/compare/v0.5.0...v0.6.0) (2026-05-10)
+
+
+### Features
+
+* overlay-style symbol side panel with multi-search parking ([73957ff](https://github.com/genkio/slop-review/commit/73957ff5c9f3ebaa11fbd1933a72eb01777d74e5))
+* render added/removed files inline regardless of split toggle ([f21340d](https://github.com/genkio/slop-review/commit/f21340de7d311d2015bfd2f59c3c636021126c18))
+* replace aggregated-prompt ui with skills ([120badb](https://github.com/genkio/slop-review/commit/120badbab0aa7cfb764cf07a5d07bb592d9d5f94))
+* resolve thread ([af83c9d](https://github.com/genkio/slop-review/commit/af83c9dc97ea032af2b8308013c8beba38ed4080))
+
 ## [0.5.0](https://github.com/genkio/slop-review/compare/v0.4.0...v0.5.0) (2026-05-08)
 
 
