@@ -8,7 +8,16 @@ import {
   listThreadsWithState,
 } from '../reviews.js'
 import { getBranchInfo } from '../git.js'
-import { currentGhLogin } from '../identity.js'
+
+// Developer-authored comments (created via the slop-review web UI) are
+// stamped with the role marker `"reviewer"` rather than a personal
+// identifier. Matches the role-based `user` convention agents follow via
+// the slop-review skill: every actor's `user` value names the role they're
+// playing, never their identity. Side effects: slop-review no longer needs
+// the `gh` CLI for identity resolution; rendered threads show `@reviewer`
+// instead of `@<gh-login>`; state derivation in server/reviews.js compares
+// against this same literal to decide "developer posted last → awaiting".
+const DEVELOPER_USER = 'reviewer'
 
 async function withRepoAndBranch(c) {
   const state = await loadState()
@@ -50,7 +59,7 @@ export function registerThreadRoutes(app) {
 
     const id = newThreadId()
     const now = new Date().toISOString()
-    const user = await currentGhLogin()
+    const user = DEVELOPER_USER
     const thread = {
       id,
       view,
@@ -86,7 +95,7 @@ export function registerThreadRoutes(app) {
     const thread = await readThread(repo.path, branchId, tid)
     if (!thread) return c.json({ error: 'thread not found' }, 404)
     const now = new Date().toISOString()
-    const user = await currentGhLogin()
+    const user = DEVELOPER_USER
     const n = (thread.comments?.length || 0) + 1
     const comment = { id: `${tid}_${n}`, user, body: text, posted_at: now }
     thread.comments = [...(thread.comments || []), comment]

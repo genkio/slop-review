@@ -36,17 +36,11 @@ export async function loadState() {
       console.log('[slop-review] state schema outdated — reseeding from SEED')
       state = structuredClone(SEED)
       await writeBaseState(state)
-    } else {
-      let changed = false
-      state.prompt_templates ??= {}
-      for (const k of Object.keys(SEED.prompt_templates || {})) {
-        if (!state.prompt_templates[k]) {
-          state.prompt_templates[k] = SEED.prompt_templates[k]
-          changed = true
-        }
-      }
-      if (changed) await writeBaseState(state)
     }
+    // Existing state files may carry an orphaned `prompt_templates` key
+    // from older versions (the Aggregate Prompt clipboard handoff that
+    // moved to the slop-review skill). It's harmless on disk; we leave it
+    // alone rather than bump STATE_VERSION just to strip it.
   }
 
   state.config ??= {}
@@ -93,7 +87,8 @@ async function writeBaseState(state) {
     await mkdir(dirname(STATE_FILE), { recursive: true })
     // Strip runtime-only fields so they don't leak into the persisted file —
     // they're recomputed on every load. `repos` is also runtime-only now;
-    // the persisted shape is { version, config: {}, prompt_templates }.
+    // the persisted shape is { version, config: {} } (plus any orphaned
+    // `prompt_templates` key from older state files, preserved as-is).
     const persisted = { ...state, config: { ...(state.config || {}) } }
     delete persisted.config.home
     delete persisted.config.bootstrap_repo_id

@@ -1,7 +1,7 @@
 import { api } from '../api.js'
 import { store } from '../store.js'
-import { escapeHtml, inlineCode, relTime, sanitizeBranchId } from '../util.js'
-import { openThreadModal, openCopyAggregateModal } from '../modals.js'
+import { escapeHtml, inlineCode, relTime } from '../util.js'
+import { openThreadModal } from '../modals.js'
 import { subscribeRepoEvents, unsubscribeRepoEvents } from '../sse.js'
 import { ROUTES } from '../routes.js'
 import { setupOverviewNav } from '../overview-nav.js'
@@ -37,10 +37,7 @@ export async function renderThreadsPage(isCurrent = () => true) {
   main.innerHTML = `
     <div class="threads-page">
       <div class="page-head">
-        <div class="page-head-lead">
-          <h1>Threads</h1>
-          <button type="button" class="threads-copy-action" data-copy-prompt hidden title="Copy aggregate-comments prompt for the agent">Copy</button>
-        </div>
+        <h1>Threads</h1>
         <div class="actions">
           <span data-overview-nav class="overview-nav-slot"></span>
           <a class="btn" href="${ROUTES.diffFull()}">Diff</a>
@@ -52,30 +49,11 @@ export async function renderThreadsPage(isCurrent = () => true) {
       <div id="threads-list">Loading…</div>
     </div>`
 
-  // Closure ref so the Copy click handler always sees the freshest threads
-  // (refresh fires both on initial load and on every SSE thread_changed event).
-  let currentThreads = []
-  const copyBtn = main.querySelector('[data-copy-prompt]')
-  const onThreadsLoaded = (threads) => {
-    currentThreads = threads
-    copyBtn.hidden = threads.length === 0
-  }
-  copyBtn.addEventListener('click', () => {
-    if (currentThreads.length === 0) return
-    openCopyAggregateModal({
-      repo,
-      branch: branchInfo.current_branch,
-      branchId: sanitizeBranchId(branchInfo.current_branch || ''),
-      branchInfo,
-      threads: currentThreads,
-    })
-  })
-
-  await refresh(repo, isCurrent, onThreadsLoaded)
+  await refresh(repo, isCurrent)
   if (!isCurrent()) return
 
   currentOverviewNavDispose = setupOverviewNav(main.querySelector('[data-overview-nav]'), repo.id)
-  currentSseUnsub = subscribeRepoEvents(repo.id, () => refresh(repo, isCurrent, onThreadsLoaded))
+  currentSseUnsub = subscribeRepoEvents(repo.id, () => refresh(repo, isCurrent))
 }
 
 /**
@@ -89,7 +67,7 @@ export function disposeThreadsView() {
   if (currentOverviewNavDispose) { try { currentOverviewNavDispose() } catch {}; currentOverviewNavDispose = null }
 }
 
-async function refresh(repo, isCurrent = () => true, onThreadsLoaded = null) {
+async function refresh(repo, isCurrent = () => true) {
   if (!isCurrent()) return
   let payload
   try {
@@ -102,7 +80,6 @@ async function refresh(repo, isCurrent = () => true, onThreadsLoaded = null) {
   }
   if (!document.getElementById('threads-list')) return
   const threads = payload?.threads || []
-  if (onThreadsLoaded) onThreadsLoaded(threads)
   document.getElementById('threads-list').innerHTML = renderThreadsList(threads)
 
   document.querySelectorAll('[data-open-thread]').forEach((el) => {
@@ -129,7 +106,7 @@ async function refresh(repo, isCurrent = () => true, onThreadsLoaded = null) {
             location.hash = ROUTES.diffFull()
           }
         },
-        onChanged: () => refresh(repo, isCurrent, onThreadsLoaded),
+        onChanged: () => refresh(repo, isCurrent),
       })
     })
   })

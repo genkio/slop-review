@@ -141,35 +141,6 @@ main {
   border-bottom-color: var(--accent);
 }
 .page-head .actions { display: flex; gap: 8px; align-items: center; }
-.page-head-lead {
-  display: flex;
-  align-items: baseline;
-  gap: 14px;
-  flex-wrap: wrap;
-  min-width: 0;
-}
-/* Primary in-page action (e.g. Copy aggregate prompt). Distinct from the
-   neutral `.btn` used for navigation: solid accent fill signals "do a
-   thing" rather than "go somewhere". Hidden until the page has data
-   that makes the action meaningful (zero threads → no copy). */
-.threads-copy-action {
-  background: var(--accent);
-  color: #ffffff;
-  border: 1px solid var(--accent);
-  padding: 6px 14px;
-  border-radius: var(--radius-sm);
-  font-family: var(--font-sans);
-  font-size: 12px;
-  font-weight: 600;
-  letter-spacing: 0.02em;
-  cursor: pointer;
-  transition: background .15s var(--ease), border-color .15s var(--ease);
-}
-.threads-copy-action:hover {
-  background: color-mix(in srgb, var(--accent) 86%, var(--ink) 14%);
-  border-color: color-mix(in srgb, var(--accent) 86%, var(--ink) 14%);
-}
-.threads-copy-action[hidden] { display: none; }
 @media (max-width: 720px) {
   .page-head { grid-template-columns: 1fr; gap: 14px; margin-bottom: 28px; }
   .page-head .actions { justify-content: flex-start; }
@@ -1184,50 +1155,6 @@ a.card-file:hover .card-file-mark {
   opacity: 1;
   color: var(--accent);
 }
-.modal label.block {
-  display: block;
-  font-family: var(--font-sans);
-  font-size: 10px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.14em;
-  color: var(--fg-soft);
-  margin: 18px 0 6px;
-}
-
-.prompt-count {
-  font-family: var(--font-mono);
-  font-size: 10px;
-  font-weight: 400;
-  letter-spacing: 0.02em;
-  text-transform: none;
-  color: var(--fg-muted);
-  margin-left: 8px;
-}
-
-/* Copy-prompt affordance, sibling to the token counter inside the
-   "Prompt" label. Same monospace voice as the counter; bordered so it
-   reads as actionable without competing with the primary footer button. */
-.prompt-copy {
-  font-family: var(--font-mono);
-  font-size: 10px;
-  font-weight: 400;
-  letter-spacing: 0.04em;
-  text-transform: lowercase;
-  color: var(--fg-muted);
-  background: transparent;
-  border: 1px solid var(--hairline);
-  border-radius: 999px;
-  padding: 1px 9px;
-  margin-left: 8px;
-  cursor: pointer;
-  transition: color .15s var(--ease), border-color .15s var(--ease);
-}
-.prompt-copy:hover {
-  color: var(--ink);
-  border-color: var(--hairline-strong);
-}
-
 .radios {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -1271,210 +1198,6 @@ a.card-file:hover .card-file-mark {
   border-color: var(--accent);
   color: var(--accent);
   background: color-mix(in srgb, var(--accent) 6%, var(--card));
-}
-
-/* ——— Editable prompt blocks (stacked, each removable) ———
-   No inner scroll — the parent .modal already has `max-height: 90vh;
-   overflow-y: auto`, so it's the single scroll surface. A previous nested
-   scroll container caused two bad mobile behaviors: (a) iOS users couldn't
-   reliably scroll past the trapped inner area to reach lower blocks, and
-   (b) flex-shrink compressed the last blocks to near-zero height because
-   `display: -webkit-box; line-clamp` clips text visually but doesn't bound
-   the layout box, so the inner container saw ~1600px of "content" and
-   squeezed each block proportionally to fit 400px. Removing the inner
-   scroll means each block keeps its natural (clamped) size and the modal
-   scrolls if total exceeds 90vh. */
-.preview-blocks {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding: 2px;
-}
-.preview-block {
-  flex-shrink: 0;
-  border: 1px solid var(--hairline);
-  border-radius: 2px;
-  background: var(--card);
-  overflow: hidden;
-  transition: border-color .15s var(--ease);
-}
-.preview-block-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 5px 6px 4px 10px;
-  background: var(--bg-deep);
-  border-bottom: 1px solid var(--hairline);
-}
-.preview-block-label {
-  font-family: var(--font-sans);
-  font-size: 9px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.14em;
-  color: var(--fg-soft);
-}
-.preview-block-remove {
-  background: transparent;
-  border: none;
-  padding: 0 8px;
-  min-width: 0;
-  cursor: pointer;
-  line-height: 1;
-  color: var(--fg-muted);
-  border-radius: 2px;
-  letter-spacing: 0;
-  text-transform: none;
-  font-weight: 400;
-  font-size: 16px;
-  transition: color .15s var(--ease), background .15s var(--ease);
-}
-.preview-block-remove:hover:not(:disabled) {
-  color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 10%, transparent);
-  border-color: transparent;
-}
-
-/* ——————————————————— Section editor (fullscreen) ———————————————————
-   Tapping the ⛶ expand button on any prompt block opens this — a
-   viewport-filling textarea modal. iOS WebKit's textarea-in-constrained-
-   container bugs (last-line clip, scroll quirks, auto-zoom on tap)
-   simply don't manifest when the textarea fills the screen with no
-   nested scroll containers. On desktop we narrow it to a comfortable
-   max-width so it doesn't feel oversized. */
-.section-editor-backdrop {
-  z-index: 70;
-  padding: 0;
-  align-items: stretch;
-  justify-content: stretch;
-}
-.section-editor-modal {
-  width: 100%;
-  max-width: none;
-  height: 100dvh;
-  max-height: 100dvh;
-  margin: 0;
-  padding: 0;
-  border-radius: 0;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-  background: var(--bg);
-}
-.section-editor-head {
-  flex: 0 0 auto;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  padding: 12px 16px;
-  border-bottom: 1px solid var(--hairline-strong);
-  background: var(--bg);
-}
-.section-editor-label {
-  font-family: var(--font-sans);
-  font-size: 11px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.14em;
-  color: var(--fg-soft);
-}
-.section-editor-done { margin: 0; }
-.section-editor-content {
-  flex: 1 1 auto;
-  width: 100%;
-  padding: 16px;
-  font-family: var(--font-mono);
-  font-size: 16px;       /* anti-iOS-zoom — must be >= 16px on touch */
-  line-height: 1.55;
-  color: var(--fg);
-  background: var(--bg);
-  border: none;
-  outline: none;
-  resize: none;
-  -webkit-appearance: none;
-  appearance: none;
-  box-sizing: border-box;
-}
-@media (min-width: 600px) {
-  .section-editor-backdrop {
-    align-items: center;
-    justify-content: center;
-    padding: 5vh 24px;
-  }
-  .section-editor-modal {
-    max-width: 820px;
-    height: 90vh;
-    max-height: 90vh;
-    border-radius: 4px;
-  }
-  .section-editor-content { font-size: 13px; }
-}
-/* Per-section scroll on the wrapper (a `<div>`), with the textarea
-   auto-sizing to its content via `field-sizing: content`. This gives
-   each block its own scroll surface — touching inside a block scrolls
-   that block, not the whole modal — while sidestepping iOS WebKit's
-   textarea-internal-scroll bug (where the last line is unreachable
-   because the renderer reserves a strip at the bottom for caret/
-   selection-handle UI). Div scroll on iOS works correctly; textarea
-   scroll doesn't. The textarea grows with content, the wrapper caps
-   the visible region at max-height and scrolls when content exceeds.
-
-   Bottom buffer is a real DOM sibling (.preview-block-input-tail)
-   below the textarea, NOT padding inside the textarea. iOS WebKit
-   doesn't reliably count a field-sized textarea's own padding-bottom
-   toward the parent's scrollHeight, so any padding buffer there gets
-   stripped and the natural max-scroll lands above the last text line.
-   A real child element with explicit height *cannot* be missed by
-   the overflow calculation.
-
-   `overscroll-behavior-y: contain` keeps the rubber-band inside this
-   container so it doesn't leak up to .preview-blocks / .modal scroll. */
-/* Click-to-edit display button: shows the block's value clamped to a few
-   lines; clicking opens the fullscreen section editor. Replaces the
-   inline textarea — no native input affordance, no auto-resize, no iOS
-   tap-to-zoom edge cases. The actual canonical value lives in
-   `data-content` on the button; the visible text is purely for display. */
-.preview-block-content {
-  display: -webkit-box;
-  -webkit-line-clamp: 6;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-  width: 100%;
-  padding: 10px 12px;
-  font-family: var(--font-mono);
-  font-size: 11px;
-  line-height: 1.55;
-  text-align: left;
-  text-transform: none;
-  letter-spacing: 0;
-  white-space: pre-wrap;
-  word-break: break-word;
-  background: transparent;
-  color: var(--fg);
-  border: 0;
-  border-radius: 0;
-  cursor: pointer;
-  transition: background .15s var(--ease), color .15s var(--ease);
-  /* line-clamp clips text visually but doesn't bound the layout height —
-     in `display: -webkit-box` the box still sizes to the full content.
-     Cap layout height at 6 lines * 1.55 line-height + ~20px padding so
-     parent flex layouts can't see a phantom-tall block. min-height keeps
-     empty (placeholder-only) blocks a comfortable tap target. */
-  max-height: calc(6 * 1.55em + 20px);
-  min-height: 56px;
-  box-sizing: border-box;
-}
-.preview-block-content:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--accent) 4%, transparent);
-  color: var(--ink);
-}
-.preview-block-content.is-empty {
-  font-style: normal;
-  color: var(--fg-muted);
-}
-@media (pointer: coarse) {
-  .preview-block-content { font-size: 13px; }
 }
 
 .modal-actions {
@@ -2014,13 +1737,6 @@ a.card-file:hover .card-file-mark {
   background: var(--accent);
   color: #ffffff;
 }
-
-/* The copy-local-prompt modal is launched from inside the diff modal
-   (z-index 60), so it needs to stack above the diff backdrop. The regular
-   modal-backdrop sits at 50, which is correct for "modal opened from a
-   page" — this marker class is the bump for "modal opened from another
-   modal that's already at 60". */
-.copy-prompt-backdrop { z-index: 70; }
 
 .diff-close { position: static; }
 
@@ -2992,6 +2708,10 @@ a.card-file:hover .card-file-mark {
   flex-direction: column;
   gap: 8px;
   max-width: 720px;
+  /* Breathing room from the state-color left ribbon (`.state-your-turn`,
+     `.state-awaiting`, `.state-read`, `.state-resolved`). Universal so
+     switching between states doesn't shift the text horizontally. */
+  padding-left: 10px;
 }
 .diff-thread-header {
   display: flex;
@@ -3316,12 +3036,11 @@ a.card-file:hover .card-file-mark {
 /* Resolved inline thread row on the diff: thicker green ribbon (4px vs 3px)
    so the resolution is unambiguous when scanning the diff, plus a faint
    green wash on the row container. Body comments stay full opacity.
-   `padding-left` gives the file-path header text breathing room from the
-   ribbon — without it the mono path text crowded the green edge. */
+   The base `.diff-thread` rule supplies `padding-left` for breathing room
+   from the ribbon, so all state variants share the same text inset. */
 .diff-thread.state-resolved {
   border-left: 4px solid var(--lane-done);
   background: color-mix(in srgb, var(--lane-done) 4%, transparent);
-  padding-left: 10px;
 }
 .diff-thread .state-pill {
   margin-left: 8px;
@@ -3338,6 +3057,86 @@ a.card-file:hover .card-file-mark {
   font-family: var(--font-mono);
   font-size: 11px;
   color: var(--fg-muted);
+}
+
+/* Click-to-copy filename affordance — editorial inline-link, not a chip.
+   The file:line text in `.sub` stays the loud headline; the filename
+   whispers beside it as a copyable scholarly footnote. Leading `⧉` glyph
+   signals copyability, faint dotted underline reinforces the link
+   affordance. On hover the glyph rotates -6° and lifts (mechanical
+   wink), the underline solidifies in accent, and the text color
+   brightens. After a successful copy the `is-copied` class flips the
+   glyph to `✓` and tints everything `--lane-done` for 1.2s as visual
+   confirmation alongside the toast.
+
+   No border, no chip background — typography does the work. Real
+   `<button>` (not styled `<code>`) so Vimium / Tab navigation can
+   target it; the inline `.thread-filename-text` span carries the dotted
+   underline so it doesn't bleed into the leading glyph. */
+.thread-filename {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  margin-left: 12px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 400;
+  letter-spacing: 0.03em;
+  color: var(--fg-muted);
+  text-transform: none;
+  cursor: pointer;
+  vertical-align: baseline;
+  transition: color .25s var(--ease);
+}
+.thread-filename::before {
+  content: "⧉";
+  display: inline-block;
+  font-size: 12px;
+  line-height: 1;
+  opacity: 0.65;
+  transform-origin: 50% 60%;
+  transition: opacity .25s var(--ease),
+              transform .3s var(--ease),
+              color .25s var(--ease);
+}
+.thread-filename-text {
+  border-bottom: 1px dotted color-mix(in srgb, currentColor 50%, transparent);
+  padding-bottom: 1px;
+  transition: border-bottom-color .25s var(--ease),
+              border-bottom-style .25s var(--ease);
+}
+.thread-filename:hover {
+  color: var(--ink);
+}
+.thread-filename:hover::before {
+  opacity: 1;
+  transform: rotate(-6deg) translateY(-1px);
+}
+.thread-filename:hover .thread-filename-text {
+  border-bottom: 1px solid var(--accent);
+}
+.thread-filename:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 4px;
+  border-radius: 2px;
+}
+/* Post-copy confirmation: the leading glyph swaps to a green ✓ and
+   the text + underline take the same green for ~1.2s. Reads as a
+   gentle "got it" without yanking the eye away from the file:line. */
+.thread-filename.is-copied {
+  color: var(--lane-done);
+}
+.thread-filename.is-copied::before {
+  content: "✓";
+  color: var(--lane-done);
+  opacity: 1;
+  transform: rotate(0) scale(1.1);
+}
+.thread-filename.is-copied .thread-filename-text {
+  border-bottom: 1px solid var(--lane-done);
 }
 
 .diff-thread-anchor {

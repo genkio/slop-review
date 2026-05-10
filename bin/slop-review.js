@@ -3,12 +3,23 @@ import { execFileSync, spawn } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
 import { createServer } from 'node:net'
+import { existsSync, statSync } from 'node:fs'
+import { homedir } from 'node:os'
 
 // ----------------------------------------------------------------------
 // CLI for slop-review. Run inside a git repo — the cwd is auto-bootstrapped
 // as the active review target via the SLOP_REVIEW_REPO env var, which
 // server/state.js picks up on its first loadState() call.
 // ----------------------------------------------------------------------
+
+const __dirname = dirname(fileURLToPath(import.meta.url))
+const PACKAGE_ROOT = join(__dirname, '..')
+
+// The slop-review Claude Code skill is installed via the `skills` npm package
+// (`npx skills add genkio/slop-review`). At server startup we just check
+// whether it's already there and nudge the user if not — the actual install
+// is delegated to the canonical tooling.
+const GLOBAL_SKILL_PATH = join(homedir(), '.claude', 'skills', 'slop-review', 'SKILL.md')
 
 const args = process.argv.slice(2)
 
@@ -27,6 +38,11 @@ Options:
       --host <h>   Hostname to bind (default: 0.0.0.0)
       --no-open    Don't auto-open the browser
   -h, --help       Show this help
+
+To enable AI-assisted reviewing (Claude Code, Cursor, etc.) install the
+slop-review skill once:
+
+  npx skills add genkio/slop-review
 `)
   process.exit(0)
 }
@@ -100,9 +116,26 @@ if (portArg) {
 process.env.SLOP_REVIEW_REPO = repoRoot
 process.env.SLOP_REVIEW_PORT = String(port)
 
-const __dirname = dirname(fileURLToPath(import.meta.url))
-const { start } = await import(join(__dirname, '..', 'server', 'index.js'))
+const { start } = await import(join(PACKAGE_ROOT, 'server', 'index.js'))
 await start({ port, hostname: hostArg })
+
+// 3a. Skill-install nudge. Best-effort + non-blocking. Only show the tip if
+//     the user is actually running Claude Code (~/.claude/skills/ exists as
+//     a dir) AND the slop-review skill isn't there yet. The recommended
+//     install path is the `skills` npm package (Vercel Labs), which auto-
+//     discovers our `skills/slop-review/SKILL.md` layout.
+try {
+  const claudeSkillsRoot = join(homedir(), '.claude', 'skills')
+  if (existsSync(claudeSkillsRoot) && statSync(claudeSkillsRoot).isDirectory()
+      && !existsSync(GLOBAL_SKILL_PATH)) {
+    process.stdout.write(
+      `\ntip: install the slop-review skill to enable AI-assisted reviewing:\n` +
+      `       npx skills add genkio/slop-review\n`
+    )
+  }
+} catch {
+  // Best-effort — never block startup on a missing home dir / permission issue.
+}
 
 // 4. Auto-open the browser. Localhost works regardless of bind host since
 //    the server is listening on 0.0.0.0 and we're on the same machine.

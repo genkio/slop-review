@@ -1,7 +1,13 @@
 import { readFile, writeFile, rename, chmod, mkdir, readdir, unlink } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
-import { currentGhLogin } from './identity.js'
+
+// All comments authored on the developer's behalf (via the slop-review
+// web UI's create-thread + reply flows) carry this role marker as their
+// `user` value. Compared against `comments[last].user` here in
+// `deriveState` to decide whether the developer posted last. Must stay in
+// lockstep with `DEVELOPER_USER` in server/routes/threads.js.
+const DEVELOPER_USER = 'reviewer'
 
 /**
  * `.reviews/` lives **inside each repo** (`<repo_path>/.reviews/<branch_id>/<filename>`).
@@ -161,27 +167,26 @@ export async function deleteThread(repoPath, branchId, threadId) {
  * Derive the human-facing state of a thread: `resolved` / `your_turn` /
  * `awaiting` / `read`. `resolved_at` short-circuits everything — once a
  * thread is marked resolved, comment activity stops driving the pill
- * until the human explicitly unresolves it. Otherwise the single rule is
- * "is the last comment from the human?" plus an unread check on top.
+ * until the developer explicitly unresolves it. Otherwise the rule is
+ * "did the developer post last?" — the developer's comments always carry
+ * `user: "reviewer"` (see DEVELOPER_USER above), so the comparison is a
+ * simple literal check; no gh login lookup needed.
  */
-export function deriveState(thread, ghLogin) {
+export function deriveState(thread) {
   if (thread.resolved_at) return 'resolved'
   const last = thread.comments?.[thread.comments.length - 1]
   if (!last) return 'awaiting'
-  if (last.user === ghLogin) return 'awaiting'
+  if (last.user === DEVELOPER_USER) return 'awaiting'
   const lastAt = Date.parse(last.posted_at || '') || 0
   const readAt = Date.parse(thread.last_read_at || '') || 0
   return lastAt > readAt ? 'your_turn' : 'read'
 }
 
 export async function listThreadsWithState(repoPath, branchId) {
-  const [threads, gh] = await Promise.all([
-    readBranchThreads(repoPath, branchId),
-    currentGhLogin(),
-  ])
+  const threads = await readBranchThreads(repoPath, branchId)
   return threads.map((t) => ({
     ...t,
-    state: deriveState(t, gh),
+    state: deriveState(t),
     last_comment_at: t.comments?.[t.comments.length - 1]?.posted_at || t.created_at || null,
     file_name: fileNameFor(t),
   }))
