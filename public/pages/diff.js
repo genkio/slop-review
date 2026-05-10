@@ -50,12 +50,12 @@ export async function renderDiffPage(parsed = { variant: 'full' }, isCurrent = (
   if (branchInfo.detached || !branchInfo.has_origin_head ||
       (branchInfo.on_base && !branchInfo.has_local_changes)) {
     main.innerHTML = `
-      <div class="repo-page">
+      <div class="app-page repo-page">
         <div class="page-head">
           <h1>${escapeHtml(repo.display_name)}</h1>
           <div class="actions">
             <span data-overview-nav class="overview-nav-slot"></span>
-            <a class="btn" href="${ROUTES.threads()}">Threads</a>
+            <a class="page-nav" href="${ROUTES.threads()}">Threads</a>
           </div>
         </div>
         <div class="branch-card">${renderBranchCard(branchInfo)}</div>

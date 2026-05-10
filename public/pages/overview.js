@@ -17,15 +17,15 @@ export async function renderOverviewPage(isCurrent = () => true) {
 
   const main = document.getElementById('main')
   main.innerHTML = `
-    <div class="overview-page">
+    <div class="app-page overview-page">
       <div class="page-head">
         <div class="overview-page-title">
           <h1>Overview</h1>
           <span class="overview-generated" id="overview-generated" hidden></span>
         </div>
         <div class="actions">
-          <a class="btn" href="${ROUTES.diffFull()}">Diff</a>
-          <a class="btn" data-threads-link href="${ROUTES.threads()}" hidden>Threads</a>
+          <a class="page-nav" href="${ROUTES.diffFull()}">Diff</a>
+          <a class="page-nav" data-threads-link href="${ROUTES.threads()}" hidden>Threads</a>
         </div>
       </div>
       <div id="overview-body" class="overview-body">

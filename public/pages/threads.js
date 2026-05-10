@@ -35,12 +35,12 @@ export async function renderThreadsPage(isCurrent = () => true) {
 
   const main = document.getElementById('main')
   main.innerHTML = `
-    <div class="threads-page">
+    <div class="app-page threads-page">
       <div class="page-head">
         <h1>Threads</h1>
         <div class="actions">
           <span data-overview-nav class="overview-nav-slot"></span>
-          <a class="btn" href="${ROUTES.diffFull()}">Diff</a>
+          <a class="page-nav" href="${ROUTES.diffFull()}">Diff</a>
         </div>
       </div>
       <div class="threads-meta">${branchInfo.current_branch

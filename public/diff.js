@@ -275,7 +275,7 @@ function renderFileSection(file, mode, sha, opts = {}) {
   // suppressed there to avoid implying it does. Click stops propagation so
   // it doesn't trigger the file head's collapse-toggle.
   const reviewedToggle = showReviewedToggle
-    ? `<button type="button" class="diff-file-mark${isReviewed ? ' active' : ''}" data-toggle-reviewed="${escapeHtml(file.path)}" title="${isReviewed ? 'Marked reviewed — click to unmark' : 'Mark this file reviewed'}" aria-pressed="${isReviewed}">${isReviewed ? '✓ reviewed' : '○ mark'}</button>`
+    ? `<button type="button" class="diff-file-mark${isReviewed ? ' active' : ''}" data-toggle-reviewed="${escapeHtml(file.path)}" title="${isReviewed ? 'Marked reviewed — click to unmark' : 'Mark this file reviewed'}" aria-pressed="${isReviewed}">${isReviewed ? '✓ reviewed' : '○ mark reviewed'}</button>`
     : ''
 
   // Relationship chip — only on non-anchor files in filter mode
@@ -392,12 +392,8 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
         </div>
       </div>
       <div class="diff-actions">
-        <div class="diff-view-toggle" role="tablist" aria-label="Diff view mode">
-          <button type="button" data-view="split"  class="${state.mode === 'split'  ? 'active' : ''}" role="tab">Split</button>
-          <button type="button" data-view="inline" class="${state.mode === 'inline' ? 'active' : ''}" role="tab">Inline</button>
-        </div>
         <span data-overview-nav class="overview-nav-slot"></span>
-        <a class="btn diff-back" data-threads-link href="${ROUTES.threads()}" hidden>Threads</a>
+        <a class="page-nav" data-threads-link href="${ROUTES.threads()}" hidden>Threads</a>
       </div>
     </header>
     <div class="diff-body" data-body>
@@ -407,7 +403,6 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
   main.replaceChildren(root)
 
   const $  = (sel) => root.querySelector(sel)
-  const $$ = (sel) => root.querySelectorAll(sel)
 
   // ------------------------------------------------------------------
   // URL sync — page owns the entire `#/diff[/...]` route shape.
@@ -466,15 +461,6 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
   document.addEventListener('keydown', onKey)
   syncUrl()
   disposeOverviewNav = setupOverviewNav($('[data-overview-nav]'), repo.id)
-
-  $$('[data-view]').forEach((b) => {
-    b.addEventListener('click', () => {
-      if (state.mode === b.dataset.view) return
-      state.mode = b.dataset.view
-      $$('[data-view]').forEach((x) => x.classList.toggle('active', x.dataset.view === state.mode))
-      renderBody()
-    })
-  })
 
   $('[data-prev]').addEventListener('click', () => goto(state.index - 1))
   $('[data-next]').addEventListener('click', () => goto(state.index + 1))
@@ -828,7 +814,9 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
   function scrollToDiffCell(path, line, side) {
     if (isStale()) return
     let needsRender = false
-    if (state.filter?.kind === 'related') {
+    if (state.filter) {
+      // Drop any active filter that would hide the jump target — works
+      // for both `related` and `threads` kinds with the same predicate.
       const visible = computeVisibleFiles().some((f) => f.path === path)
       if (!visible) { state.filter = null; needsRender = true }
     }
@@ -1001,8 +989,18 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
     if (relate) {
       e.preventDefault(); e.stopPropagation()
       const anchor = relate.dataset.relateAnchor
-      // Toggle off the current anchor; otherwise switch.
-      state.filter = state.filter?.anchor === anchor ? null : { kind: 'related', anchor }
+      // Toggle off the current anchor; otherwise switch (overriding any
+      // active threads filter — only one filter can be active at a time).
+      const isSameAnchor = state.filter?.kind === 'related' && state.filter.anchor === anchor
+      state.filter = isSameAnchor ? null : { kind: 'related', anchor }
+      renderBody()
+      return
+    }
+    if (e.target.closest('[data-thread-filter]')) {
+      e.preventDefault(); e.stopPropagation()
+      // Toggle the global threads filter. Switches off any active related
+      // filter — they're mutually exclusive on the single state.filter slot.
+      state.filter = state.filter?.kind === 'threads' ? null : { kind: 'threads' }
       renderBody()
       return
     }
@@ -1017,7 +1015,15 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
       toggleFileReviewed(markFile.dataset.toggleReviewed)
       return
     }
-    if (e.target.closest('[data-mark-reviewed]'))      { markCurrentBatchReviewed(); return }
+    const view = e.target.closest('[data-view]')
+    if (view) {
+      e.preventDefault(); e.stopPropagation()
+      if (state.mode !== view.dataset.view) {
+        state.mode = view.dataset.view
+        renderBody()
+      }
+      return
+    }
     if (e.target.closest('[data-reset-reviewed]'))     { resetReviewed(); return }
 
     const head = e.target.closest('[data-toggle-collapse]')
@@ -1062,11 +1068,32 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
   // ------------------------------------------------------------------
   // Reviewed-batches (Full diff only)
   // ------------------------------------------------------------------
+  // Files containing at least one thread anchored in the *current* view.
+  // Mirrors the view-filter logic that renderInlineComments uses, so the
+  // count and the filtered file set agree with what the user actually
+  // sees inline. Returned as a Set<string> of repo-relative paths.
+  function threadFilesForCurrentView() {
+    const view = viewForCurrentIndex()
+    const currentSha = view === 'commit' ? state.commits[state.index]?.sha : null
+    const set = new Set()
+    for (const t of state.threads) {
+      if ((t.view || 'full') !== view) continue
+      if (view === 'commit' && t.sha !== currentSha) continue
+      if (t.file) set.add(t.file)
+    }
+    return set
+  }
+
   function computeVisibleFiles() {
     const all = state.diff?.files || []
+    const filter = state.filter
+    if (filter?.kind === 'threads') {
+      const set = threadFilesForCurrentView()
+      return all.filter((f) => set.has(f.path))
+    }
     if (!isFullIndex(state.index)) return all
     const priorities = state.diff?.priorities
-    const filterAnchor = state.filter?.kind === 'related' ? state.filter.anchor : null
+    const filterAnchor = filter?.kind === 'related' ? filter.anchor : null
     if (filterAnchor && priorities) {
       const p = priorities[filterAnchor]
       const set = new Set([filterAnchor, ...(p?.incoming || []), ...(p?.outgoing || [])])
@@ -1096,7 +1123,7 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
       state.reviewed    = new Set(r?.paths || [])
       state.reviewedSha = sha
       // Auto-fold reviewed files on hydration. The mark-time auto-fold in
-      // toggleFileReviewed/markCurrentBatchReviewed only covers fresh marks
+      // toggleFileReviewed only covers fresh marks
       // — without this, files marked in a prior session render expanded
       // until the user manually refolds them. Within a session, manual
       // expand still works (collapsedPaths.delete on click); the next
@@ -1138,29 +1165,6 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
     }
   }
 
-  async function markCurrentBatchReviewed() {
-    const sha = state.diff?.sha
-    if (!sha) return
-    const paths = computeVisibleFiles().map((f) => f.path)
-    if (!paths.length) return
-    try {
-      const r = await api(`/api/repos/${encodeURIComponent(repo.id)}/reviewed`, {
-        method: 'PUT',
-        body: JSON.stringify({ head_sha: sha, paths }),
-      })
-      state.reviewed     = new Set(r?.paths || [])
-      state.reviewedSha  = sha
-      state.filter       = null
-      // Auto-fold every file we just marked (matches the per-file toggle).
-      // Previously-reviewed files stay in whatever state the user last left.
-      for (const p of paths) state.collapsedPaths.add(p)
-      renderBody()
-      toast(`Marked ${paths.length} file${paths.length === 1 ? '' : 's'} reviewed`)
-    } catch (e) {
-      toast('Mark reviewed failed: ' + (e.message || 'unknown'))
-    }
-  }
-
   async function resetReviewed() {
     try {
       await api(`/api/repos/${encodeURIComponent(repo.id)}/reviewed`, { method: 'DELETE' })
@@ -1173,38 +1177,83 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
     }
   }
 
+  // The diff control strip (a.k.a. review banner) lives directly under
+  // the diff header. Its job is "controls that act on the diff body":
+  // the view-mode toggle (Split/Inline) on the left, contextual filter
+  // chips and reviewed-state info on the right. Page navigation chrome
+  // (Overview, Threads) stays in the header above. The strip always
+  // renders when files exist, since the view toggle is always relevant;
+  // it also renders when a filter is active even if files === 0, so the
+  // user can clear the filter from an empty result.
   function renderReviewBanner(visibleCount) {
-    if (!isFullIndex(state.index)) return ''
-    const filterAnchor = state.filter?.kind === 'related' ? state.filter.anchor : null
-    if (filterAnchor) {
+    const filterKind  = state.filter?.kind
+    const isFull      = isFullIndex(state.index)
+    const totalFiles  = state.diff?.files?.length || 0
+    const threadCount = threadFilesForCurrentView().size
+    const hasFiles    = totalFiles > 0
+    const hasFilter   = !!filterKind
+    if (!hasFiles && !hasFilter) return ''
+
+    // View-toggle markup — always rendered, anchors the left side. The
+    // active class is baked at render time; clicks trigger renderBody()
+    // which regenerates the banner with the new active state.
+    const viewToggle =
+      '<div class="diff-view-toggle" role="tablist" aria-label="Diff view mode">' +
+        `<button type="button" data-view="split"  class="${state.mode === 'split'  ? 'active' : ''}" role="tab" aria-selected="${state.mode === 'split'}">Split</button>` +
+        `<button type="button" data-view="inline" class="${state.mode === 'inline' ? 'active' : ''}" role="tab" aria-selected="${state.mode === 'inline'}">Inline</button>` +
+      '</div>'
+
+    // Active filter states — right side becomes a focused filter label
+    // + clear action. The view toggle still anchors the left so the user
+    // can switch Split/Inline without clearing the filter first.
+    if (filterKind === 'threads') {
+      return '<div class="diff-review-banner is-filter is-filter-threads">' +
+        viewToggle +
+        '<div class="diff-review-right">' +
+          `<span class="diff-review-label"><span class="diff-filter-dot"></span>Filter: files with threads · ${visibleCount} file${visibleCount === 1 ? '' : 's'}</span>` +
+          '<button type="button" class="diff-filter-clear" data-clear-filter>Show all</button>' +
+        '</div>' +
+      '</div>'
+    }
+    if (filterKind === 'related' && isFull) {
+      const filterAnchor = state.filter.anchor
       return '<div class="diff-review-banner is-filter">' +
-        `<span class="diff-review-label">Filter: related to <code>${escapeHtml(filterAnchor)}</code> · ${visibleCount} file${visibleCount === 1 ? '' : 's'}</span>` +
-        '<span class="diff-review-actions">' +
-          '<button type="button" data-clear-filter>Show all</button>' +
-          '<button type="button" class="primary" data-mark-reviewed>Mark all reviewed</button>' +
-        '</span>' +
+        viewToggle +
+        '<div class="diff-review-right">' +
+          `<span class="diff-review-label">Filter: related to <code>${escapeHtml(filterAnchor)}</code> · ${visibleCount} file${visibleCount === 1 ? '' : 's'}</span>` +
+          '<button type="button" class="diff-filter-clear" data-clear-filter>Show all</button>' +
+        '</div>' +
       '</div>'
     }
-    if (state.reviewed.size > 0) {
-      const total     = state.diff?.files?.length || 0
-      const remaining = Math.max(0, total - state.reviewed.size)
-      return '<div class="diff-review-banner is-summary">' +
-        `<span class="diff-review-label">${remaining} file${remaining === 1 ? '' : 's'} remaining <span class="diff-review-meta">· ${state.reviewed.size} of ${total} reviewed</span></span>` +
-        '<span class="diff-review-actions">' +
-          '<button type="button" class="danger" data-reset-reviewed>Reset</button>' +
-          '<button type="button" class="primary" data-mark-reviewed>Mark visible reviewed</button>' +
-        '</span>' +
-      '</div>'
+
+    // Resting state — right side hosts (in order) reviewed summary +
+    // Reset action when any files are marked, then the threads-filter
+    // chip when threads exist. Order is "info first, action last" so
+    // the right side reads left-to-right as a sentence.
+    const hasReviewed = isFull && state.reviewed.size > 0
+    const rightParts  = []
+    if (hasReviewed) {
+      const remaining = Math.max(0, totalFiles - state.reviewed.size)
+      rightParts.push(
+        `<span class="diff-review-summary">${remaining} of ${totalFiles} remaining <span class="diff-review-meta">· ${state.reviewed.size} reviewed</span></span>` +
+        '<button type="button" class="diff-review-reset" data-reset-reviewed title="Clear all reviewed marks">Reset</button>'
+      )
     }
-    if ((state.diff?.files?.length || 0) > 0) {
-      return '<div class="diff-review-banner is-summary">' +
-        '<span class="diff-review-label">Mark files reviewed as you go</span>' +
-        '<span class="diff-review-actions">' +
-          '<button type="button" class="primary" data-mark-reviewed>Mark visible reviewed</button>' +
-        '</span>' +
-      '</div>'
+    if (threadCount > 0) {
+      rightParts.push(
+        `<button type="button" class="diff-filter-chip" data-thread-filter title="Show only files with comment threads (${threadCount} file${threadCount === 1 ? '' : 's'})">` +
+          '<span class="diff-filter-chip-dot" aria-hidden="true"></span>' +
+          `<span class="diff-filter-chip-text">${threadCount} with thread${threadCount === 1 ? '' : 's'}</span>` +
+        '</button>'
+      )
     }
-    return ''
+
+    return '<div class="diff-review-banner is-summary">' +
+      viewToggle +
+      (rightParts.length
+        ? `<div class="diff-review-right">${rightParts.join('<span class="diff-review-sep" aria-hidden="true">·</span>')}</div>`
+        : '') +
+    '</div>'
   }
 
   function renderHead() {
@@ -1299,7 +1348,9 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
 
     if (!visibleFiles.length) {
       let emptyMsg
-      if (isLocal && untracked.length) {
+      if (state.filter?.kind === 'threads') {
+        emptyMsg = '<div class="diff-empty">No files with threads in this view.</div>'
+      } else if (isLocal && untracked.length) {
         emptyMsg = '<div class="diff-empty">No tracked changes vs HEAD.</div>'
       } else if (isFull && filterAnchor) {
         emptyMsg = '<div class="diff-empty">No related files found for this anchor.</div>'
@@ -1541,6 +1592,9 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
       // otherwise it'd just bounce the router straight back here.
       const link = root.querySelector('[data-threads-link]')
       if (link) link.hidden = state.threads.length === 0
+      // Banner hosts the threads-filter chip — re-render so newly-arrived
+      // threads (e.g. via SSE) reveal the chip without a manual reload.
+      renderBody()
     } catch {}
   }
 

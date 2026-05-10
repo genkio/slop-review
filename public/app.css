@@ -111,6 +111,17 @@ main {
   main { padding: 24px 16px 72px; }
 }
 
+/* Shared page shell. Overview and Threads (and the empty-state
+   branch view) constrain content to a single comfortable reading
+   width so the three pages feel like one app rather than three. The
+   diff page is the deliberate exception — it keeps its full-viewport
+   carve-out below (`body:has(.diff-page) main`) because side-by-side
+   diffs need horizontal real estate that prose-and-list pages don't. */
+.app-page {
+  max-width: 1080px;
+  margin: 0 auto;
+}
+
 /* ——— Page head ——— */
 .page-head {
   display: grid;
@@ -1965,9 +1976,25 @@ a.card-file:hover .card-file-mark {
   border-left: 3px solid var(--lane-explain);
   background: color-mix(in srgb, var(--lane-explain) 5%, var(--card));
 }
+/* Resting (default) banner state — neutral surface. The colored
+   left-ribbon variants (is-filter / is-filter-threads) signal "filter
+   engaged"; the resting state stays quiet so the view toggle and
+   chip read as ambient controls, not as alerts. */
 .diff-review-banner.is-summary {
-  border-left: 3px solid var(--lane-done);
-  background: color-mix(in srgb, var(--lane-done) 5%, var(--card));
+  border-left: 1px solid var(--hairline);
+  background: var(--card);
+}
+
+/* Right-side cluster: holds the optional reviewed summary, the threads
+   filter chip, and any active-filter affordances. Lays out as an inline
+   row with the .diff-review-sep dot between elements so multi-part
+   right-sides read as one connected phrase. */
+.diff-review-right {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
 }
 .diff-review-label {
   display: inline-flex;
@@ -1996,37 +2023,143 @@ a.card-file:hover .card-file-mark {
   gap: 6px;
   flex-shrink: 0;
 }
-.diff-review-actions button {
+/* Compact override for buttons living in the right-side cluster of the
+   review banner — defaults are 13px/7-12 which would tower over the
+   chip and the surrounding 12px text. Targets both the legacy
+   .diff-review-actions wrapper and the newer .diff-review-right wrapper. */
+.diff-review-actions button,
+.diff-review-right > button,
+.diff-review-right .diff-filter-clear,
+.diff-review-right .diff-review-reset {
   font-size: 11px;
   padding: 4px 10px;
 }
 
 /* Per-file relate-filter button. Sits at the trailing edge of the file
-   header (after stats), pill-shaped to read as a tag rather than a
-   primary action. The active variant uses the explain-lane blue to
-   visually echo the .is-filter banner above. */
+   header next to the per-file mark-reviewed toggle. Shape is deliberately
+   identical to .diff-file-mark so the trailing-edge cluster reads as a
+   coherent two-button strip — only the lane accent differs (explain blue
+   here vs done green for mark) so the active state telegraphs which kind
+   of state is engaged. */
 .diff-relate-btn {
+  appearance: none;
+  font: inherit;
   font-family: var(--font-sans);
-  font-size: 10px;
-  padding: 2px 8px;
-  border: 1px solid var(--hairline);
-  border-radius: 10px;
-  background: transparent;
-  color: var(--fg-muted);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0;
+  padding: 3px 9px;
+  border: 1px solid var(--hairline-strong);
+  border-radius: var(--radius-sm);
+  background: var(--card);
+  color: var(--fg-soft);
   cursor: pointer;
   flex: 0 0 auto;
   white-space: nowrap;
-  letter-spacing: 0.02em;
+  transition: border-color .15s var(--ease), color .15s var(--ease), background .15s var(--ease);
 }
 .diff-relate-btn:hover:not(:disabled) {
   color: var(--lane-explain);
   border-color: var(--lane-explain);
-  background: color-mix(in srgb, var(--lane-explain) 6%, transparent);
 }
 .diff-relate-btn.active {
   color: var(--lane-explain);
   border-color: var(--lane-explain);
   background: color-mix(in srgb, var(--lane-explain) 12%, transparent);
+}
+
+/* Filter chip inside the review banner. Renders inline next to the
+   file-count summary as a quiet, link-like affordance — *not* a chrome
+   button. The filter is a body control, so its toggle should sit with
+   the count it modifies (banner left-side), not in the page-navigation
+   chrome above. Visual treatment: leading colored dot + text-link
+   underline-on-hover. Editorial-paper aesthetic — no border, no fill;
+   colour-as-affordance only. The active state isn't shown on the chip
+   itself: when engaged, the entire banner transforms into the focused
+   `.is-filter` shape and the chip is replaced by the filter label. */
+.diff-filter-chip {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0;
+  margin: 0;
+  border: 0;
+  background: transparent;
+  font: inherit;
+  font-family: var(--font-sans);
+  font-size: inherit;
+  color: var(--fg-soft);
+  cursor: pointer;
+  white-space: nowrap;
+  flex: 0 0 auto;
+  transition: color .15s var(--ease);
+}
+.diff-filter-chip-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--lane-done);
+  opacity: 0.65;
+  flex: 0 0 auto;
+  transition: opacity .15s var(--ease);
+}
+.diff-filter-chip-text {
+  text-underline-offset: 3px;
+  text-decoration-thickness: 1px;
+  text-decoration-color: color-mix(in srgb, var(--lane-done) 60%, transparent);
+}
+.diff-filter-chip:hover {
+  color: var(--lane-done);
+}
+.diff-filter-chip:hover .diff-filter-chip-dot {
+  opacity: 1;
+}
+.diff-filter-chip:hover .diff-filter-chip-text {
+  text-decoration: underline;
+}
+.diff-filter-chip:focus-visible {
+  outline: 2px solid var(--lane-done);
+  outline-offset: 3px;
+  border-radius: 2px;
+}
+
+/* Indented "·" separator between the file-count summary and the filter
+   chip. Quieter than a comma, lighter than a vertical rule — keeps the
+   left-side label reading as one connected phrase. */
+.diff-review-sep {
+  margin: 0 8px;
+  color: var(--fg-muted);
+  opacity: 0.6;
+}
+
+/* Active-filter banner: a small lane-done dot leads the label so the
+   active accent reads from the same colour the chip carried in resting
+   state. The dot is rendered via a child span (not ::before) so the
+   markup parallels the resting chip and the colour transition feels
+   continuous when the filter activates. */
+.diff-filter-dot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--lane-done);
+  margin-right: 8px;
+  vertical-align: 1px;
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--lane-done) 25%, transparent);
+}
+
+/* Threads-filter banner variant — same shape as the related-filter
+   banner (.diff-review-banner.is-filter) but with the green accent so
+   the active filter colour matches the toggle pill in the actions row.
+   The shared .is-filter class handles layout; this overrides only the
+   accent line + tint to keep the banner family visually coherent. */
+.diff-review-banner.is-filter-threads {
+  border-left-color: var(--lane-done);
+  background: color-mix(in srgb, var(--lane-done) 7%, var(--card));
+}
+.diff-review-banner.is-filter-threads .diff-review-label code {
+  color: var(--lane-done);
 }
 
 /* Reviewed-file mark on the file header — a tiny ✓ that stays visible
@@ -3217,8 +3350,9 @@ body:has(.diff-page) main {
    defined. The panel overlays the right edge of the body instead of
    pushing content out from under itself. */
 
-/* Diff-header action buttons (Copy / Threads) share one compact style. */
-.diff-actions .diff-back,
+/* Diff-header action buttons share one compact style — covers the
+   Generate-overview CTA. The cross-page navigation links (Threads,
+   Overview ready/stale/error) live on .page-nav and skip this rule. */
 .diff-actions .btn {
   padding: 6px 12px;
   border: 1px solid var(--hairline-strong);
@@ -3234,7 +3368,6 @@ body:has(.diff-page) main {
   cursor: pointer;
   transition: background .15s var(--ease), color .15s var(--ease), border-color .15s var(--ease);
 }
-.diff-actions .diff-back:hover,
 .diff-actions .btn:hover {
   background: var(--bg-deep);
   color: var(--ink);
@@ -3248,10 +3381,7 @@ body:has(.diff-page) main {
 }
 .overview-nav-slot:empty { display: none; }
 .overview-nav-generating,
-.overview-nav-generate,
-.overview-nav-ready,
-.overview-nav-stale,
-.overview-nav-error {
+.overview-nav-generate {
   white-space: nowrap;
 }
 .overview-nav-generating:disabled {
@@ -3260,20 +3390,86 @@ body:has(.diff-page) main {
   background: var(--bg-deep);
   opacity: 1;
 }
-.overview-nav-error {
-  color: var(--accent);
-  border-color: color-mix(in srgb, var(--accent) 45%, var(--hairline));
+
+/* Cross-page navigation link. Distinct from .btn (action) — these
+   read as text-links with a trailing → arrow that telegraphs "go to"
+   semantics. The action/navigation visual split lets a user tell at a
+   glance whether clicking will fire a state change or take them
+   elsewhere. State-modifier classes (.is-stale, .is-error) tint the
+   link without changing its weight, so a stale Overview link reads as
+   "still navigable, just out of date" rather than as a warning that
+   blocks the click.
+   Layout note: padding gives a comfortable click target without
+   borrowing the chrome-y feel of a bordered button. The arrow
+   translates rightward on hover for kinetic feedback. */
+.page-nav {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 4px;
+  background: transparent;
+  border: 0;
+  font-family: var(--font-sans);
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: 0;
+  color: var(--fg-soft);
+  text-decoration: none;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: color .15s var(--ease);
 }
-.overview-nav-stale {
+.page-nav::after {
+  content: '→';
+  font-size: 13px;
+  color: var(--fg-muted);
+  display: inline-block;
+  transition: transform .15s var(--ease), color .15s var(--ease);
+}
+.page-nav:hover {
+  color: var(--ink);
+}
+.page-nav:hover::after {
+  color: var(--accent);
+  transform: translateX(2px);
+}
+.page-nav:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+  border-radius: 2px;
+}
+.page-nav[hidden] { display: none; }
+
+/* Stale: amber tint signals "out of date" without making the link
+   read as broken. Echoes --lane-working amber from the diff palette. */
+.page-nav.is-stale {
   color: var(--lane-working);
-  border-color: color-mix(in srgb, var(--lane-working) 45%, var(--hairline));
-  background: color-mix(in srgb, var(--lane-working) 8%, transparent);
+}
+.page-nav.is-stale::after {
+  color: color-mix(in srgb, var(--lane-working) 70%, var(--fg-muted));
+}
+.page-nav.is-stale:hover {
+  color: color-mix(in srgb, var(--lane-working) 80%, var(--ink));
 }
 
-/* Generated overview page. */
+/* Error: red tint flags the failure but the link stays clickable —
+   tapping takes you to the overview page where the error detail and
+   retry CTA live. */
+.page-nav.is-error {
+  color: var(--lane-removed);
+}
+.page-nav.is-error::after {
+  color: color-mix(in srgb, var(--lane-removed) 70%, var(--fg-muted));
+}
+.page-nav.is-error:hover {
+  color: color-mix(in srgb, var(--lane-removed) 80%, var(--ink));
+}
+
+/* Generated overview page. Width comes from the shared `.app-page`
+   shell defined near the top — keeping the rule here for any
+   overview-specific layout the page might pick up later. */
 .overview-page {
-  max-width: 1080px;
-  margin: 0 auto;
+  /* width: inherited from .app-page */
 }
 
 /* Title row: page-head h1 paired with a small generated-at label. */

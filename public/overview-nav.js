@@ -28,14 +28,14 @@ export function setupOverviewNav(container, repoId) {
       if (status.status === 'generating') schedule()
     } catch (e) {
       if (disposed) return
-      container.innerHTML = `<a class="btn overview-nav-error" href="${ROUTES.overview()}" title="${escapeHtml(e.message)}">Overview failed</a>`
+      container.innerHTML = `<a class="page-nav is-error" href="${ROUTES.overview()}" title="${escapeHtml(e.message)}">Overview failed</a>`
     }
   }
 
   function render(status) {
     clearTimer()
     if (status.status === 'ready') {
-      container.innerHTML = `<a class="btn overview-nav-ready" href="${ROUTES.overview()}">Overview</a>`
+      container.innerHTML = `<a class="page-nav" href="${ROUTES.overview()}">Overview</a>`
       return
     }
     if (status.status === 'generating') {
@@ -44,11 +44,11 @@ export function setupOverviewNav(container, repoId) {
     }
     if (status.status === 'error' || status.error) {
       const title = status.error ? ` title="${escapeHtml(status.error)}"` : ''
-      container.innerHTML = `<a class="btn overview-nav-error" href="${ROUTES.overview()}"${title}>Overview failed</a>`
+      container.innerHTML = `<a class="page-nav is-error" href="${ROUTES.overview()}"${title}>Overview failed</a>`
       return
     }
     if (status.status === 'stale') {
-      container.innerHTML = `<a class="btn overview-nav-stale" href="${ROUTES.overview()}" title="Overview is out of date for the current branch state">Overview staled</a>`
+      container.innerHTML = `<a class="page-nav is-stale" href="${ROUTES.overview()}" title="Overview is out of date for the current branch state">Overview staled</a>`
       return
     }
     if (status.can_generate && status.codex_available) {
