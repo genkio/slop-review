@@ -135,4 +135,35 @@ export function registerThreadRoutes(app) {
     const threads = await listThreadsWithState(repo.path, branchId)
     return c.json({ ok: true, branch, branch_id: branchId, threads })
   })
+
+  // Resolution toggle. `resolved_at` is a single nullable timestamp:
+  // setting it (POST /resolve) marks the thread done; clearing it
+  // (POST /unresolve) re-opens it. The state-derivation rule treats
+  // `resolved_at != null` as the resolved pill, short-circuiting the
+  // your_turn/awaiting/read derivation. Resolution is a pure human
+  // bookkeeping flag — the aggregate prompt filters resolved threads
+  // out client-side, so the agent never sees them.
+  app.post('/api/repos/:id/threads/:thread_id/resolve', async (c) => {
+    const { repo, branchId, branch, error } = await withRepoAndBranch(c)
+    if (error) return error
+    const tid = c.req.param('thread_id')
+    const thread = await readThread(repo.path, branchId, tid)
+    if (!thread) return c.json({ error: 'thread not found' }, 404)
+    thread.resolved_at = new Date().toISOString()
+    await writeThread(repo.path, branchId, thread)
+    const threads = await listThreadsWithState(repo.path, branchId)
+    return c.json({ ok: true, branch, branch_id: branchId, threads })
+  })
+
+  app.post('/api/repos/:id/threads/:thread_id/unresolve', async (c) => {
+    const { repo, branchId, branch, error } = await withRepoAndBranch(c)
+    if (error) return error
+    const tid = c.req.param('thread_id')
+    const thread = await readThread(repo.path, branchId, tid)
+    if (!thread) return c.json({ error: 'thread not found' }, 404)
+    thread.resolved_at = null
+    await writeThread(repo.path, branchId, thread)
+    const threads = await listThreadsWithState(repo.path, branchId)
+    return c.json({ ok: true, branch, branch_id: branchId, threads })
+  })
 }

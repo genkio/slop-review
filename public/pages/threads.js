@@ -1,7 +1,7 @@
 import { api } from '../api.js'
 import { store } from '../store.js'
-import { escapeHtml, inlineCode, relTime } from '../util.js'
-import { openThreadModal } from '../modals.js'
+import { escapeHtml, inlineCode, relTime, sanitizeBranchId } from '../util.js'
+import { openThreadModal, openCopyAggregateModal } from '../modals.js'
 import { subscribeRepoEvents, unsubscribeRepoEvents } from '../sse.js'
 import { ROUTES } from '../routes.js'
 import { setupOverviewNav } from '../overview-nav.js'
@@ -37,7 +37,10 @@ export async function renderThreadsPage(isCurrent = () => true) {
   main.innerHTML = `
     <div class="threads-page">
       <div class="page-head">
-        <h1>Threads</h1>
+        <div class="page-head-lead">
+          <h1>Threads</h1>
+          <button type="button" class="threads-copy-action" data-copy-prompt hidden title="Copy aggregate-comments prompt for the agent">Copy</button>
+        </div>
         <div class="actions">
           <span data-overview-nav class="overview-nav-slot"></span>
           <a class="btn" href="${ROUTES.diffFull()}">Diff</a>
@@ -49,11 +52,30 @@ export async function renderThreadsPage(isCurrent = () => true) {
       <div id="threads-list">Loading…</div>
     </div>`
 
-  await refresh(repo, isCurrent)
+  // Closure ref so the Copy click handler always sees the freshest threads
+  // (refresh fires both on initial load and on every SSE thread_changed event).
+  let currentThreads = []
+  const copyBtn = main.querySelector('[data-copy-prompt]')
+  const onThreadsLoaded = (threads) => {
+    currentThreads = threads
+    copyBtn.hidden = threads.length === 0
+  }
+  copyBtn.addEventListener('click', () => {
+    if (currentThreads.length === 0) return
+    openCopyAggregateModal({
+      repo,
+      branch: branchInfo.current_branch,
+      branchId: sanitizeBranchId(branchInfo.current_branch || ''),
+      branchInfo,
+      threads: currentThreads,
+    })
+  })
+
+  await refresh(repo, isCurrent, onThreadsLoaded)
   if (!isCurrent()) return
 
   currentOverviewNavDispose = setupOverviewNav(main.querySelector('[data-overview-nav]'), repo.id)
-  currentSseUnsub = subscribeRepoEvents(repo.id, () => refresh(repo, isCurrent))
+  currentSseUnsub = subscribeRepoEvents(repo.id, () => refresh(repo, isCurrent, onThreadsLoaded))
 }
 
 /**
@@ -67,7 +89,7 @@ export function disposeThreadsView() {
   if (currentOverviewNavDispose) { try { currentOverviewNavDispose() } catch {}; currentOverviewNavDispose = null }
 }
 
-async function refresh(repo, isCurrent = () => true) {
+async function refresh(repo, isCurrent = () => true, onThreadsLoaded = null) {
   if (!isCurrent()) return
   let payload
   try {
@@ -80,6 +102,7 @@ async function refresh(repo, isCurrent = () => true) {
   }
   if (!document.getElementById('threads-list')) return
   const threads = payload?.threads || []
+  if (onThreadsLoaded) onThreadsLoaded(threads)
   document.getElementById('threads-list').innerHTML = renderThreadsList(threads)
 
   document.querySelectorAll('[data-open-thread]').forEach((el) => {
@@ -106,7 +129,7 @@ async function refresh(repo, isCurrent = () => true) {
             location.hash = ROUTES.diffFull()
           }
         },
-        onChanged: () => refresh(repo, isCurrent),
+        onChanged: () => refresh(repo, isCurrent, onThreadsLoaded),
       })
     })
   })
@@ -117,7 +140,7 @@ function renderThreadsList(threads) {
     return '<div class="empty">No threads yet. Open the diff and click <b>+</b> on any line to start a conversation.</div>'
   }
 
-  const counts = { your_turn: 0, awaiting: 0, read: 0 }
+  const counts = { your_turn: 0, awaiting: 0, read: 0, resolved: 0 }
   for (const t of threads) counts[t.state || 'awaiting']++
 
   // Group by file
@@ -128,11 +151,13 @@ function renderThreadsList(threads) {
     byFile.get(f).push(t)
   }
 
-  // Within each file, sort by state (your_turn → awaiting → read), then by most-recent-activity desc
-  const stateRank = { your_turn: 0, awaiting: 1, read: 2 }
+  // Within each file, sort by state (your_turn → awaiting → read → resolved),
+  // then by most-recent-activity desc. Resolved drops to the bottom of each
+  // file's group — visible-but-out-of-the-way, never folded.
+  const stateRank = { your_turn: 0, awaiting: 1, read: 2, resolved: 3 }
   for (const arr of byFile.values()) {
     arr.sort((a, b) => {
-      const sd = (stateRank[a.state] ?? 3) - (stateRank[b.state] ?? 3)
+      const sd = (stateRank[a.state] ?? 4) - (stateRank[b.state] ?? 4)
       if (sd !== 0) return sd
       const at = Date.parse(a.last_comment_at || '') || 0
       const bt = Date.parse(b.last_comment_at || '') || 0
@@ -148,6 +173,7 @@ function renderThreadsList(threads) {
     <span class="state-pill state-your-turn">🟢 ${counts.your_turn} your turn</span>
     <span class="state-pill state-awaiting">⚪ ${counts.awaiting} awaiting LLM</span>
     <span class="state-pill state-read">◌ ${counts.read} read</span>
+    <span class="state-pill state-resolved">✓ ${counts.resolved} resolved</span>
     <span class="threads-total">${threads.length} total</span>
   </div>`
 
@@ -163,10 +189,12 @@ function renderThreadsList(threads) {
 }
 
 function renderThreadRow(t) {
-  const stateClass = t.state === 'your_turn' ? 'state-your-turn'
+  const stateClass = t.state === 'resolved'  ? 'state-resolved'
+                   : t.state === 'your_turn' ? 'state-your-turn'
                    : t.state === 'awaiting'  ? 'state-awaiting'
                    : 'state-read'
-  const stateLabel = t.state === 'your_turn' ? '🟢'
+  const stateLabel = t.state === 'resolved'  ? '✓'
+                   : t.state === 'your_turn' ? '🟢'
                    : t.state === 'awaiting'  ? '⚪'
                    : '◌'
   const first = t.comments?.[0]

@@ -141,6 +141,35 @@ main {
   border-bottom-color: var(--accent);
 }
 .page-head .actions { display: flex; gap: 8px; align-items: center; }
+.page-head-lead {
+  display: flex;
+  align-items: baseline;
+  gap: 14px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+/* Primary in-page action (e.g. Copy aggregate prompt). Distinct from the
+   neutral `.btn` used for navigation: solid accent fill signals "do a
+   thing" rather than "go somewhere". Hidden until the page has data
+   that makes the action meaningful (zero threads → no copy). */
+.threads-copy-action {
+  background: var(--accent);
+  color: #ffffff;
+  border: 1px solid var(--accent);
+  padding: 6px 14px;
+  border-radius: var(--radius-sm);
+  font-family: var(--font-sans);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  transition: background .15s var(--ease), border-color .15s var(--ease);
+}
+.threads-copy-action:hover {
+  background: color-mix(in srgb, var(--accent) 86%, var(--ink) 14%);
+  border-color: color-mix(in srgb, var(--accent) 86%, var(--ink) 14%);
+}
+.threads-copy-action[hidden] { display: none; }
 @media (max-width: 720px) {
   .page-head { grid-template-columns: 1fr; gap: 14px; margin-bottom: 28px; }
   .page-head .actions { justify-content: flex-start; }
@@ -174,6 +203,35 @@ button.danger { color: var(--accent); border-color: var(--hairline); }
 button.danger:hover:not(:disabled) {
   color: var(--accent); border-color: var(--accent);
   background: color-mix(in srgb, var(--accent) 7%, transparent);
+}
+/* Resolve / Reopen pair — Resolve carries the green-accent CTA treatment
+   ("close this conversation"), Reopen is neutral ("undo close"). The
+   visual hierarchy makes the destructive Delete action still distinguishable
+   via its red-accent .danger class. */
+button.thread-resolve {
+  color: var(--lane-done);
+  border-color: var(--lane-done);
+  background: color-mix(in srgb, var(--lane-done) 6%, transparent);
+}
+button.thread-resolve:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--lane-done) 14%, transparent);
+}
+button.thread-unresolve { color: var(--fg-soft); }
+button.thread-unresolve:hover:not(:disabled) { color: var(--ink); border-color: var(--hairline-strong); }
+
+/* Subtitle on resolved threads in the modal: small monospace note that
+   sits between .sub and the comment list. Mirrors the .sub typography
+   (mono, soft fg) but accent-tinted in green so the closure context
+   reads as informational, not actionable. */
+.thread-resolved-note {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--lane-done);
+  margin: -12px 0 16px;
+  padding: 6px 10px;
+  border-left: 3px solid var(--lane-done);
+  background: color-mix(in srgb, var(--lane-done) 5%, transparent);
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
 }
 
 /* ——— Inputs ——— */
@@ -1957,30 +2015,6 @@ a.card-file:hover .card-file-mark {
   color: #ffffff;
 }
 
-/* Sibling of the Split/Inline toggle but NOT in the toggle group: same
-   height/font/uppercase typography so it sits comfortably alongside, but
-   its own border + radius so it reads as a standalone action rather than
-   another tab in the group. */
-.diff-copy-prompt {
-  padding: 6px 12px;
-  border: 1px solid var(--hairline-strong);
-  border-radius: var(--radius-sm);
-  background: var(--card);
-  color: var(--fg);
-  font-family: var(--font-sans);
-  font-size: 12px;
-  font-weight: 500;
-  text-transform: none;
-  letter-spacing: 0;
-  cursor: pointer;
-  transition: background .15s var(--ease), color .15s var(--ease), border-color .15s var(--ease);
-}
-.diff-copy-prompt:hover {
-  background: var(--bg-deep);
-  color: var(--ink);
-  border-color: var(--accent);
-}
-
 /* The copy-local-prompt modal is launched from inside the diff modal
    (z-index 60), so it needs to stack above the diff backdrop. The regular
    modal-backdrop sits at 50, which is correct for "modal opened from a
@@ -2112,6 +2146,11 @@ a.card-file:hover .card-file-mark {
    stateless — flip via parent's `.is-collapsed` class. Down-triangle
    when expanded (matches the "open" reading direction); right-triangle
    when collapsed (the standard tree/disclosure idiom). */
+/* Disclosure widget — rendered as a real <button> so keyboard nav
+   (Tab + Enter/Space) and link-hint extensions like Vimium can target
+   it directly. Native button styling is reset to keep the chevron
+   visually identical to the prior <span>. The header itself still
+   carries data-toggle-collapse for mouse clicks on the path/stats. */
 .diff-file-toggle {
   display: inline-block;
   width: 10px;
@@ -2120,9 +2159,20 @@ a.card-file:hover .card-file-mark {
   line-height: 1;
   color: var(--fg-muted);
   text-align: center;
+  padding: 0;
+  margin: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  font-family: inherit;
 }
 .diff-file-toggle::before { content: "▾"; }
 .diff-file.is-collapsed .diff-file-toggle::before { content: "▸"; }
+.diff-file-toggle:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
 .diff-file-status {
   display: inline-grid;
   place-content: center;
@@ -3153,6 +3203,15 @@ a.card-file:hover .card-file-mark {
   color: var(--fg-muted);
   border-color: var(--hairline);
 }
+/* Resolved is the human bookkeeping flag — pill is green like done-lane,
+   slightly more saturated than your-turn so the eye reads ✓ as "closed"
+   rather than "actionable". */
+.state-pill.state-resolved {
+  color: var(--lane-done);
+  border-color: var(--lane-done);
+  background: color-mix(in srgb, var(--lane-done) 14%, transparent);
+  font-weight: 600;
+}
 
 .thread-file {
   margin-bottom: 24px;
@@ -3228,6 +3287,22 @@ a.card-file:hover .card-file-mark {
   50% { opacity: 1; }
 }
 
+/* Resolved threads on the threads page: thicker accent-green left ribbon
+   so the eye scans past them when looking for actionable work, but the
+   body text stays at full opacity (per the chosen design — visible-but-
+   out-of-the-way, never folded). The ✓ glyph in .thread-row-state gets
+   the same green so the pulse-glow logic above doesn't apply (resolved
+   is never "your turn"). */
+.thread-row.state-resolved {
+  border-left: 4px solid var(--lane-done);
+  padding-left: 10px;       /* compensate so column alignment matches non-resolved rows */
+  background: color-mix(in srgb, var(--lane-done) 3%, transparent);
+}
+.thread-row.state-resolved .thread-row-state {
+  color: var(--lane-done);
+  font-weight: 700;
+}
+
 /* In-diff thread display: state-aware emphasis on `your turn` rows */
 .diff-thread.state-your-turn {
   border-left: 3px solid var(--lane-done);
@@ -3237,6 +3312,16 @@ a.card-file:hover .card-file-mark {
 }
 .diff-thread.state-read {
   border-left: 3px solid var(--hairline);
+}
+/* Resolved inline thread row on the diff: thicker green ribbon (4px vs 3px)
+   so the resolution is unambiguous when scanning the diff, plus a faint
+   green wash on the row container. Body comments stay full opacity.
+   `padding-left` gives the file-path header text breathing room from the
+   ribbon — without it the mono path text crowded the green edge. */
+.diff-thread.state-resolved {
+  border-left: 4px solid var(--lane-done);
+  background: color-mix(in srgb, var(--lane-done) 4%, transparent);
+  padding-left: 10px;
 }
 .diff-thread .state-pill {
   margin-left: 8px;

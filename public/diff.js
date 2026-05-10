@@ -1,6 +1,6 @@
 import { api } from './api.js'
 import { escapeHtml, inlineCode, relTime, copyToClipboard, toast } from './util.js'
-import { openCopyAggregateModal, openThreadModal, confirmRemoveComment } from './modals.js'
+import { openThreadModal, confirmRemoveComment } from './modals.js'
 import { languageForPath, highlightLine } from './syntax.js'
 import { intraLineSegments } from './intra-line-diff.js'
 import { subscribeRepoEvents } from './sse.js'
@@ -216,13 +216,14 @@ const RELATIONSHIP_LABELS = {
 
 function renderFileSection(file, mode, sha, opts = {}) {
   const {
-    isReviewed     = false,
-    isCollapsed    = false,
-    showRelateBtn  = false,
-    isFilterAnchor = false,
-    priorityEntry  = null,
-    relationship   = null,
-    anchorPath     = null,
+    isReviewed          = false,
+    isCollapsed         = false,
+    showRelateBtn       = false,
+    showReviewedToggle  = false,
+    isFilterAnchor      = false,
+    priorityEntry       = null,
+    relationship        = null,
+    anchorPath          = null,
   } = opts
   const status      = file.status || 'modified'
   const statusGlyph = STATUS_GLYPH[status] || '?'
@@ -268,11 +269,14 @@ function renderFileSection(file, mode, sha, opts = {}) {
       relateBtn = `<button type="button" class="diff-relate-btn${isFilterAnchor ? ' active' : ''}" data-relate-anchor="${escapeHtml(file.path)}" title="${title}">${label}</button>`
     }
   }
-  // Per-file reviewed toggle. Click stops propagation so it doesn't trigger
-  // the file head's collapse-toggle. When marking, the click handler also
-  // adds the path to collapsedPaths so the file folds — the GitHub-PR-review
-  // pattern of "I'm done with this one, get it out of my way".
-  const reviewedToggle = `<button type="button" class="diff-file-mark${isReviewed ? ' active' : ''}" data-toggle-reviewed="${escapeHtml(file.path)}" title="${isReviewed ? 'Marked reviewed — click to unmark' : 'Mark this file reviewed'}" aria-pressed="${isReviewed}">${isReviewed ? '✓ reviewed' : '○ mark'}</button>`
+  // Per-file reviewed toggle — only rendered in Full diff view because the
+  // reviewed-batches store is keyed by HEAD SHA against the full file set.
+  // Per-commit and Local views don't persist this state, so the button is
+  // suppressed there to avoid implying it does. Click stops propagation so
+  // it doesn't trigger the file head's collapse-toggle.
+  const reviewedToggle = showReviewedToggle
+    ? `<button type="button" class="diff-file-mark${isReviewed ? ' active' : ''}" data-toggle-reviewed="${escapeHtml(file.path)}" title="${isReviewed ? 'Marked reviewed — click to unmark' : 'Mark this file reviewed'}" aria-pressed="${isReviewed}">${isReviewed ? '✓ reviewed' : '○ mark'}</button>`
+    : ''
 
   // Relationship chip — only on non-anchor files in filter mode
   let relChip = ''
@@ -291,7 +295,7 @@ function renderFileSection(file, mode, sha, opts = {}) {
 
   return `<section class="${sectionClass}" data-path="${escapeHtml(file.path)}" data-status="${status}">` +
     `<header class="diff-file-head" data-toggle-collapse>` +
-      `<span class="diff-file-toggle" aria-hidden="true"></span>` +
+      `<button type="button" class="diff-file-toggle" data-toggle-collapse aria-expanded="${isCollapsed ? 'false' : 'true'}" aria-label="${isCollapsed ? 'Expand file' : 'Collapse file'} ${escapeHtml(file.path)}"></button>` +
       `<span class="diff-file-status" data-status="${status}" title="${status}">${statusGlyph}</span>` +
       `<code class="diff-file-path">${pathShown}</code>` +
       `<span class="diff-file-stats"><span class="diff-stat-add">+${file.additions ?? 0}</span> <span class="diff-stat-del">−${file.deletions ?? 0}</span></span>` +
@@ -392,7 +396,6 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
           <button type="button" data-view="split"  class="${state.mode === 'split'  ? 'active' : ''}" role="tab">Split</button>
           <button type="button" data-view="inline" class="${state.mode === 'inline' ? 'active' : ''}" role="tab">Inline</button>
         </div>
-        <button type="button" class="diff-copy-prompt" data-copy-prompt title="Copy aggregate-comments prompt for the agent">Copy</button>
         <span data-overview-nav class="overview-nav-slot"></span>
         <a class="btn diff-back" data-threads-link href="${ROUTES.threads()}" hidden>Threads</a>
       </div>
@@ -475,13 +478,6 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
 
   $('[data-prev]').addEventListener('click', () => goto(state.index - 1))
   $('[data-next]').addEventListener('click', () => goto(state.index + 1))
-
-  $('[data-copy-prompt]').addEventListener('click', () => {
-    openCopyAggregateModal({
-      repo, branch, branchId, branchInfo,
-      threads: state.threads,
-    })
-  })
 
   // ------------------------------------------------------------------
   // Inline `+ comment` floating button.
@@ -1029,12 +1025,21 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
     const section = head.closest('.diff-file[data-path]')
     if (!section) return
     const path = section.dataset.path
-    if (state.collapsedPaths.has(path)) {
-      state.collapsedPaths.delete(path)
-      section.classList.remove('is-collapsed')
-    } else {
+    const willCollapse = !state.collapsedPaths.has(path)
+    if (willCollapse) {
       state.collapsedPaths.add(path)
       section.classList.add('is-collapsed')
+    } else {
+      state.collapsedPaths.delete(path)
+      section.classList.remove('is-collapsed')
+    }
+    // Keep the chevron button's a11y state in sync — this handler does a
+    // lightweight DOM mutation rather than a full renderBody(), so the
+    // aria attrs set at render time would otherwise go stale.
+    const toggleBtn = section.querySelector('.diff-file-toggle')
+    if (toggleBtn) {
+      toggleBtn.setAttribute('aria-expanded', String(!willCollapse))
+      toggleBtn.setAttribute('aria-label', `${willCollapse ? 'Expand' : 'Collapse'} file ${path}`)
     }
   })
 
@@ -1324,6 +1329,7 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
         isReviewed: state.reviewed.has(f.path),
         isCollapsed: state.collapsedPaths.has(f.path),
         showRelateBtn,
+        showReviewedToggle: isFull,
         isFilterAnchor: filterAnchor === f.path,
         priorityEntry: priorities?.[f.path] || null,
         relationship,
@@ -1413,10 +1419,13 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
     tr.className = 'diff-row diff-row-thread'
     tr.dataset.threadId = thread.id
 
-    const stateClass = thread.state === 'your_turn' ? 'state-your-turn'
+    const stateClass = thread.state === 'resolved'  ? 'state-resolved'
+                     : thread.state === 'your_turn' ? 'state-your-turn'
                      : thread.state === 'awaiting'  ? 'state-awaiting'
                      : 'state-read'
-    const statePill = thread.state === 'your_turn'
+    const statePill = thread.state === 'resolved'
+      ? '<span class="state-pill state-resolved" title="Thread resolved">✓ resolved</span>'
+      : thread.state === 'your_turn'
       ? '<span class="state-pill state-your-turn" title="LLM replied — your turn">🟢 your turn</span>'
       : ''
 

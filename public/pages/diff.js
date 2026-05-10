@@ -1,6 +1,6 @@
 import { api } from '../api.js'
 import { store } from '../store.js'
-import { escapeHtml } from '../util.js'
+import { escapeHtml, sanitizeBranchId } from '../util.js'
 import { renderDiffView, disposeDiffView } from '../diff.js'
 import { ROUTES } from '../routes.js'
 import { setupOverviewNav } from '../overview-nav.js'
@@ -113,13 +113,6 @@ export async function renderDiffPage(parsed = { variant: 'full' }, isCurrent = (
     scrollToAnchor,
     isCurrent,
   })
-}
-
-function sanitizeBranchId(branch) {
-  if (!branch) return ''
-  let s = String(branch).replace(/[^A-Za-z0-9_-]+/g, '-').replace(/^-+|-+$/g, '')
-  if (s.length > 80) s = s.slice(0, 80)
-  return s
 }
 
 function renderBranchCard(info) {

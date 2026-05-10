@@ -101,3 +101,17 @@ export function homePath(absPath, home) {
   return absPath
 }
 
+/**
+ * Sanitize a branch name into a filesystem-safe directory name. SPEC §5:
+ * anything outside `[A-Za-z0-9_-]` collapses to `-`, leading/trailing `-`
+ * stripped, capped at 80 chars. Must stay in lockstep with the server's
+ * sanitization (server/reviews.js) so the `<repo>/.reviews/<branch_id>/`
+ * paths the client constructs match what the server reads/writes.
+ */
+export function sanitizeBranchId(branch) {
+  if (!branch) return ''
+  let s = String(branch).replace(/[^A-Za-z0-9_-]+/g, '-').replace(/^-+|-+$/g, '')
+  if (s.length > 80) s = s.slice(0, 80)
+  return s
+}
+

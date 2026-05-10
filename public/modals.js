@@ -96,9 +96,22 @@ export function openThreadModal(threadId, opts = {}) {
       ? '<button type="button" data-jump>Jump to diff</button>'
       : ''
 
+    // Resolution toggle. Label + class flip based on the current state so
+    // a single click does whatever is locally meaningful: "✓ Resolve" on
+    // an open thread, "Reopen" on a resolved one. Resolved threads also
+    // surface a small subtitle so the user remembers when they closed it.
+    const isResolved = !!thread.resolved_at
+    const resolveBtn = isResolved
+      ? '<button type="button" class="thread-unresolve" data-unresolve>Reopen</button>'
+      : '<button type="button" class="thread-resolve" data-resolve>✓ Resolve</button>'
+    const resolvedSub = isResolved
+      ? `<div class="thread-resolved-note">Resolved ${escapeHtml(relTime(thread.resolved_at))}</div>`
+      : ''
+
     const backdrop = makeModal(`
       <h2>Thread ${viewBadge}</h2>
       <div class="sub">${escapeHtml(subLabel)} ${thread.side ? `<span class="thread-side">(${escapeHtml(thread.side)})</span>` : ''}</div>
+      ${resolvedSub}
       <div class="thread-list" data-thread-list>${msgs}</div>
       <div class="thread-reply">
         <textarea class="thread-reply-input" rows="3" placeholder="Add a follow-up comment…"></textarea>
@@ -109,6 +122,7 @@ export function openThreadModal(threadId, opts = {}) {
       <div class="modal-actions">
         <button data-close>Close</button>
         ${jumpBtn}
+        ${resolveBtn}
         <button type="button" class="danger" data-delete>Delete thread</button>
       </div>`)
 
@@ -153,6 +167,56 @@ export function openThreadModal(threadId, opts = {}) {
         jumpToDiff(thread)
       })
     }
+
+    // Resolution toggle. Patches the footer button, the resolved subtitle,
+    // and the local `thread` ref in place rather than re-rendering the
+    // whole modal — preserves any in-flight reply text and avoids a flash.
+    const wireResolutionToggle = () => {
+      const onResolve   = () => performResolution(true)
+      const onUnresolve = () => performResolution(false)
+      backdrop.querySelector('[data-resolve]')?.addEventListener('click', onResolve)
+      backdrop.querySelector('[data-unresolve]')?.addEventListener('click', onUnresolve)
+    }
+    const performResolution = async (toResolved) => {
+      const path = toResolved ? 'resolve' : 'unresolve'
+      const btn = backdrop.querySelector(toResolved ? '[data-resolve]' : '[data-unresolve]')
+      if (!btn) return
+      btn.disabled = true
+      const originalLabel = btn.textContent
+      btn.textContent = 'Saving…'
+      try {
+        const res = await api(
+          `/api/repos/${encodeURIComponent(repoId)}/threads/${encodeURIComponent(threadId)}/${path}`,
+          { method: 'POST' }
+        )
+        // Sync the local thread ref from the server response so any later
+        // in-modal action (Reply, Delete) sees the post-toggle state.
+        const updated = res?.threads?.find((t) => t.id === threadId)
+        thread.resolved_at = updated?.resolved_at ?? (toResolved ? new Date().toISOString() : null)
+        // Swap the footer button.
+        const newBtnHtml = toResolved
+          ? '<button type="button" class="thread-unresolve" data-unresolve>Reopen</button>'
+          : '<button type="button" class="thread-resolve" data-resolve>✓ Resolve</button>'
+        btn.outerHTML = newBtnHtml
+        // Swap the "Resolved Xh ago" subtitle.
+        const existingNote = backdrop.querySelector('.thread-resolved-note')
+        if (toResolved) {
+          const noteHtml = `<div class="thread-resolved-note">Resolved ${escapeHtml(relTime(thread.resolved_at))}</div>`
+          if (existingNote) existingNote.outerHTML = noteHtml
+          else backdrop.querySelector('.sub')?.insertAdjacentHTML('afterend', noteHtml)
+        } else {
+          existingNote?.remove()
+        }
+        wireResolutionToggle()
+        onChanged?.(res)
+        toast(toResolved ? 'Thread resolved' : 'Thread reopened')
+      } catch (e) {
+        btn.disabled = false
+        btn.textContent = originalLabel
+        toast(`${toResolved ? 'Resolve' : 'Reopen'} failed: ` + (e.message || 'unknown'))
+      }
+    }
+    wireResolutionToggle()
 
     backdrop.querySelector('[data-delete]').addEventListener('click', () => {
       const confirmBackdrop = makeModal(`
@@ -353,20 +417,27 @@ function aggregateBlocks({ repo, branch, branchInfo, threads }) {
   if (branchInfo?.merge_base_sha) ctxLines.push(`Merge-base: ${branchInfo.merge_base_sha.slice(0, 12)}`)
   blocks.push({ id: 'branch-context', label: 'Branch context', content: ctxLines.join('\n') })
 
-  // Threads: every thread for the current branch, sorted by file then line.
-  const sorted = [...(threads || [])].sort((a, b) => {
-    const f = (a.file || '').localeCompare(b.file || '')
-    if (f !== 0) return f
-    return (a.line || 0) - (b.line || 0)
-  })
-  // The path pattern matches server/reviews.js exactly so the agent can
-  // find each file no matter what cwd it's invoked from.
+  // Threads: every UNRESOLVED thread for the current branch, sorted by
+  // file then line. Resolved threads are pure human bookkeeping — they're
+  // omitted from the prompt entirely so the agent stays focused on what
+  // still needs work and isn't biased by closed conversations.
+  const sorted = [...(threads || [])]
+    .filter((t) => !t.resolved_at)
+    .sort((a, b) => {
+      const f = (a.file || '').localeCompare(b.file || '')
+      if (f !== 0) return f
+      return (a.line || 0) - (b.line || 0)
+    })
+  // The agent reaches each thread JSON via its absolute `File:` path so it
+  // doesn't matter what cwd it's invoked from. The server emits `file_name`
+  // on every thread (it's the on-disk name carrying the status segment), so
+  // we just splice it in here.
   const branchId = (typeof window !== 'undefined' && window.__slopBranchId) || branch || 'main'
   const threadText = sorted.length === 0
     ? '(no threads on this branch yet)'
     : sorted
         .map((t) => {
-          const filePath = `${repoPath}/.reviews/${branchId}/${t.id}.json`
+          const filePath = `${repoPath}/.reviews/${branchId}/${t.file_name}`
           const header = `Source: ${t.file}:${t.line}\nFile: ${filePath}\nView: ${t.view || 'full'}`
           const body = (t.comments || [])
             .map((c) => '[' + c.user + ']\n' + c.body)
@@ -388,8 +459,14 @@ export function openCopyAggregateModal({ repo, branch, branchId, branchInfo, thr
   // threading it through every call. Cheap and avoids a wider refactor of
   // the helper signature; cleared via the modal's close path.
   window.__slopBranchId = branchId
-  const count = (threads || []).length
-  const subText = `${branch || 'no branch'} · ${count} thread${count === 1 ? '' : 's'}`
+  // Count only the threads the agent will actually see — resolved threads
+  // are filtered out by aggregateBlocks, so the subtitle should match
+  // what the user is about to copy (no surprise mismatch).
+  const unresolved = (threads || []).filter((t) => !t.resolved_at)
+  const count = unresolved.length
+  const total = (threads || []).length
+  const resolvedHint = total > count ? ` (${total - count} resolved hidden)` : ''
+  const subText = `${branch || 'no branch'} · ${count} thread${count === 1 ? '' : 's'}${resolvedHint}`
   const backdrop = makeModal(`
     <h2>Aggregate review comments</h2>
     <div class="sub">${escapeHtml(subText)}</div>

@@ -14,7 +14,8 @@ import { join, sep } from 'node:path'
  *     supplies).
  *   - Torn down when the last subscriber disconnects.
  *   - On macOS / Linux, `fs.watch` with `recursive: true` covers nested
- *     `<branch_id>/<thread_id>.json` writes from a single root handle.
+ *     `<branch_id>/thread_<status>_<hex>.json` writes from a single root
+ *     handle.
  *
  * No polling fallback — slop-review is a single-user local-machine app
  * where fs.watch's quirks don't matter in practice. If they bite, the
@@ -36,18 +37,22 @@ function ensureWatcher(repoId, repoPath) {
   try {
     fsHandle = watch(root, { recursive: true }, (eventType, filename) => {
       if (!filename) return
-      // Filename is relative to root: `<branch_id>/<thread_id>.json` (or
-      // `<branch_id>/_reviewed.json`, which we suppress).
+      // Filename is relative to root: `<branch_id>/thread_<status>_<hex>.json`
+      // (sidecars like `_reviewed.json` / `_overview.json` are filtered out
+      // by the regex below).
       const parts = String(filename).split(sep)
       if (parts.length < 2) return
       const branch_id = parts[0]
       const file = parts[parts.length - 1]
-      if (!file.endsWith('.json')) return
-      if (file.startsWith('_')) return
       // Strip the .tmp suffix from atomic writes — clients shouldn't see
       // intermediate file names.
       const base = file.endsWith('.tmp') ? file.slice(0, -4) : file
-      const thread_id = base.replace(/\.json$/, '')
+      // Extract the stable thread id (`thread_<hex>`) from the filename so
+      // the SSE payload matches each thread's `id` field regardless of
+      // which status segment the file currently carries.
+      const m = base.match(/^thread_(?:open|resolved)_([0-9a-f]{8})\.json$/)
+      if (!m) return  // unrecognized filename — skip
+      const thread_id = `thread_${m[1]}`
       const change = eventType === 'rename' ? 'created_or_deleted' : 'modified'
       broadcast(repoId, { type: 'thread_changed', branch_id, thread_id, change })
     })
