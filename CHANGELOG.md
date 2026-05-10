@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.8.0](https://github.com/genkio/slop-review/compare/v0.7.0...v0.8.0) (2026-05-10)
+
+
+### Features
+
+* surface skill install via dismissable banner ([2533270](https://github.com/genkio/slop-review/commit/2533270cc5cd57981f0c4e7107e5014ededd68a7))
+
 ## [0.7.0](https://github.com/genkio/slop-review/compare/v0.6.0...v0.7.0) (2026-05-10)
 
 
