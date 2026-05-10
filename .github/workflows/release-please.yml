@@ -27,9 +27,6 @@ jobs:
           node-version: 22
           registry-url: https://registry.npmjs.org
 
-      - run: npm ci
-        if: ${{ steps.release.outputs.release_created }}
-
       - run: npm publish --provenance --access public
         if: ${{ steps.release.outputs.release_created }}
         env:
