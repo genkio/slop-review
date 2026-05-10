@@ -13,7 +13,7 @@ That's it. The cwd is auto-bootstrapped as the review target, the server picks a
 
 Flags: `--port <n>`, `--host <h>`, `--no-open`, `-h`.
 
-Prerequisites: Node ≥ 20, `git` on `PATH`.
+Prerequisites: Node ≥ 20, `git` on `PATH`. No runtime dependencies — the server runs on `node:http` + the standard library only, so `npx slop-review` doesn't pull a tree of transitive packages onto your machine.
 
 The Overview page uses `codex exec` in read-only non-interactive mode. If `codex` is not on `PATH` or not logged in, the page shows the captured CLI error and a retry button.
 
@@ -53,8 +53,9 @@ Now edits to `skills/slop-review/SKILL.md` in this checkout are live in Claude C
 
 ```bash
 git clone <this-repo> && cd slop-review
-npm install
 ```
+
+There are no dependencies, the HTTP layer (`server/http.js`) is a small in-house wrapper over `node:http` that handles routing, JSON, static files and SSE. If you change it, exercise the full request surface manually before shipping; the test suite (`npm test`) covers diff/state logic only.
 
 Frontend (`public/**`) edits don't need a restart — just hard-refresh the browser.
 

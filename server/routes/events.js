@@ -1,4 +1,4 @@
-import { stream } from 'hono/streaming'
+import { stream } from '../http.js'
 import { loadState, findRepo } from '../state.js'
 import { subscribe, unsubscribe } from '../watcher.js'
 

@@ -1,8 +1,6 @@
-import { Hono } from 'hono'
-import { serve } from '@hono/node-server'
-import { serveStatic } from '@hono/node-server/serve-static'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { dirname, join, relative } from 'node:path'
+import { createApp, serve, serveStatic } from './http.js'
 import { loadState } from './state.js'
 import { registerDiffRoutes } from './routes/diff.js'
 import { registerThreadRoutes } from './routes/threads.js'
@@ -38,7 +36,7 @@ export async function start({ port = DEFAULT_PORT, hostname = '0.0.0.0' } = {}) 
     process.exit(1)
   }
 
-  const app = new Hono()
+  const app = createApp()
 
   app.get('/api/state', async (c) => {
     const state = await loadState()
@@ -59,7 +57,7 @@ export async function start({ port = DEFAULT_PORT, hostname = '0.0.0.0' } = {}) 
   )
 
   return new Promise((resolve) => {
-    const server = serve({ fetch: app.fetch, port, hostname }, (info) => {
+    const server = serve({ app, port, hostname }, (info) => {
       console.log(`slop-review running on http://${hostname}:${info.port}`)
       resolve({ server, info })
     })

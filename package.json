@@ -18,19 +18,12 @@
     "bin",
     "server",
     "public",
-    "skills",
-    "SPEC.md"
+    "skills"
   ],
   "engines": {
     "node": ">=20"
   },
   "scripts": {
-    "start": "node bin/slop-review.js",
-    "dev": "node --watch-path=./server bin/slop-review.js --no-open",
     "test": "node --test"
-  },
-  "dependencies": {
-    "@hono/node-server": "^1.13.0",
-    "hono": "^4.6.0"
   }
 }
