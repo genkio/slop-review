@@ -1943,6 +1943,35 @@ a.card-file:hover .card-file-mark {
 .diff-stat-add { color: var(--lane-done); }
 .diff-stat-del { color: var(--accent); }
 
+/* Per-file comment badge in the diff-file-head. Always visible — even
+   when the file is collapsed (reviewed/auto-fold) — so the user can scan
+   a long diff and spot which files have conversations on them without
+   expanding everything. Tint follows the file's highest-priority thread
+   state (your_turn > awaiting > read > resolved); resolved gets a check
+   glyph instead of a disc so all-closed reads as "done" rather than
+   "still open". Pure CSS — no JS to keep in sync since the badge HTML
+   is re-rendered as part of the file section whenever threads change. */
+.diff-file-threads {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex: 0 0 auto;
+  padding: 1px 7px;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-weight: 500;
+  letter-spacing: 0;
+  border-radius: 10px;
+  border: 1px solid currentColor;
+  background: color-mix(in srgb, currentColor 10%, transparent);
+  line-height: 1.4;
+  user-select: none;
+}
+.thread-badge-your_turn { color: var(--lane-done); }
+.thread-badge-awaiting  { color: var(--lane-explain); }
+.thread-badge-read      { color: var(--fg-muted); }
+.thread-badge-resolved  { color: var(--lane-done); opacity: .72; }
+
 /* —— Review-batch UI: top banner + per-file controls ——
    The banner stacks at the top of the diff body and surfaces filter /
    reviewed-state actions. Two visual modes via .is-filter / .is-summary
@@ -2222,12 +2251,13 @@ a.card-file:hover .card-file-mark {
   .diff-rel-anchor { display: none; }
 }
 
-/* Reviewed file rendered when "Show reviewed" is on: dim the whole
-   section so the reviewer's eye skips over it. The header stays full
-   contrast so the path is still readable for navigation. */
-.diff-file.is-reviewed .diff-file-body {
-  opacity: 0.45;
-}
+/* Reviewed files auto-fold to header-only via `.is-collapsed`, so the
+   body is `display:none` by default — the user only sees it when they
+   manually expand the file (typically because they want to re-read it).
+   We deliberately do NOT dim the body opacity here: a reviewer who just
+   un-collapsed a reviewed file wants full-contrast text, not a faded
+   re-read surface. The header keeps a faint lane-done wash so the
+   reviewed status is still legible at-a-glance in the collapsed strip. */
 .diff-file.is-reviewed .diff-file-head {
   background: color-mix(in srgb, var(--lane-done) 4%, var(--bg-deep));
 }

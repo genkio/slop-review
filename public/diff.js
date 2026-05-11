@@ -237,6 +237,7 @@ function renderFileSection(file, mode, sha, opts = {}) {
     priorityEntry       = null,
     relationship        = null,
     anchorPath          = null,
+    threadBadge         = null,        // { count, state } or null
   } = opts
   const status      = file.status || 'modified'
   const statusGlyph = STATUS_GLYPH[status] || '?'
@@ -324,11 +325,30 @@ function renderFileSection(file, mode, sha, opts = {}) {
     ? `<footer class="diff-file-footer">${footerReviewedToggle}</footer>`
     : ''
 
+  // Comment badge — survives file collapse (the whole point) since it
+  // lives in the always-visible header. Tint follows the highest-priority
+  // state across the file's threads so a glance ranks "your turn" >
+  // "awaiting" > "read" > "resolved". Glyph is a filled disc for active
+  // states and a check for all-resolved.
+  let threadBadgeHtml = ''
+  if (threadBadge && threadBadge.count > 0) {
+    const stateClass = `thread-badge-${threadBadge.state}`
+    const glyph = threadBadge.state === 'resolved' ? '✓' : '●'
+    const noun  = threadBadge.count === 1 ? 'comment' : 'comments'
+    const stateLabel = threadBadge.state === 'your_turn' ? 'your turn'
+                     : threadBadge.state === 'awaiting'  ? 'awaiting'
+                     : threadBadge.state === 'resolved'  ? 'resolved'
+                     : 'read'
+    const title = `${threadBadge.count} ${noun} (${stateLabel})`
+    threadBadgeHtml = `<span class="diff-file-threads ${stateClass}" title="${escapeHtml(title)}" aria-label="${escapeHtml(title)}">${glyph} ${threadBadge.count}</span>`
+  }
+
   return `<section class="${sectionClass}" data-path="${escapeHtml(file.path)}" data-status="${status}">` +
     `<header class="diff-file-head" data-toggle-collapse>` +
       `<button type="button" class="diff-file-toggle" data-toggle-collapse aria-expanded="${isCollapsed ? 'false' : 'true'}" aria-label="${isCollapsed ? 'Expand file' : 'Collapse file'} ${escapeHtml(file.path)}"></button>` +
       `<span class="diff-file-status" data-status="${status}" title="${status}">${statusGlyph}</span>` +
       `<code class="diff-file-path">${pathShown}</code>` +
+      threadBadgeHtml +
       `<span class="diff-file-stats"><span class="diff-stat-add">+${file.additions ?? 0}</span> <span class="diff-stat-del">−${file.deletions ?? 0}</span></span>` +
       relChip +
       headerReviewedToggle +
@@ -1353,6 +1373,35 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
     return set
   }
 
+  // Per-file thread aggregation for the diff-file-head badge. Mirrors
+  // threadFilesForCurrentView()'s view-filter so the badge agrees with
+  // the threads-filter chip and the inline thread display. Returns
+  // Map<path, { count, state }> where `state` is the highest-priority
+  // state present in the file's threads (your_turn > awaiting > read >
+  // resolved) — same rank the threads page uses for sorting. The badge
+  // is tinted by `state` so a glance at a collapsed-file row tells the
+  // user "this file needs me / is mid-conversation / is closed".
+  function threadBadgesByFileForCurrentView() {
+    const view = viewForCurrentIndex()
+    const currentSha = view === 'commit' ? state.commits[state.index]?.sha : null
+    const STATE_RANK = { your_turn: 0, awaiting: 1, read: 2, resolved: 3 }
+    const map = new Map()
+    for (const t of state.threads) {
+      if ((t.view || 'full') !== view) continue
+      if (view === 'commit' && t.sha !== currentSha) continue
+      if (!t.file) continue
+      const tState = t.state || 'awaiting'
+      const cur = map.get(t.file)
+      if (!cur) {
+        map.set(t.file, { count: 1, state: tState })
+      } else {
+        cur.count += 1
+        if (STATE_RANK[tState] < STATE_RANK[cur.state]) cur.state = tState
+      }
+    }
+    return map
+  }
+
   function computeVisibleFiles() {
     const all = state.diff?.files || []
     const filter = state.filter
@@ -1633,6 +1682,9 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
       ? [...visibleFiles].sort((a, b) => compareForReview(a, b, priorities))
       : visibleFiles
     const showRelateBtn = isFull && !!priorities
+    // Per-file thread badge data — computed once per render rather than
+    // per file so the O(threads) view-filter pass doesn't repeat.
+    const threadBadges = threadBadgesByFileForCurrentView()
     const filesHtml = orderedFiles.map((f) => {
       // Per-file relationship to the filter anchor. Only meaningful in
       // filter mode AND when this file isn't the anchor itself.
@@ -1654,6 +1706,7 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
         priorityEntry: priorities?.[f.path] || null,
         relationship,
         anchorPath: filterAnchor,
+        threadBadge: threadBadges.get(f.path) || null,
       })
     }).join('')
     body.innerHTML = banners + filesHtml
