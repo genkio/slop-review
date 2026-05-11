@@ -2222,12 +2222,10 @@ a.card-file:hover .card-file-mark {
   .diff-rel-anchor { display: none; }
 }
 
-/* Reviewed file rendered when "Show reviewed" is on: dim the whole
-   section so the reviewer's eye skips over it. The header stays full
-   contrast so the path is still readable for navigation. */
-.diff-file.is-reviewed .diff-file-body {
-  opacity: 0.45;
-}
+/* Reviewed file: faint green wash on the header is the marker that
+   survives collapse and is what you see on the collapsed-by-default
+   resting state. The body itself is not dimmed — when the user expands
+   a reviewed file to re-read it, full contrast is what they want. */
 .diff-file.is-reviewed .diff-file-head {
   background: color-mix(in srgb, var(--lane-done) 4%, var(--bg-deep));
 }

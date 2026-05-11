@@ -475,8 +475,8 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
         e.preventDefault()
       }
     }
-    else if (e.key === 'ArrowLeft')  { goto(state.index - 1); e.preventDefault() }
-    else if (e.key === 'ArrowRight') { goto(state.index + 1); e.preventDefault() }
+    else if (e.key === 'ArrowLeft' || e.key === '[')  { goto(state.index - 1); e.preventDefault() }
+    else if (e.key === 'ArrowRight' || e.key === ']') { goto(state.index + 1); e.preventDefault() }
   }
   document.addEventListener('keydown', onKey)
   syncUrl()
