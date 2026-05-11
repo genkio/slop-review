@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.10.0](https://github.com/genkio/slop-review/compare/v0.9.0...v0.10.0) (2026-05-11)
+
+
+### Features
+
+* tighter thread → diff round-trip ([512da4c](https://github.com/genkio/slop-review/commit/512da4c5d1f50aaed3543f6c17160d71fc206b78))
+
+
+### Bug Fixes
+
+* **diff:** drop redundant body dim on reviewed files ([32b357f](https://github.com/genkio/slop-review/commit/32b357f87828f91d1f1624af05e1b7dfc512bd70))
+
 ## [0.9.0](https://github.com/genkio/slop-review/compare/v0.8.0...v0.9.0) (2026-05-11)
 
 
