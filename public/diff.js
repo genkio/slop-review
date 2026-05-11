@@ -399,7 +399,8 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
     <div class="diff-body" data-body>
       <div class="diff-loading">Loading diff…</div>
     </div>
-    <aside class="diff-symbol-panel" data-symbol-panel hidden></aside>`
+    <aside class="diff-symbol-panel" data-symbol-panel hidden></aside>
+    <style data-symbol-style></style>`
   main.replaceChildren(root)
 
   const $  = (sel) => root.querySelector(sel)
@@ -839,9 +840,18 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
   // Highlight every line containing the active session's symbol. Only the
   // active session contributes highlights — minimized parked sessions stay
   // visually quiet so the diff body isn't dotted with overlapping searches.
-  // (Marks cells instead of wrapping text nodes; Brave can renderer-crash
-  // after repeated text-node mutations followed by a close-panel reflow
-  // and normal scrolling on large diffs.)
+  //
+  // Two-layer highlight:
+  //   (1) .is-symbol-hit on the cell → quiet row-marker (left-edge ribbon)
+  //       so the eye can scan rows. Works even for keyword matches where
+  //       no per-token span exists.
+  //   (2) A single dynamic CSS rule in <style data-symbol-style> targets
+  //       [data-token="<symbol>"] inside hit cells, lighting up only the
+  //       matched token. Tokenizer stamps data-token on identifier spans
+  //       (see public/syntax.js).
+  //
+  // Updating one <style>.textContent on session switch avoids the per-cell
+  // text-node mutation that crashed Brave's renderer in earlier prototypes.
   function applySymbolHighlights() {
     clearSymbolHighlights()
     const session = getActiveSession()
@@ -856,10 +866,24 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
       )
       if (cell) cell.classList.add('is-symbol-hit')
     }
+    const styleEl = root.querySelector('style[data-symbol-style]')
+    if (styleEl) {
+      // CSS.escape handles edge-case attribute values defensively, even
+      // though IDENT_RE already excludes CSS special chars.
+      const sym = window.CSS && CSS.escape ? CSS.escape(session.symbol) : session.symbol
+      styleEl.textContent =
+        `.diff-text.is-symbol-hit [data-token="${sym}"] {\n` +
+        `  background: color-mix(in srgb, var(--lane-explain) 38%, transparent);\n` +
+        `  box-shadow: 0 0 0 1px color-mix(in srgb, var(--lane-explain) 55%, transparent);\n` +
+        `  border-radius: 3px;\n` +
+        `}`
+    }
   }
 
   function clearSymbolHighlights() {
     root.querySelectorAll('.diff-text.is-symbol-hit').forEach((cell) => cell.classList.remove('is-symbol-hit'))
+    const styleEl = root.querySelector('style[data-symbol-style]')
+    if (styleEl) styleEl.textContent = ''
   }
 
   function viewForCurrentIndex() {

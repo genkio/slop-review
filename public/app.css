@@ -2511,12 +2511,17 @@ a.card-file:hover .card-file-mark {
 .diff-symbol-back:hover { color: var(--ink); border-color: var(--lane-explain); }
 .diff-symbol-back[hidden] { display: none; }
 
-/* Line-level symbol highlight. Kept at the `.diff-line` layer so the
-   add/del/context cell backgrounds stay intact, and implemented without
-   mutating text nodes inside the rendered diff table. */
-.diff-text.is-symbol-hit .diff-line {
-  background: color-mix(in srgb, var(--lane-explain) 26%, transparent);
-  border-radius: 2px;
+/* Two-layer symbol highlight (see applySymbolHighlights in public/diff.js):
+   - row marker: an `inset` left-edge ribbon on hit cells, quiet enough to
+     read as "this row contains a match" rather than "this row is selected".
+     Works for any match, including keywords where the tokenizer doesn't
+     stamp `data-token` (so the per-token rule below has nothing to target).
+   - token highlight: a dynamically-injected rule in <style data-symbol-style>
+     targets `[data-token="<sym>"]` inside hit cells with a brighter wash +
+     hairline outline. Defined in JS so the symbol can change without
+     touching the diff DOM. */
+.diff-text.is-symbol-hit {
+  box-shadow: inset 3px 0 0 0 color-mix(in srgb, var(--lane-explain) 65%, transparent);
 }
 
 .diff-symbol-list {

@@ -232,7 +232,14 @@ function cStyleTokenize(line, cfg) {
       else if (cfg.literals.has(word)) cls = 'literal'
       else if (cfg.builtins.has(word)) cls = 'builtin'
       else if (/^[A-Z][a-zA-Z0-9_$]*$/.test(word)) cls = 'class'
-      out.push(cls ? span(cls, word) : escapeHtml(word))
+      // Stamp data-token on identifier-bearing tokens so the symbol panel's
+      // dynamic <style> can target the exact occurrence via attribute
+      // selector. Keywords are skipped — they're not what users dblclick
+      // to search, and keeping them out of the data-token set holds the
+      // markup-size growth down on keyword-heavy lines.
+      if (cls && cls !== 'keyword') out.push(span(cls, word, word))
+      else if (cls)                 out.push(span(cls, word))
+      else                          out.push(`<span data-token="${escapeHtml(word)}">${escapeHtml(word)}</span>`)
       i = j
       continue
     }
@@ -378,6 +385,7 @@ function highlightIni(line) {
   return escapeHtml(line)
 }
 
-function span(cls, text) {
-  return `<span class="hl-${cls}">${escapeHtml(text)}</span>`
+function span(cls, text, token) {
+  const tokAttr = token ? ` data-token="${escapeHtml(token)}"` : ''
+  return `<span class="hl-${cls}"${tokAttr}>${escapeHtml(text)}</span>`
 }
