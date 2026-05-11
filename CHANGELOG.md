@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.9.0](https://github.com/genkio/slop-review/compare/v0.8.0...v0.9.0) (2026-05-11)
+
+
+### Features
+
+* multi-line comment ([7b36d88](https://github.com/genkio/slop-review/commit/7b36d88073133c4f162acb7656a8f02d47bc104a))
+* one-click jump back to origin symbol ([ecfe828](https://github.com/genkio/slop-review/commit/ecfe828275763a2e49f841479cab2e464084c0bd))
+* per-file comments count badge ([0c3824e](https://github.com/genkio/slop-review/commit/0c3824ec40dea8caa780eda24d7c2c185c0205dc))
+
+
+### Bug Fixes
+
+* symbol highlight ([228efc2](https://github.com/genkio/slop-review/commit/228efc2318945a5da9ea6e4bfdced9b490795342))
+
+
+### Performance Improvements
+
+* **diff:** snappier hydration and mark-reviewed toggle ([916be7c](https://github.com/genkio/slop-review/commit/916be7cc58829aa0a5768bdd86c9188a9e3391df))
+
 ## [0.8.0](https://github.com/genkio/slop-review/compare/v0.7.0...v0.8.0) (2026-05-10)
 
 
