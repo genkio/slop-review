@@ -274,8 +274,19 @@ function renderFileSection(file, mode, sha, opts = {}) {
   // Per-commit and Local views don't persist this state, so the button is
   // suppressed there to avoid implying it does. Click stops propagation so
   // it doesn't trigger the file head's collapse-toggle.
-  const reviewedToggle = showReviewedToggle
-    ? `<button type="button" class="diff-file-mark${isReviewed ? ' active' : ''}" data-toggle-reviewed="${escapeHtml(file.path)}" title="${isReviewed ? 'Marked reviewed — click to unmark' : 'Mark this file reviewed'}" aria-pressed="${isReviewed}">${isReviewed ? '✓ reviewed' : '○ mark reviewed'}</button>`
+  //
+  // Split-placement: the `Mark reviewed` action lives at the *footer* of the
+  // file (the user's natural moment to mark is after reading top-to-bottom),
+  // while the `✓ reviewed` toggle stays in the *header* of an already-marked
+  // file (a collapsed-reviewed file shows only its header — the unmark
+  // affordance must be reachable without re-expanding). The button is never
+  // rendered in both places at once, so the user is never confused about
+  // which one to click.
+  const headerReviewedToggle = (showReviewedToggle && isReviewed)
+    ? `<button type="button" class="diff-file-mark active" data-toggle-reviewed="${escapeHtml(file.path)}" title="Marked reviewed — click to unmark" aria-pressed="true">✓ reviewed</button>`
+    : ''
+  const footerReviewedToggle = (showReviewedToggle && !isReviewed)
+    ? `<button type="button" class="diff-file-mark" data-toggle-reviewed="${escapeHtml(file.path)}" title="Mark this file reviewed" aria-pressed="false">○ Mark reviewed</button>`
     : ''
 
   // Relationship chip — only on non-anchor files in filter mode
@@ -293,6 +304,13 @@ function renderFileSection(file, mode, sha, opts = {}) {
 
   const sectionClass = `diff-file${isReviewed ? ' is-reviewed' : ''}${isFilterAnchor ? ' is-filter-anchor' : ''}${isCollapsed ? ' is-collapsed' : ''}`
 
+  // Footer wrapper is suppressed when there's nothing to put in it (e.g.
+  // per-commit / Local view, or an already-reviewed file). Keeps the
+  // section clean and avoids an empty hairline strip under reviewed files.
+  const footerHtml = footerReviewedToggle
+    ? `<footer class="diff-file-footer">${footerReviewedToggle}</footer>`
+    : ''
+
   return `<section class="${sectionClass}" data-path="${escapeHtml(file.path)}" data-status="${status}">` +
     `<header class="diff-file-head" data-toggle-collapse>` +
       `<button type="button" class="diff-file-toggle" data-toggle-collapse aria-expanded="${isCollapsed ? 'false' : 'true'}" aria-label="${isCollapsed ? 'Expand file' : 'Collapse file'} ${escapeHtml(file.path)}"></button>` +
@@ -300,10 +318,11 @@ function renderFileSection(file, mode, sha, opts = {}) {
       `<code class="diff-file-path">${pathShown}</code>` +
       `<span class="diff-file-stats"><span class="diff-stat-add">+${file.additions ?? 0}</span> <span class="diff-stat-del">−${file.deletions ?? 0}</span></span>` +
       relChip +
-      reviewedToggle +
+      headerReviewedToggle +
       relateBtn +
     `</header>` +
     `<div class="diff-file-body">${body}</div>` +
+    footerHtml +
   `</section>`
 }
 

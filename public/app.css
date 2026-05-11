@@ -3958,6 +3958,26 @@ body:has(.diff-page) main {
   background: color-mix(in srgb, var(--accent) 12%, transparent);
 }
 
+/* Per-file footer — end-of-content landmark hosting the `Mark reviewed`
+   button for unreviewed files. Quiet by design: thin top hairline, faint
+   muted surface, right-aligned cluster so the button sits where the reader's
+   eye is settling after a top-to-bottom read. Only rendered when there's a
+   button to show (gated by renderFile in public/diff.js), so the hairline
+   never appears empty under reviewed files or in per-commit / Local views.
+   Hidden defensively when the file is collapsed — the body is already out
+   of the way, so the footer should be too. */
+.diff-file-footer {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  padding: 10px 14px;
+  border-top: 1px solid var(--hairline);
+  background: color-mix(in srgb, var(--bg-deep) 50%, transparent);
+}
+.diff-file.is-collapsed .diff-file-footer {
+  display: none;
+}
+
 /* —— Install-suggestion banner ——
    Top-of-page strip suggesting the slop-review Claude Code skill install.
    A deliberate exception to the "no global header" rule (§1) — informational
