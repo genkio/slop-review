@@ -102,6 +102,20 @@ export function homePath(absPath, home) {
 }
 
 /**
+ * Format a thread's anchor line range for display. Returns `42` for a
+ * single-line thread (line_end null / equal to line) and `42–45` for a
+ * multi-line one. Used by the threads page, the modal subtitle, and the
+ * spliced inline thread row's anchor button.
+ */
+export function formatLineRange(thread) {
+  const start = thread?.line
+  const end = thread?.line_end
+  if (start == null) return ''
+  if (end == null || end === start) return String(start)
+  return `${start}–${end}`
+}
+
+/**
  * Sanitize a branch name into a filesystem-safe directory name. SPEC §5:
  * anything outside `[A-Za-z0-9_-]` collapses to `-`, leading/trailing `-`
  * stripped, capped at 80 chars. Must stay in lockstep with the server's

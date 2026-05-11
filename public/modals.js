@@ -1,5 +1,5 @@
 import { api } from './api.js'
-import { escapeHtml, inlineCode, relTime, toast, copyToClipboard } from './util.js'
+import { escapeHtml, inlineCode, relTime, toast, copyToClipboard, formatLineRange } from './util.js'
 
 export function makeModal(innerHtml) {
   const backdrop = document.createElement('div')
@@ -87,7 +87,7 @@ export function openThreadModal(threadId, opts = {}) {
     const viewBadge = thread.view
       ? `<span class="card-local-pill view-${thread.view}">${escapeHtml(thread.view)}</span>`
       : ''
-    const subLabel = thread.file ? `${thread.file}:${thread.line}` : 'Thread'
+    const subLabel = thread.file ? `${thread.file}:${formatLineRange(thread)}` : 'Thread'
 
     // Filename for copy-to-clipboard. Server always sends `file_name`; we
     // construct the same `thread_<status>_<hex>.json` formula client-side
