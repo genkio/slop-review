@@ -1,20 +1,31 @@
 import { api } from '../api.js'
 import { store } from '../store.js'
 import { escapeHtml, inlineCode, relTime } from '../util.js'
-import { openThreadModal } from '../modals.js'
+import { openThreadModal, getLastOpenedThreadId } from '../modals.js'
 import { subscribeRepoEvents, unsubscribeRepoEvents } from '../sse.js'
 import { ROUTES } from '../routes.js'
 import { setupOverviewNav } from '../overview-nav.js'
 
 let currentSseUnsub = null
 let currentOverviewNavDispose = null
+// Module-scoped because the modal-reopen target arrives via the URL on
+// mount but the actual opening happens later, after the first refresh()
+// has populated the thread list. Nulled after first consumption so SSE-
+// driven refreshes don't keep reopening the modal as threads tick over.
+let pendingReopenThreadId = null
 
 /**
  * Thread browser page. Lists every thread on the current branch with state
  * pills (your turn / awaiting / read), grouped by file in priority order,
  * with counts at the top. Live-updates via SSE.
+ *
+ * `parsed.threadId` (from the URL's `?thread=` query) auto-opens that
+ * thread's modal after the first refresh — used by the diff page's
+ * "← Back to thread" link to drop the user back into the conversation
+ * they were just viewing. Closing the modal strips the param via
+ * replaceState so a refresh doesn't re-open it.
  */
-export async function renderThreadsPage(isCurrent = () => true) {
+export async function renderThreadsPage(parsed = {}, isCurrent = () => true) {
   const repo = store.state.repos[0]
   if (!repo) { location.hash = ROUTES.threads(); return }
   if (!isCurrent()) return
@@ -49,6 +60,10 @@ export async function renderThreadsPage(isCurrent = () => true) {
       <div id="threads-list">Loading…</div>
     </div>`
 
+  // One-shot: consumed by the first refresh, then nulled so SSE-driven
+  // refreshes don't keep reopening the modal as threads tick over.
+  pendingReopenThreadId = parsed?.threadId || null
+
   await refresh(repo, isCurrent)
   if (!isCurrent()) return
 
@@ -80,57 +95,114 @@ async function refresh(repo, isCurrent = () => true) {
   }
   if (!document.getElementById('threads-list')) return
   const threads = payload?.threads || []
+  // Display order = file-alphabetical, then state/recency within file.
+  // The modal uses this flat list to drive prev/next so navigation feels
+  // identical whether the user clicks a row or steps with the chevrons.
+  const orderedIds = orderThreadsForDisplay(threads).map((t) => t.id)
   document.getElementById('threads-list').innerHTML = renderThreadsList(threads)
+
+  // Recently-viewed breadcrumb. The modal stashes the last-viewed thread
+  // id in sessionStorage on every open/swap; we paint a thick left ribbon
+  // on that row so the user can re-find where they were after closing
+  // the modal or returning from the diff view.
+  applyRecentMarker()
+
+  const openModalFor = (id) => {
+    openThreadModal(id, {
+      repoId: repo.id,
+      getThread: (tid) => threads.find((t) => t.id === tid),
+      threadOrder: orderedIds,
+      // Jump to the single-file diff view for this thread's anchor. The
+      // file + thread id ride the URL so browser back/forward navigates
+      // between thread and diff cleanly, and a refresh keeps the user in
+      // the focused view they were in.
+      jumpToDiff: (t) => {
+        const q = { file: t.file, thread: t.id }
+        if (t.view === 'commit' && t.sha) location.hash = ROUTES.diffCommit(t.sha, q)
+        else if (t.view === 'local')      location.hash = ROUTES.diffLocal(q)
+        else                              location.hash = ROUTES.diffFull(q)
+      },
+      // Closing the modal must strip `?thread=` from the URL so a refresh
+      // doesn't immediately reopen what the user just closed. replaceState
+      // (not push) keeps the user's history sane — back goes wherever they
+      // were before the modal, not to the "modal still open" snapshot.
+      onClose: () => {
+        stripThreadQuery()
+        // Repaint the recent marker — the modal may have stepped to a
+        // different thread via prev/next, and we want the new "recently
+        // viewed" row highlighted once the modal closes.
+        applyRecentMarker()
+      },
+      onChanged: () => refresh(repo, isCurrent),
+    })
+  }
 
   document.querySelectorAll('[data-open-thread]').forEach((el) => {
     el.addEventListener('click', (e) => {
       e.preventDefault()
-      openThreadModal(el.dataset.openThread, {
-        repoId: repo.id,
-        getThread: (id) => threads.find((t) => t.id === id),
-        jumpToDiff: (t) => {
-          // Stash the scroll target in sessionStorage before navigating —
-          // the diff page reads it once on mount and clears it. One-shot
-          // semantics so reloading mid-session doesn't re-jump.
-          try {
-            sessionStorage.setItem('slop-review:jump-to', JSON.stringify({
-              file: t.file, line: t.line, side: t.side || 'new',
-              thread_id: t.id,
-            }))
-          } catch {}
-          if (t.view === 'commit' && t.sha) {
-            location.hash = ROUTES.diffCommit(t.sha)
-          } else if (t.view === 'local') {
-            location.hash = ROUTES.diffLocal()
-          } else {
-            location.hash = ROUTES.diffFull()
-          }
-        },
-        onChanged: () => refresh(repo, isCurrent),
-      })
+      openModalFor(el.dataset.openThread)
     })
   })
+
+  // Consume the one-shot reopen target from the URL — fired by the diff
+  // page's "← Back to thread" link. Only triggers when the target thread
+  // actually exists in the current list; otherwise (e.g. thread deleted
+  // while we were on the diff page) the URL param is silently dropped.
+  if (pendingReopenThreadId) {
+    const target = pendingReopenThreadId
+    pendingReopenThreadId = null
+    if (threads.find((t) => t.id === target)) openModalFor(target)
+    else stripThreadQuery()
+  }
 }
 
-function renderThreadsList(threads) {
-  if (threads.length === 0) {
-    return '<div class="empty">No threads yet. Open the diff and click <b>+</b> on any line to start a conversation.</div>'
-  }
+/**
+ * Paint the `is-recent` class on the row matching the last-opened
+ * thread id (stashed by the modal in sessionStorage). Idempotent —
+ * call after every list re-render or modal-close.
+ */
+function applyRecentMarker() {
+  const id = getLastOpenedThreadId()
+  if (!id) return
+  document.querySelectorAll('.thread-row.is-recent').forEach((el) => el.classList.remove('is-recent'))
+  document.querySelector(`.thread-row[data-open-thread="${cssEscape(id)}"]`)?.classList.add('is-recent')
+}
 
-  const counts = { your_turn: 0, awaiting: 0, read: 0, resolved: 0 }
-  for (const t of threads) counts[t.state || 'awaiting']++
+function cssEscape(s) { return String(s).replace(/(["\\])/g, '\\$1') }
 
-  // Group by file
+// Drop `?thread=…` from the current hash without creating a new history
+// entry. Used both when the user closes a modal-reopened-from-URL and
+// when the URL points at a thread that no longer exists.
+//
+// Only operates on the threads-page hash. If the user just clicked Jump
+// to diff, the close path fires *after* location.hash already advanced
+// to `#/diff?file=…&thread=…`; the `?thread=` there is load-bearing for
+// the diff page's "back to thread" link, so we leave it alone.
+function stripThreadQuery() {
+  const hash = location.hash
+  const qIdx = hash.indexOf('?')
+  if (qIdx < 0) return
+  const pathPart  = hash.slice(0, qIdx)
+  if (pathPart !== '#/' && pathPart !== '#') return
+  const queryPart = hash.slice(qIdx + 1)
+  const kept = queryPart.split('&').filter((p) => p && !p.startsWith('thread=')).join('&')
+  const next = kept ? `${pathPart}?${kept}` : pathPart
+  if (next === hash) return
+  history.replaceState(null, '', next || '#/')
+}
+
+// Group threads by file, sort within each file by state (your_turn →
+// awaiting → read → resolved) then most-recent-activity desc. Files
+// themselves are alphabetical (no priorities available here without a
+// diff fetch — could be upgraded later). Shared by the renderer AND by
+// the flat-ordered-id list the modal's prev/next nav consumes.
+function groupThreadsForDisplay(threads) {
   const byFile = new Map()
   for (const t of threads) {
     const f = t.file || '(no file)'
     if (!byFile.has(f)) byFile.set(f, [])
     byFile.get(f).push(t)
   }
-
-  // Within each file, sort by state (your_turn → awaiting → read → resolved),
-  // then by most-recent-activity desc. Resolved drops to the bottom of each
-  // file's group — visible-but-out-of-the-way, never folded.
   const stateRank = { your_turn: 0, awaiting: 1, read: 2, resolved: 3 }
   for (const arr of byFile.values()) {
     arr.sort((a, b) => {
@@ -141,10 +213,24 @@ function renderThreadsList(threads) {
       return bt - at
     })
   }
-
-  // File order: alphabetical for now (we don't have priorities here without
-  // a diff fetch). Could be upgraded to priorities later.
   const files = [...byFile.keys()].sort((a, b) => a.localeCompare(b))
+  return { byFile, files }
+}
+
+function orderThreadsForDisplay(threads) {
+  const { byFile, files } = groupThreadsForDisplay(threads)
+  return files.flatMap((f) => byFile.get(f))
+}
+
+function renderThreadsList(threads) {
+  if (threads.length === 0) {
+    return '<div class="empty">No threads yet. Open the diff and click <b>+</b> on any line to start a conversation.</div>'
+  }
+
+  const counts = { your_turn: 0, awaiting: 0, read: 0, resolved: 0 }
+  for (const t of threads) counts[t.state || 'awaiting']++
+
+  const { byFile, files } = groupThreadsForDisplay(threads)
 
   const head = `<div class="threads-counts">
     <span class="state-pill state-your-turn">🟢 ${counts.your_turn} your turn</span>

@@ -21,15 +21,41 @@ let routeRunId = 0
 // inside the page renderers.
 
 export function parseHash() {
-  const parts = location.hash.replace(/^#\/?/, '').split('/').filter(Boolean)
-  if (parts.length === 0) return { kind: 'threads' }
+  // Strip leading `#/`, then peel off any `?query` segment before path-
+  // splitting. Query params survive on top of every recognised route
+  // (e.g. `#/?thread=…` for modal-reopen, `#/diff?file=…&thread=…` for
+  // the single-file thread-context view).
+  const raw = location.hash.replace(/^#\/?/, '')
+  const qIdx = raw.indexOf('?')
+  const pathPart  = qIdx >= 0 ? raw.slice(0, qIdx) : raw
+  const queryPart = qIdx >= 0 ? raw.slice(qIdx + 1) : ''
+  const parts = pathPart.split('/').filter(Boolean)
+  const query = parseQuery(queryPart)
+  const file     = query.file     || null
+  const threadId = query.thread   || null
+
+  if (parts.length === 0) return { kind: 'threads', threadId }
   if (parts[0] === 'overview' && parts.length === 1) return { kind: 'overview' }
   if (parts[0] === 'diff') {
-    if (parts.length === 1) return { kind: 'diff', variant: 'full' }
-    if (parts[1] === 'local') return { kind: 'diff', variant: 'local' }
-    if (SHA_RE.test(parts[1])) return { kind: 'diff', variant: 'commit', sha: parts[1] }
+    if (parts.length === 1) return { kind: 'diff', variant: 'full', file, threadId }
+    if (parts[1] === 'local') return { kind: 'diff', variant: 'local', file, threadId }
+    if (SHA_RE.test(parts[1])) return { kind: 'diff', variant: 'commit', sha: parts[1], file, threadId }
   }
   return { kind: 'unknown' }
+}
+
+function parseQuery(s) {
+  if (!s) return {}
+  const out = {}
+  for (const pair of s.split('&')) {
+    if (!pair) continue
+    const eq = pair.indexOf('=')
+    const k = eq < 0 ? pair : pair.slice(0, eq)
+    const v = eq < 0 ? ''   : pair.slice(eq + 1)
+    try { out[decodeURIComponent(k)] = decodeURIComponent(v) }
+    catch { /* malformed param — skip silently */ }
+  }
+  return out
 }
 
 export async function route() {
@@ -69,7 +95,7 @@ export async function route() {
       return
     }
     if (!isCurrent()) return
-    return renderThreadsPage(isCurrent)
+    return renderThreadsPage(parsed, isCurrent)
   }
   // Unknown route → home.
   if (!isCurrent()) return

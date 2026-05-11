@@ -181,10 +181,14 @@ button.primary {
 button.primary:hover:not(:disabled) {
   background: var(--accent-soft); border-color: var(--accent-soft);
 }
-button.danger { color: var(--accent); border-color: var(--hairline); }
+/* Destructive actions (Delete thread, etc.) — the comment a few lines
+   below mentions "red-accent .danger class" so the original intent was
+   red; this rule now wires the actual --lane-removed token so the text
+   reads as a warning, not just another indigo button. */
+button.danger { color: var(--lane-removed); border-color: var(--hairline); }
 button.danger:hover:not(:disabled) {
-  color: var(--accent); border-color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 7%, transparent);
+  color: var(--lane-removed); border-color: var(--lane-removed);
+  background: color-mix(in srgb, var(--lane-removed) 7%, transparent);
 }
 /* Resolve / Reopen pair — Resolve carries the green-accent CTA treatment
    ("close this conversation"), Reopen is neutral ("undo close"). The
@@ -1105,6 +1109,93 @@ a.card-file:hover .card-file-mark {
   padding-right: 32px;
   color: var(--ink);
   line-height: 1.3;
+}
+
+/* Header row of the thread modal. The H2 title and × close button were
+   removed (the thread modal opts out of makeModal's close button via
+   noCloseButton — its Close lives in the footer). The row now reads
+   left→right: prev/next nav, an empty spacer, the "Jump to file" link,
+   and the click-to-copy filename pill anchored at the far-right
+   (occupying the slot the × used to claim). */
+.thread-modal-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 6px;
+}
+.thread-modal-head-spacer { flex: 1; }
+.thread-modal-nav {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+/* "Jump to file" link — rendered inline at the end of the .sub line so
+   it sits right next to the file:line label it acts on. A subtle
+   accent-tinted chip with a leading → glyph, sans-serif against the
+   mono .sub text — reads as a quiet "go to this view" companion to
+   the file path, not a separate header action. */
+.thread-jump-link {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+  font-family: var(--font-sans);
+  font-size: 11px;
+  padding: 2px 7px;
+  margin-left: 4px;
+  background: color-mix(in srgb, var(--accent) 6%, transparent);
+  border: none;
+  border-radius: 3px;
+  color: var(--accent);
+  cursor: pointer;
+  text-decoration: none;
+  vertical-align: baseline;
+  transition: background .15s var(--ease), color .15s var(--ease);
+}
+.thread-jump-link::before {
+  content: "→";
+  font-size: 10px;
+  opacity: 0.7;
+  transition: opacity .15s var(--ease);
+}
+.thread-jump-link:hover {
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+}
+.thread-jump-link:hover::before {
+  opacity: 1;
+}
+.thread-nav-btn {
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 1px solid var(--hairline);
+  background: var(--bg-deep);
+  border-radius: 2px;
+  font-family: var(--font-sans);
+  font-size: 16px;
+  line-height: 1;
+  color: var(--fg-muted);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: color .15s var(--ease), border-color .15s var(--ease), background .15s var(--ease);
+}
+.thread-nav-btn:hover:not(:disabled) {
+  color: var(--ink);
+  border-color: var(--hairline-strong);
+  background: var(--card);
+}
+.thread-nav-btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+.thread-nav-position {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--fg-muted);
+  min-width: 3.5em;
+  text-align: center;
 }
 
 .modal-close {
@@ -3171,6 +3262,25 @@ a.card-file:hover .card-file-mark {
   font-weight: 700;
 }
 
+/* Recently-viewed breadcrumb. Painted on the row matching the modal's
+   sessionStorage breadcrumb so the user can re-find where they were
+   after closing the modal or returning from the diff view. Same 4 px
+   left-ribbon idiom as state-resolved (so column alignment compensates
+   identically), but in the accent color and with a slightly stronger
+   wash so it reads as "you were here" not "this is done". */
+.thread-row.is-recent {
+  border-left: 4px solid var(--accent);
+  padding-left: 10px;
+  background: color-mix(in srgb, var(--accent) 6%, transparent);
+}
+/* The resolved + is-recent combo is rare but possible — keep the
+   resolved-green ribbon (state takes precedence over breadcrumb) and
+   let the background blend show both. */
+.thread-row.state-resolved.is-recent {
+  border-left-color: var(--lane-done);
+  background: color-mix(in srgb, var(--accent) 6%, color-mix(in srgb, var(--lane-done) 3%, transparent));
+}
+
 /* In-diff thread display: state-aware emphasis on `your turn` rows */
 .diff-thread.state-your-turn {
   border-left: 3px solid var(--lane-done);
@@ -3189,6 +3299,21 @@ a.card-file:hover .card-file-mark {
 .diff-thread.state-resolved {
   border-left: 4px solid var(--lane-done);
   background: color-mix(in srgb, var(--lane-done) 4%, transparent);
+}
+
+/* "You jumped from this thread" — painted on the inline thread row that
+   matches the URL's `?thread=` param so the user can spot the
+   conversation they came from amid other threads in the same file. Same
+   visual idiom as the threads-page .thread-row.is-recent: 4 px accent
+   left-ribbon + faint accent wash. State takes precedence over the
+   breadcrumb, so resolved/your-turn ribbons stay if the matched thread
+   carries one. */
+.diff-thread.is-jumped-from {
+  border-left: 4px solid var(--accent);
+  background: color-mix(in srgb, var(--accent) 7%, transparent);
+}
+.diff-thread.state-resolved.is-jumped-from {
+  border-left-color: var(--lane-done);
 }
 .diff-thread .state-pill {
   margin-left: 8px;

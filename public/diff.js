@@ -348,7 +348,7 @@ export function disposeDiffView() {
  * to await it for navigation; it's awaited mainly so `scrollToAnchor`
  * fires on the freshly-rendered DOM.
  */
-export async function renderDiffView({ repo, branch, branchId, branchInfo, commits, initialIndex = 0, hasLocal = false, scrollToAnchor = null, isCurrent = () => true }) {
+export async function renderDiffView({ repo, branch, branchId, branchInfo, commits, initialIndex = 0, hasLocal = false, scrollToAnchor = null, singleFile = null, threadContextId = null, isCurrent = () => true }) {
   if (!isCurrent()) return
   // Tear down any previous diff view's listeners + SSE before we re-mount.
   disposeDiffView()
@@ -371,7 +371,13 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
     reviewed: new Set(),
     reviewedSha: null,
     collapsedPaths: new Set(),
-    filter:   null,
+    // Seed the single-file filter from URL params if present. Reuses the
+    // same `state.filter` slot the threads-filter and related-filter use,
+    // so the existing click delegation (Show all, view toggle) and
+    // computeVisibleFiles branch naturally on the new `kind: 'file'`.
+    // `threadId` rides along so the "← Back to thread" link knows where
+    // to return the user when they're done with this file.
+    filter:   singleFile ? { kind: 'file', path: singleFile, threadId: threadContextId } : null,
     // Multi-session symbol panel: each session = one parked symbol search
     // with its own matches, jumpStack, and currentAnchor. activeId points
     // at whichever session is currently expanded; null = all sessions are
@@ -1068,6 +1074,17 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
       renderBody()
       return
     }
+    const backToThread = e.target.closest('[data-back-to-thread]')
+    if (backToThread) {
+      e.preventDefault(); e.stopPropagation()
+      // Navigate to the threads page with the same thread id in the URL
+      // so it reopens the modal. The router will tear down this diff page
+      // (disposeDiffPage on the cross-page transition), so we don't need
+      // to clear state.filter here.
+      const threadId = backToThread.dataset.threadId || ''
+      location.hash = ROUTES.threads(threadId ? { thread: threadId } : null)
+      return
+    }
     if (e.target.closest('[data-clear-filter]')) {
       state.filter = null
       renderBody()
@@ -1151,6 +1168,12 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
   function computeVisibleFiles() {
     const all = state.diff?.files || []
     const filter = state.filter
+    // Single-file thread-context filter (from `?file=…&thread=…` URLs).
+    // Works across all views (Full / per-commit / Local) because the
+    // thread's anchor is view-independent at the path level.
+    if (filter?.kind === 'file' && filter.path) {
+      return all.filter((f) => f.path === filter.path)
+    }
     if (filter?.kind === 'threads') {
       const set = threadFilesForCurrentView()
       return all.filter((f) => set.has(f.path))
@@ -1390,6 +1413,24 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
     // Active filter states — right side becomes a focused filter label
     // + clear action. The view toggle still anchors the left so the user
     // can switch Split/Inline without clearing the filter first.
+    if (filterKind === 'file') {
+      // Thread-context single-file view. The "← Back to thread" affordance
+      // is the primary (and only) action here — it routes back to
+      // `#/?thread=<id>` which reopens the thread modal on the threads
+      // page. No "Viewing: <path>" label: the file path is already
+      // displayed in big mono at the top of the file section right below,
+      // so a second copy would be redundant chrome. If the URL didn't
+      // carry a thread id (e.g. someone bookmarked `#/diff?file=…`), we
+      // swap in a plain "Show all" so the user has an exit.
+      const threadId = state.filter.threadId || ''
+      const action = threadId
+        ? `<button type="button" class="diff-filter-clear" data-back-to-thread data-thread-id="${escapeHtml(threadId)}">← Back to thread</button>`
+        : '<button type="button" class="diff-filter-clear" data-clear-filter>Show all</button>'
+      return '<div class="diff-review-banner is-filter is-filter-file">' +
+        viewToggle +
+        `<div class="diff-review-right">${action}</div>` +
+      '</div>'
+    }
     if (filterKind === 'threads') {
       return '<div class="diff-review-banner is-filter is-filter-threads">' +
         viewToggle +
@@ -1590,10 +1631,23 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
     if (!scrollToAnchor) return
     const { file, line, side } = scrollToAnchor
     if (!file || !line) { scrollToAnchor = null; return }
+    // Uncollapse the target file before scrolling. Covers both manual
+    // collapse and the reviewed-auto-collapse case (reviewed files keep
+    // `.is-reviewed` for the header tint; we only strip `.is-collapsed`
+    // so the body becomes visible).
     if (state.collapsedPaths.has(file)) {
       state.collapsedPaths.delete(file)
       const sec = root.querySelector(`.diff-file[data-path="${cssEscape(file)}"]`)
-      if (sec) sec.classList.remove('is-collapsed')
+      if (sec) {
+        sec.classList.remove('is-collapsed')
+        // Force a synchronous reflow so the cell's layout box is
+        // materialized before scrollIntoView runs. Without this, the
+        // .diff-file-body was display:none a moment ago and the cell
+        // had no layout box; scrollIntoView is a no-op on layout-less
+        // elements, so the jump silently fails for reviewed files
+        // (the dominant collapsed case once auto-fold-on-reviewed lands).
+        void sec.offsetHeight
+      }
     }
     // Defer one frame so the body's just-set innerHTML has laid out.
     requestAnimationFrame(() => {
@@ -1658,6 +1712,13 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
                      : thread.state === 'your_turn' ? 'state-your-turn'
                      : thread.state === 'awaiting'  ? 'state-awaiting'
                      : 'state-read'
+    // Highlight the inline thread the user just jumped from (URL carries
+    // `?thread=…`, parsed into state.filter.threadId on file-kind filter).
+    // Visual treatment mirrors the threads-page is-recent breadcrumb so
+    // the cross-page "you came from here" cue is consistent.
+    const jumpedFrom = state.filter?.kind === 'file' && state.filter.threadId === thread.id
+      ? ' is-jumped-from'
+      : ''
     const statePill = thread.state === 'resolved'
       ? '<span class="state-pill state-resolved" title="Thread resolved">✓ resolved</span>'
       : thread.state === 'your_turn'
@@ -1683,7 +1744,7 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
 
     tr.innerHTML =
       '<td colspan="4" class="diff-thread-cell">' +
-        `<div class="diff-thread ${stateClass}" data-thread-id="${escapeHtml(thread.id)}">` +
+        `<div class="diff-thread ${stateClass}${jumpedFrom}" data-thread-id="${escapeHtml(thread.id)}">` +
           '<div class="diff-thread-header">' +
             `<button type="button" class="diff-thread-anchor" data-show-thread="${escapeHtml(thread.id)}" title="Open thread">${escapeHtml(thread.file)}:${escapeHtml(String(thread.line))} <span class="diff-thread-side">(${escapeHtml(thread.side || 'new')})</span></button>` +
             statePill +
@@ -1699,6 +1760,18 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
   // ------------------------------------------------------------------
   // Diff load with cache
   // ------------------------------------------------------------------
+  // Single-file thread-context view must always render the target file
+  // expanded, even if it's marked reviewed. The user came here from a
+  // thread to look at the comment in context — collapsed is the wrong
+  // default for "this is the one file you care about right now". Called
+  // after applyReviewedState (which seeds collapsedPaths from reviewed)
+  // so the explicit-expand wins over the auto-fold.
+  const ensureSingleFileExpanded = () => {
+    if (state.filter?.kind === 'file' && state.filter.path) {
+      state.collapsedPaths.delete(state.filter.path)
+    }
+  }
+
   async function loadDiff({ cacheKey, fetchUrl, errorPrefix }) {
     if (isStale()) return
     const cached = cacheKey ? loadCachedDiff(cacheKey) : null
@@ -1710,6 +1783,7 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
       // actually hits the network here.
       if (isFullIndex(state.index) && cached.sha) await applyReviewedState(cached.sha)
       if (isStale()) return
+      ensureSingleFileExpanded()
       state.loading = false
       state.diff    = cached
       renderHead()
@@ -1738,6 +1812,7 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
         if (writeKey) saveCachedDiff(writeKey, diff)
         return
       }
+      ensureSingleFileExpanded()
       state.loading = false
       state.diff    = diff
       if (writeKey) saveCachedDiff(writeKey, diff)

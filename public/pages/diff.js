@@ -89,17 +89,15 @@ export async function renderDiffPage(parsed = { variant: 'full' }, isCurrent = (
   // On the base branch with only local changes → land on local view.
   if (branchInfo.on_base && hasLocal) initialIndex = commits.length + (hasLocal ? 1 : 0)
 
-  // Read + clear the one-shot scroll target stashed by the threads page.
-  let scrollToAnchor = null
-  try {
-    const raw = sessionStorage.getItem('slop-review:jump-to')
-    if (raw) {
-      scrollToAnchor = JSON.parse(raw)
-      sessionStorage.removeItem('slop-review:jump-to')
-    }
-  } catch {}
-
   const branchId = sanitizeBranchId(branchInfo.current_branch || '')
+
+  // Cross-page thread context: when `?file=…&thread=…` is in the hash,
+  // the diff view filters to that one file and surfaces a "← Back to
+  // thread" link in the diff control strip. Both fields ride the URL
+  // (not sessionStorage) so back/forward, refresh, and bookmark all
+  // route the user to the same focused view.
+  const singleFile      = parsed.file || null
+  const threadContextId = parsed.threadId || null
 
   if (!isCurrent()) return
   await renderDiffView({
@@ -110,7 +108,8 @@ export async function renderDiffPage(parsed = { variant: 'full' }, isCurrent = (
     commits,
     initialIndex,
     hasLocal,
-    scrollToAnchor,
+    singleFile,
+    threadContextId,
     isCurrent,
   })
 }
