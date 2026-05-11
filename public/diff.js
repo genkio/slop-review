@@ -549,6 +549,7 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
     const action = e.target.closest('[data-action]')?.dataset.action
     if (action === 'close')    { closeSession(sessionId); return }
     if (action === 'back')     { popSymbolJump(sessionId); return }
+    if (action === 'start')    { popSymbolJumpAll(sessionId); return }
     if (action === 'minimize') { minimizeActive(); return }
     if (action === 'restore')  { activateSession(sessionId); return }
     // Match click in the active session's list.
@@ -703,6 +704,19 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
     renderSymbolPanel()
   }
 
+  // One-click jump to the dblclick origin. jumpStack[0] is always the
+  // original anchor — scrollToMatch pushes the *current* anchor before
+  // moving, so the deepest stack entry is the session's starting point.
+  function popSymbolJumpAll(sessionId) {
+    const session = getSession(sessionId)
+    if (!session || session.jumpStack.length === 0) return
+    const target = session.jumpStack[0]
+    session.jumpStack = []
+    session.currentAnchor = target
+    scrollToDiffCell(target.path, target.line, target.side)
+    renderSymbolPanel()
+  }
+
   // === Rendering =======================================================
 
   function renderSymbolPanel() {
@@ -737,8 +751,15 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
       `${total} match${total === 1 ? '' : 'es'} in ${fileCount} file${fileCount === 1 ? '' : 's'}`
 
     const stackLen = session.jumpStack.length
+    // Segmented back-nav control:
+    //   stackLen 0: neither shown
+    //   stackLen 1: only [↩ back] (start would land on the same place)
+    //   stackLen 2+: [↞ start │ ↩ back (N)] — start renders first so they
+    //     butt up as a segmented pill via adjacent-sibling CSS.
+    const startBtn = stackLen < 2 ? '' :
+      `<button type="button" class="diff-symbol-start" data-action="start" title="Back to where you double-clicked" aria-label="Back to original location">↞ start</button>`
     const backBtn = stackLen === 0 ? '' :
-      `<button type="button" class="diff-symbol-back" data-action="back" title="Back to previous location (Backspace)" aria-label="Back to previous location">${stackLen === 1 ? '↩ back' : `↩ back (${stackLen})`}</button>`
+      `<button type="button" class="diff-symbol-back" data-action="back" title="Back one location (Backspace)" aria-label="Back to previous location">${stackLen === 1 ? '↩ back' : `↩ back (${stackLen})`}</button>`
 
     let listHtml
     if (total === 0) {
@@ -770,8 +791,8 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
 
     return `<section class="diff-symbol-session is-active" data-session-id="${session.id}">` +
       `<header class="diff-symbol-head">` +
+        startBtn +
         backBtn +
-        `<code class="diff-symbol-name">${escapeHtml(session.symbol)}</code>` +
         `<span class="diff-symbol-meta">${escapeHtml(meta)}</span>` +
         `<button type="button" class="diff-symbol-minimize" data-action="minimize" title="Minimize (Esc)" aria-label="Minimize panel">−</button>` +
         `<button type="button" class="diff-symbol-close" data-action="close" aria-label="Close panel">×</button>` +

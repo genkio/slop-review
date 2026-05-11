@@ -2408,16 +2408,6 @@ a.card-file:hover .card-file-mark {
   background: var(--bg-deep);
   flex: 0 0 auto;
 }
-.diff-symbol-name {
-  font-family: var(--font-mono);
-  font-size: 14px;
-  color: var(--lane-explain);
-  font-weight: 500;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
 .diff-symbol-meta {
   font-family: var(--font-sans);
   font-size: 11px;
@@ -2497,7 +2487,12 @@ a.card-file:hover .card-file-mark {
   pointer-events: none; /* clicks fall through to the strip-restore handler */
   letter-spacing: 0.01em;
 }
-.diff-symbol-back {
+/* Back-nav buttons in the active session head. Stack 1 shows just .back
+   as a standalone pill; stack >= 2 also renders .start before it, and the
+   adjacent-sibling rule below makes them share a border so they read as a
+   segmented control rather than two parallel buttons of equal weight. */
+.diff-symbol-back,
+.diff-symbol-start {
   font-family: var(--font-sans);
   font-size: 11px;
   padding: 3px 8px;
@@ -2508,8 +2503,25 @@ a.card-file:hover .card-file-mark {
   color: var(--fg-muted);
   flex: 0 0 auto;
 }
-.diff-symbol-back:hover { color: var(--ink); border-color: var(--lane-explain); }
+.diff-symbol-back:hover,
+.diff-symbol-start:hover { color: var(--ink); border-color: var(--lane-explain); }
 .diff-symbol-back[hidden] { display: none; }
+/* Segmented-pair styling: when .start is followed by .back, butt the
+   borders together — start gets only-left-corners, back gets only-right. */
+.diff-symbol-start:has(+ .diff-symbol-back) {
+  border-right: none;
+  border-radius: 6px 0 0 6px;
+}
+.diff-symbol-start + .diff-symbol-back {
+  border-radius: 0 6px 6px 0;
+  /* Cancel the parent's flex `gap: 8px` so the pair butts up flush. */
+  margin-left: -8px;
+}
+/* Hover continuity: when start is hovered, color the shared seam too so
+   the pair reads as one connected control through the interaction. */
+.diff-symbol-start:hover + .diff-symbol-back {
+  border-left-color: var(--lane-explain);
+}
 
 /* Two-layer symbol highlight (see applySymbolHighlights in public/diff.js):
    - row marker: an `inset` left-edge ribbon on hit cells, quiet enough to
