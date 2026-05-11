@@ -45,13 +45,6 @@ export function registerThreadRoutes(app) {
     const view = String(body?.view || '')
     const file = String(body?.file || '')
     const line = Number(body?.line || 0)
-    // Optional range endpoint. When omitted or equal to `line`, the thread
-    // is single-line (back-compat with pre-multi-line threads). When set,
-    // anchors a multi-line comment spanning `line`..`line_end` inclusive
-    // on the same (file, side). Capped at 500 lines server-side so a
-    // typo-shift-click can't anchor to a million-line range.
-    const lineEndRaw = body?.line_end
-    const lineEnd = lineEndRaw == null || lineEndRaw === '' ? null : Number(lineEndRaw)
     const side = String(body?.side || 'new')
     const sha = String(body?.sha || info.head_sha || '')
     const text = String(body?.body || '').trim()
@@ -61,9 +54,6 @@ export function registerThreadRoutes(app) {
     if (!['commit', 'full', 'local'].includes(view)) return c.json({ error: 'invalid view' }, 400)
     if (!file) return c.json({ error: 'file required' }, 400)
     if (!Number.isFinite(line) || line < 1) return c.json({ error: 'invalid line' }, 400)
-    if (lineEnd !== null && (!Number.isFinite(lineEnd) || lineEnd < line || lineEnd - line > 500)) {
-      return c.json({ error: 'invalid line_end' }, 400)
-    }
     if (!['old', 'new'].includes(side)) return c.json({ error: 'invalid side' }, 400)
     if (!text) return c.json({ error: 'body required' }, 400)
 
@@ -75,7 +65,6 @@ export function registerThreadRoutes(app) {
       view,
       file,
       line,
-      line_end: lineEnd && lineEnd > line ? lineEnd : null,
       side,
       sha: sha || null,
       anchor_text: anchorText,

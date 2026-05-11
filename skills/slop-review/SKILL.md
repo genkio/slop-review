@@ -46,8 +46,7 @@ Sidecars (not threads, ignore): `_reviewed.json`, `_overview.json`.
   "id":            "thread_a1b2c3d4",          // stable; matches the hex in the filename
   "view":          "full",                     // "commit" | "full" | "local"
   "file":          "packages/foo/src/bar.ts",  // the source file the comment anchors to
-  "line":          42,                         // line number in `file` at `sha` (range start)
-  "line_end":      null,                       // optional range end (inclusive). null/omitted/== line = single-line.
+  "line":          42,                         // line number in `file` at `sha`
   "side":          "new",                      // "old" | "new" — pre/post the change
   "sha":           "abc123…",                  // commit SHA (commit view) or HEAD SHA at create time
   "anchor_text":   "  return result.empty ? null : result",  // line text snapshot at create time
@@ -94,8 +93,7 @@ User prompt example: *"review this branch and leave inline comments on anything 
 2. **For each comment-worthy spot, write a thread JSON file**:
 
    - Generate a thread id: `thread_<8 random hex chars>`. Use a fresh hex each time; don't reuse.
-   - For a multi-line comment, set `line` to the first line of the range and `line_end` to the last (inclusive). For a single-line comment, omit `line_end` or set it to `null`. Both endpoints must be on the same `side`.
-   - Capture `anchor_text` from the source file at the line you're commenting on (the literal line text, no leading `+` / `-` from the diff). For a range, join all lines with `\n` and cap at 500 chars.
+   - Capture `anchor_text` from the source file at the line you're commenting on (the literal line text, no leading `+` / `-` from the diff).
    - Capture `sha`:
      - `view: "full"` → `git rev-parse HEAD` (current head)
      - `view: "commit"` → the full commit SHA you're reviewing

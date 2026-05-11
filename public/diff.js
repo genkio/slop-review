@@ -1,5 +1,5 @@
 import { api } from './api.js'
-import { escapeHtml, inlineCode, relTime, copyToClipboard, toast, formatLineRange } from './util.js'
+import { escapeHtml, inlineCode, relTime, copyToClipboard, toast } from './util.js'
 import { openThreadModal, confirmRemoveComment } from './modals.js'
 import { languageForPath, highlightLine } from './syntax.js'
 import { intraLineSegments } from './intra-line-diff.js'
@@ -164,17 +164,10 @@ function renderHunkSplit(hunk, path, sha, language) {
     const rAttrs = p.right
       ? `data-side="new" data-line="${p.right.newNo ?? ''}" data-path="${escapeHtml(path)}" data-sha="${sha}"`
       : ''
-    // Mirror data-side/data-line/data-path onto the gutter cells so the
-    // line-number click handler (selection gesture for multi-line comments)
-    // can read them the same way the text-cell hover handler does.
-    const lnAttrs = p.left?.oldNo != null
-      ? ` data-side="old" data-line="${p.left.oldNo}" data-path="${escapeHtml(path)}"` : ''
-    const rnAttrs = p.right?.newNo != null
-      ? ` data-side="new" data-line="${p.right.newNo}" data-path="${escapeHtml(path)}"` : ''
     return `<tr class="diff-row" data-pair-kind="${p.kind}">` +
-      `<td class="diff-no diff-no-old"${lnAttrs}>${p.left?.oldNo ?? ''}</td>` +
+      `<td class="diff-no diff-no-old">${p.left?.oldNo ?? ''}</td>` +
       `<td class="diff-text diff-${lk}" ${lAttrs}><span class="diff-marker">${lMark}</span><span class="diff-line">${p.left ? renderLineCell(p.left, language, 'left') : ''}</span></td>` +
-      `<td class="diff-no diff-no-new"${rnAttrs}>${p.right?.newNo ?? ''}</td>` +
+      `<td class="diff-no diff-no-new">${p.right?.newNo ?? ''}</td>` +
       `<td class="diff-text diff-${rk}" ${rAttrs}><span class="diff-marker">${rMark}</span><span class="diff-line">${p.right ? renderLineCell(p.right, language, 'right') : ''}</span></td>` +
       `</tr>`
   }).join('')
@@ -187,15 +180,9 @@ function renderHunkInline(hunk, path, sha, language) {
     const side   = r.kind === 'del' ? 'old' : 'new'
     const lineNo = r.kind === 'del' ? (r.oldNo ?? '') : (r.newNo ?? '')
     const lineSide = r.kind === 'del' ? 'left' : 'right'
-    // Same mirroring as renderHunkSplit: addressable gutter cells let the
-    // selection click handler treat either gutter as the "click target".
-    const lnAttrs = r.oldNo != null
-      ? ` data-side="old" data-line="${r.oldNo}" data-path="${escapeHtml(path)}"` : ''
-    const rnAttrs = r.newNo != null
-      ? ` data-side="new" data-line="${r.newNo}" data-path="${escapeHtml(path)}"` : ''
     return `<tr class="diff-row" data-pair-kind="${r.kind}">` +
-      `<td class="diff-no diff-no-old"${lnAttrs}>${r.oldNo ?? ''}</td>` +
-      `<td class="diff-no diff-no-new"${rnAttrs}>${r.newNo ?? ''}</td>` +
+      `<td class="diff-no diff-no-old">${r.oldNo ?? ''}</td>` +
+      `<td class="diff-no diff-no-new">${r.newNo ?? ''}</td>` +
       `<td class="diff-text diff-${r.kind}" colspan="2" data-side="${side}" data-line="${lineNo}" data-path="${escapeHtml(path)}" data-sha="${sha}"><span class="diff-marker">${marker}</span><span class="diff-line">${renderLineCell(r, language, lineSide)}</span></td>` +
       `</tr>`
   }).join('')
@@ -237,7 +224,6 @@ function renderFileSection(file, mode, sha, opts = {}) {
     priorityEntry       = null,
     relationship        = null,
     anchorPath          = null,
-    threadBadge         = null,        // { count, state } or null
   } = opts
   const status      = file.status || 'modified'
   const statusGlyph = STATUS_GLYPH[status] || '?'
@@ -325,30 +311,11 @@ function renderFileSection(file, mode, sha, opts = {}) {
     ? `<footer class="diff-file-footer">${footerReviewedToggle}</footer>`
     : ''
 
-  // Comment badge — survives file collapse (the whole point) since it
-  // lives in the always-visible header. Tint follows the highest-priority
-  // state across the file's threads so a glance ranks "your turn" >
-  // "awaiting" > "read" > "resolved". Glyph is a filled disc for active
-  // states and a check for all-resolved.
-  let threadBadgeHtml = ''
-  if (threadBadge && threadBadge.count > 0) {
-    const stateClass = `thread-badge-${threadBadge.state}`
-    const glyph = threadBadge.state === 'resolved' ? '✓' : '●'
-    const noun  = threadBadge.count === 1 ? 'comment' : 'comments'
-    const stateLabel = threadBadge.state === 'your_turn' ? 'your turn'
-                     : threadBadge.state === 'awaiting'  ? 'awaiting'
-                     : threadBadge.state === 'resolved'  ? 'resolved'
-                     : 'read'
-    const title = `${threadBadge.count} ${noun} (${stateLabel})`
-    threadBadgeHtml = `<span class="diff-file-threads ${stateClass}" title="${escapeHtml(title)}" aria-label="${escapeHtml(title)}">${glyph} ${threadBadge.count}</span>`
-  }
-
   return `<section class="${sectionClass}" data-path="${escapeHtml(file.path)}" data-status="${status}">` +
     `<header class="diff-file-head" data-toggle-collapse>` +
       `<button type="button" class="diff-file-toggle" data-toggle-collapse aria-expanded="${isCollapsed ? 'false' : 'true'}" aria-label="${isCollapsed ? 'Expand file' : 'Collapse file'} ${escapeHtml(file.path)}"></button>` +
       `<span class="diff-file-status" data-status="${status}" title="${status}">${statusGlyph}</span>` +
       `<code class="diff-file-path">${pathShown}</code>` +
-      threadBadgeHtml +
       `<span class="diff-file-stats"><span class="diff-stat-add">+${file.additions ?? 0}</span> <span class="diff-stat-del">−${file.deletions ?? 0}</span></span>` +
       relChip +
       headerReviewedToggle +
@@ -410,15 +377,6 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
     // at whichever session is currently expanded; null = all sessions are
     // minimized into right-edge strips. open=false hides the panel entirely.
     symbolPanel: { open: false, sessions: [], activeId: null },
-    // Pending multi-line comment selection. Plain-click on a gutter line
-    // number sets { path, side, lineStart: clicked, lineEnd: clicked };
-    // shift-click on the same (path, side) extends lineEnd (or pulls
-    // lineStart down). Cleared on Esc, on submit/cancel of the editor, and
-    // on commit navigation. While non-null, an inline CTA row is spliced
-    // beneath the last-selected row and the selected gutter cells are
-    // ribbon-marked. The hover-+ button keeps working independently for
-    // immediate single-line commenting.
-    commentSelection: null,
     // One-shot flag: true on initial mount + on goto(); cleared by renderBody
     // after applying scrollTop=0. Subsequent renders triggered by
     // refreshReviewed / SSE / filter-toggle preserve the user's scroll
@@ -508,9 +466,7 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
       // Layered Escape: minimize the active session into a parked strip
       // rather than closing it (preserves session state). To fully dismiss
       // a session, the user clicks × on its strip or expanded header.
-      // Comment selection clears too — Esc is the universal "back out" key.
       if (state.symbolPanel.activeId) { minimizeActive(); e.preventDefault() }
-      else if (state.commentSelection) { clearCommentSelection(); e.preventDefault() }
     }
     else if (e.key === 'Backspace' && state.symbolPanel.activeId) {
       const session = getActiveSession()
@@ -569,11 +525,6 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
     commentBtn.hidden = false
   }
   $('[data-body]').addEventListener('mouseover', (e) => {
-    // While a multi-line selection is in flight, the inline CTA row is the
-    // canonical "go" affordance. The floating hover-+ would visually
-    // compete and might mislead the user into a single-line comment, so
-    // suppress it until selection clears.
-    if (state.commentSelection) return
     const cell = e.target.closest?.('.diff-text[data-side]')
     if (!cell || cell === hoveredCell) return
     hoveredCell = cell
@@ -590,143 +541,6 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
     openEditorBelow(hoveredCell)
     hideHoverButtons()
   })
-
-  // ------------------------------------------------------------------
-  // Multi-line comment selection — click any gutter line number to begin,
-  // click another on the same (path, side) to extend. No modifier keys:
-  // the gesture itself (gutter click vs hover-+) already distinguishes
-  // multi-line from single-line intent, so a shift modifier would be
-  // redundant ceremony. The first click anchors; subsequent clicks pull
-  // whichever endpoint is closer toward the anchor. To start over with a
-  // different line: Esc or Cancel, then click. Switching (path, side)
-  // resets the selection automatically.
-  // ------------------------------------------------------------------
-  $('[data-body]').addEventListener('click', (e) => {
-    const gutter = e.target.closest?.('.diff-no[data-line][data-side][data-path]')
-    if (!gutter) return
-    const path = gutter.dataset.path
-    const side = gutter.dataset.side
-    const line = Number(gutter.dataset.line)
-    if (!path || !side || !Number.isFinite(line) || line < 1) return
-    e.preventDefault(); e.stopPropagation()
-    const sel = state.commentSelection
-    if (sel && sel.path === path && sel.side === side) {
-      // Extend the existing selection. Anchor stays where the user first
-      // clicked; the new click pulls lineEnd down or lineStart up.
-      const anchor = sel.anchor
-      state.commentSelection = {
-        path,
-        side,
-        lineStart: Math.min(anchor, line),
-        lineEnd: Math.max(anchor, line),
-        anchor,
-      }
-    } else {
-      // First click, or switch to a different file/side → fresh selection.
-      state.commentSelection = {
-        path,
-        side,
-        lineStart: line,
-        lineEnd: line,
-        anchor: line,
-      }
-    }
-    // Hover-+ is suppressed while a selection is active so the two
-    // affordances don't fight for position next to the same cell.
-    hideHoverButtons()
-    applyCommentSelection()
-  })
-
-  function clearCommentSelection() {
-    if (!state.commentSelection) return
-    state.commentSelection = null
-    applyCommentSelection()
-  }
-
-  // Render selection markers + CTA row. Idempotent: removes stale state
-  // first, then applies fresh state from state.commentSelection. Called
-  // after renderBody (which wipes innerHTML), after each gutter click,
-  // and on clear.
-  function applyCommentSelection() {
-    const body = $('[data-body]')
-    if (!body) return
-    body.querySelectorAll('.is-comment-selected').forEach((el) => el.classList.remove('is-comment-selected'))
-    body.querySelectorAll('.diff-row-comment-cta').forEach((r) => r.remove())
-    const sel = state.commentSelection
-    if (!sel) return
-    // Mark every (path, side) cell whose data-line falls in the range.
-    // Both gutter and text cells get the class so the left ribbon paints
-    // continuously across the gutter+content seam.
-    const cells = body.querySelectorAll(
-      `[data-path="${cssEscape(sel.path)}"][data-side="${sel.side}"][data-line]`
-    )
-    let lastTextRow = null
-    let lastLineSeen = -1
-    cells.forEach((cell) => {
-      const ln = Number(cell.dataset.line)
-      if (!Number.isFinite(ln) || ln < sel.lineStart || ln > sel.lineEnd) return
-      cell.classList.add('is-comment-selected')
-      if (cell.classList.contains('diff-text') && ln >= lastLineSeen) {
-        lastLineSeen = ln
-        lastTextRow = cell.closest('tr')
-      }
-    })
-    if (!lastTextRow?.parentNode) return
-    // Splice the CTA row beneath the last visible row in the range. If
-    // some lines in the range aren't rendered (hunk gap), we land on
-    // whichever last in-range line IS rendered — matches the
-    // "render what we can" anchor-loss semantics elsewhere.
-    const cta = document.createElement('tr')
-    cta.className = 'diff-row diff-row-comment-cta'
-    const rangeLabel = sel.lineStart === sel.lineEnd
-      ? `L${sel.lineStart}`
-      : `L${sel.lineStart}–${sel.lineEnd}`
-    cta.innerHTML =
-      '<td colspan="4" class="diff-comment-cta-cell">' +
-        '<div class="diff-comment-cta">' +
-          `<span class="diff-comment-cta-label">Comment on ${escapeHtml(rangeLabel)} (${escapeHtml(sel.side)})</span>` +
-          '<div class="diff-comment-cta-actions">' +
-            '<button type="button" data-cta-cancel>Cancel</button>' +
-            '<button type="button" class="primary" data-cta-add>Add comment</button>' +
-          '</div>' +
-        '</div>' +
-      '</td>'
-    lastTextRow.parentNode.insertBefore(cta, lastTextRow.nextSibling)
-    cta.querySelector('[data-cta-cancel]').addEventListener('click', (ev) => {
-      ev.preventDefault(); ev.stopPropagation()
-      clearCommentSelection()
-    })
-    cta.querySelector('[data-cta-add]').addEventListener('click', (ev) => {
-      ev.preventDefault(); ev.stopPropagation()
-      openEditorForSelection()
-    })
-  }
-
-  function openEditorForSelection() {
-    const sel = state.commentSelection
-    if (!sel) return
-    const body = $('[data-body]')
-    if (!body) return
-    // Find the text cell at lineEnd to anchor the editor row below it
-    // (matches single-line behavior). If lineEnd isn't rendered, fall
-    // back to the largest in-range line that IS rendered.
-    let target = body.querySelector(
-      `.diff-text[data-path="${cssEscape(sel.path)}"][data-line="${sel.lineEnd}"][data-side="${sel.side}"]`
-    )
-    if (!target) {
-      const cells = [...body.querySelectorAll(
-        `.diff-text[data-path="${cssEscape(sel.path)}"][data-side="${sel.side}"][data-line]`
-      )]
-      target = cells
-        .filter((c) => {
-          const ln = Number(c.dataset.line)
-          return Number.isFinite(ln) && ln >= sel.lineStart && ln <= sel.lineEnd
-        })
-        .sort((a, b) => Number(b.dataset.line) - Number(a.dataset.line))[0] || null
-    }
-    if (!target) { clearCommentSelection(); return }
-    openEditorBelow(target, { lineStart: sel.lineStart, lineEnd: sel.lineEnd, side: sel.side, path: sel.path })
-  }
 
   // ------------------------------------------------------------------
   // Cross-file symbol panel — dblclick an identifier in the diff body
@@ -1118,59 +932,29 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
     return 'commit'
   }
 
-  function openEditorBelow(cell, range = null) {
+  function openEditorBelow(cell) {
     root.querySelectorAll('.diff-row-editor').forEach((r) => r.remove())
-    // CTA row is replaced by the editor — the user committed to commenting.
-    root.querySelectorAll('.diff-row-comment-cta').forEach((r) => r.remove())
 
     const row  = cell.closest('tr')
-    const path = range?.path ?? (cell.dataset.path || '')
-    const side = range?.side ?? (cell.dataset.side || 'new')
+    const path = cell.dataset.path || ''
+    const side = cell.dataset.side || 'new'
+    const line = cell.dataset.line || ''
     const sha  = cell.dataset.sha  || ''
-    // Resolve the line range. For a single-line click (range == null) the
-    // anchor cell IS the only line. For range mode we trust the supplied
-    // start/end; the cell is just where we anchor the editor DOM-wise.
-    const lineStart = range?.lineStart ?? Number(cell.dataset.line || 0)
-    const lineEnd   = range?.lineEnd   ?? lineStart
-    if (!path || !lineStart) return
-    // Snapshot text. Single-line: the cell's own .diff-line textContent.
-    // Multi-line: join textContents of all rendered cells in the range on
-    // the same (path, side), in line order. Missing lines (hunk gaps) are
-    // skipped — better to capture what the user saw than to invent text.
-    let anchorText = ''
-    if (lineStart === lineEnd) {
-      const lineEl = cell.querySelector('.diff-line')
-      anchorText = lineEl ? lineEl.textContent.replace(/\s+$/, '') : ''
-    } else {
-      const cells = [...root.querySelectorAll(
-        `.diff-text[data-path="${cssEscape(path)}"][data-side="${side}"][data-line]`
-      )]
-        .filter((c) => {
-          const ln = Number(c.dataset.line)
-          return Number.isFinite(ln) && ln >= lineStart && ln <= lineEnd
-        })
-        .sort((a, b) => Number(a.dataset.line) - Number(b.dataset.line))
-      anchorText = cells
-        .map((c) => c.querySelector('.diff-line')?.textContent ?? '')
-        .join('\n')
-        .replace(/\s+$/, '')
-    }
-    anchorText = anchorText.slice(0, 500)
-
-    const rangeLabel = lineStart === lineEnd
-      ? `${path}:${lineStart}`
-      : `${path}:${lineStart}–${lineEnd}`
-    const placeholder = lineStart === lineEnd
-      ? 'Add a comment for this line…'
-      : `Add a comment for lines ${lineStart}–${lineEnd}…`
+    // Snapshot the line text at create time. The .diff-line span carries
+    // the syntax-highlighted markup; reading textContent strips the spans
+    // and leaves just the source text. Trimmed to a sane upper bound; the
+    // server further caps it.
+    const lineEl = cell.querySelector('.diff-line')
+    const anchorText = lineEl ? lineEl.textContent.replace(/\s+$/, '').slice(0, 500) : ''
+    if (!path || !line) return
 
     const editor = document.createElement('tr')
     editor.className = 'diff-row diff-row-editor'
     editor.innerHTML =
       '<td colspan="4" class="diff-editor-cell">' +
         '<div class="diff-editor">' +
-          `<div class="diff-editor-anchor">${escapeHtml(rangeLabel)} <span class="diff-editor-side">(${escapeHtml(side)})</span></div>` +
-          `<textarea class="diff-editor-input" rows="3" placeholder="${escapeHtml(placeholder)}"></textarea>` +
+          `<div class="diff-editor-anchor">${escapeHtml(path)}:${escapeHtml(line)} <span class="diff-editor-side">(${escapeHtml(side)})</span></div>` +
+          '<textarea class="diff-editor-input" rows="3" placeholder="Add a comment for this line…"></textarea>' +
           '<div class="diff-editor-actions">' +
             '<button type="button" data-cancel>Cancel</button>' +
             '<button type="button" class="primary" data-submit>Add comment</button>' +
@@ -1181,13 +965,7 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
     const ta = editor.querySelector('.diff-editor-input')
     ta.focus()
 
-    const closeAndClear = () => {
-      editor.remove()
-      // Editor close always clears selection — the next selection should
-      // start fresh, not inherit the just-cancelled range.
-      clearCommentSelection()
-    }
-    editor.querySelector('[data-cancel]').addEventListener('click', closeAndClear)
+    editor.querySelector('[data-cancel]').addEventListener('click', () => editor.remove())
     editor.querySelector('[data-submit]').addEventListener('click', async () => {
       const body = ta.value.trim()
       if (!body) { ta.focus(); return }
@@ -1200,8 +978,7 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
           body: JSON.stringify({
             view: viewForCurrentIndex(),
             file: path,
-            line: lineStart,
-            line_end: lineEnd > lineStart ? lineEnd : null,
+            line: Number(line),
             side,
             sha,
             body,
@@ -1210,7 +987,6 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
         })
         editor.remove()
         if (res.threads) state.threads = res.threads
-        clearCommentSelection()
         renderInlineComments()
         toast('Comment added')
       } catch (e) {
@@ -1347,7 +1123,6 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
     state.index = idx
     state.diff  = null
     state.shouldResetScroll = true   // navigated to a different diff — start at the top
-    state.commentSelection = null    // selection is per-diff; nav clears it
     hideHoverButtons()
     closeSymbolPanel()
     syncUrl()
@@ -1373,35 +1148,6 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
     return set
   }
 
-  // Per-file thread aggregation for the diff-file-head badge. Mirrors
-  // threadFilesForCurrentView()'s view-filter so the badge agrees with
-  // the threads-filter chip and the inline thread display. Returns
-  // Map<path, { count, state }> where `state` is the highest-priority
-  // state present in the file's threads (your_turn > awaiting > read >
-  // resolved) — same rank the threads page uses for sorting. The badge
-  // is tinted by `state` so a glance at a collapsed-file row tells the
-  // user "this file needs me / is mid-conversation / is closed".
-  function threadBadgesByFileForCurrentView() {
-    const view = viewForCurrentIndex()
-    const currentSha = view === 'commit' ? state.commits[state.index]?.sha : null
-    const STATE_RANK = { your_turn: 0, awaiting: 1, read: 2, resolved: 3 }
-    const map = new Map()
-    for (const t of state.threads) {
-      if ((t.view || 'full') !== view) continue
-      if (view === 'commit' && t.sha !== currentSha) continue
-      if (!t.file) continue
-      const tState = t.state || 'awaiting'
-      const cur = map.get(t.file)
-      if (!cur) {
-        map.set(t.file, { count: 1, state: tState })
-      } else {
-        cur.count += 1
-        if (STATE_RANK[tState] < STATE_RANK[cur.state]) cur.state = tState
-      }
-    }
-    return map
-  }
-
   function computeVisibleFiles() {
     const all = state.diff?.files || []
     const filter = state.filter
@@ -1422,6 +1168,32 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
     return all
   }
 
+  // Fetch + apply the reviewed set for `sha` into state. No renderBody().
+  // Returns true if state changed, false otherwise. Split out from
+  // refreshReviewed so loadDiff can await it *in parallel* with the diff
+  // fetch and have the reviewed/collapsed set in place before the first
+  // paint — without this, reviewed files first render expanded, then snap
+  // closed on the trailing render, costing a second full tokenize pass over
+  // every file and a visible flash on big diffs.
+  async function applyReviewedState(sha) {
+    if (!sha || state.reviewedSha === sha) return false
+    try {
+      const r = await api(`/api/repos/${encodeURIComponent(repo.id)}/reviewed?head_sha=${encodeURIComponent(sha)}`)
+      if (isStale()) return false
+      state.reviewed    = new Set(r?.paths || [])
+      state.reviewedSha = sha
+      // Auto-fold reviewed files on hydration. The mark-time auto-fold in
+      // toggleFileReviewed only covers fresh marks
+      // — without this, files marked in a prior session render expanded
+      // until the user manually refolds them. Within a session, manual
+      // expand still works (collapsedPaths.delete on click); the next
+      // hydration (page reload) re-folds, which matches the spec contract
+      // "reviewed = folded unless user expanded it (this session)".
+      for (const p of state.reviewed) state.collapsedPaths.add(p)
+      return true
+    } catch { return false }
+  }
+
   async function refreshReviewed() {
     if (isStale()) return
     if (!isFullIndex(state.index)) {
@@ -1435,52 +1207,146 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
     const sha = state.diff?.sha
     if (!sha) return
     if (state.reviewedSha === sha) return
-    try {
-      const r = await api(`/api/repos/${encodeURIComponent(repo.id)}/reviewed?head_sha=${encodeURIComponent(sha)}`)
-      if (isStale()) return
-      state.reviewed    = new Set(r?.paths || [])
-      state.reviewedSha = sha
-      // Auto-fold reviewed files on hydration. The mark-time auto-fold in
-      // toggleFileReviewed only covers fresh marks
-      // — without this, files marked in a prior session render expanded
-      // until the user manually refolds them. Within a session, manual
-      // expand still works (collapsedPaths.delete on click); the next
-      // hydration (page reload) re-folds, which matches the spec contract
-      // "reviewed = folded unless user expanded it (this session)".
-      for (const p of state.reviewed) state.collapsedPaths.add(p)
-      renderBody()
-    } catch {}
+    const changed = await applyReviewedState(sha)
+    if (!changed || isStale()) return
+    renderBody()
   }
 
   /**
-   * Toggle reviewed state for a single file. Computes the new full set
-   * client-side and PUTs with mode='replace' so the server doesn't have
-   * to expose a per-path remove endpoint. Auto-folds the file (adds to
-   * collapsedPaths) when newly reviewed — matches GitHub's "I'm done
-   * with this one, get it out of my way" review pattern.
+   * Toggle reviewed state for a single file. Optimistic: mutate state +
+   * DOM immediately, then PUT in the background and roll back on failure.
+   *
+   * Why not `renderBody()`: re-running renderBody over a 67-file diff
+   * re-tokenizes every file via syntax.js and rebuilds every hunk table
+   * (collapse is CSS-only — the hunk HTML is always built, see
+   * renderFileSection). That was 2–3 seconds on a big branch for a
+   * one-section visual change. Mirrors the lightweight-DOM-mutation
+   * pattern the collapse-toggle handler already uses above.
    */
   async function toggleFileReviewed(path) {
     const sha = state.diff?.sha
     if (!sha || !path) return
     const currently = state.reviewed.has(path)
+    const becomingReviewed = !currently
     const next = new Set(state.reviewed)
     if (currently) next.delete(path); else next.add(path)
+
+    // Optimistic state + DOM mutation. The auto-fold-on-mark contract
+    // (spec §7) stays here so the in-memory + DOM views agree before the
+    // PUT lands. Unmark deliberately does NOT auto-unfold — a previously-
+    // reviewed file should keep whatever collapse state the user chose.
+    state.reviewed    = next
+    state.reviewedSha = sha
+    if (becomingReviewed) state.collapsedPaths.add(path)
+    applyReviewedToggleDom(path, becomingReviewed)
+
     try {
-      const r = await api(`/api/repos/${encodeURIComponent(repo.id)}/reviewed`, {
+      await api(`/api/repos/${encodeURIComponent(repo.id)}/reviewed`, {
         method: 'PUT',
         body: JSON.stringify({ head_sha: sha, paths: [...next], mode: 'replace' }),
       })
-      state.reviewed    = new Set(r?.paths || [])
-      state.reviewedSha = sha
-      // Auto-fold on mark; don't auto-unfold on unmark (a reviewed-then-
-      // unreviewed file should stay in whatever collapse state the user
-      // last chose).
-      if (!currently) state.collapsedPaths.add(path)
-      renderBody()
       toast(currently ? `Unmarked ${path.split('/').pop()}` : `Marked ${path.split('/').pop()} reviewed`)
     } catch (e) {
+      // Roll back — server didn't accept the write, so the on-disk
+      // reviewed.json doesn't reflect what the user just saw.
+      const rollback = new Set(state.reviewed)
+      if (becomingReviewed) rollback.delete(path); else rollback.add(path)
+      state.reviewed = rollback
+      if (becomingReviewed) state.collapsedPaths.delete(path)
+      applyReviewedToggleDom(path, !becomingReviewed)
       toast('Toggle failed: ' + (e.message || 'unknown'))
     }
+  }
+
+  /**
+   * Targeted DOM mutation for one file's reviewed/unreviewed transition.
+   * Flips classes on the section, moves the Mark/Unmark button between
+   * header (reviewed) and footer (unreviewed) — mirroring the split-
+   * placement in renderFileSection — and refreshes the review banner so
+   * the "N of T remaining" summary stays in sync. Click handlers stay
+   * live because the diff body uses event delegation (see [data-body]
+   * listener), so we never need to rewire individual buttons.
+   */
+  function applyReviewedToggleDom(path, becomingReviewed) {
+    const section = root.querySelector(`.diff-file[data-path="${cssEscape(path)}"]`)
+    if (!section) return
+
+    section.classList.toggle('is-reviewed', becomingReviewed)
+    if (becomingReviewed) {
+      // Auto-collapse on mark. Keep chevron aria in sync — same dance as
+      // the collapse-toggle handler.
+      section.classList.add('is-collapsed')
+      const chev = section.querySelector('.diff-file-toggle')
+      if (chev) {
+        chev.setAttribute('aria-expanded', 'false')
+        chev.setAttribute('aria-label', `Expand file ${path}`)
+      }
+      // Anchor the user to the now-collapsed section's header. Without
+      // this, clicking "Mark reviewed" at the footer of a long file
+      // (after scrolling through it) leaves the browser's scroll
+      // anchoring latched onto the next file's content — so you overshoot
+      // past the file you were supposed to read next. `block: 'nearest'`
+      // is a no-op when the header is already visible (short files), and
+      // pulls it just into view when it isn't (long files).
+      section.scrollIntoView({ block: 'nearest' })
+    }
+
+    // Swap the toggle button: reviewed → header `✓ reviewed`, unreviewed
+    // → footer `○ Mark reviewed`. The button is never rendered in both
+    // places at once (spec §7).
+    const header = section.querySelector('.diff-file-head')
+    section.querySelector('.diff-file-head [data-toggle-reviewed]')?.remove()
+    section.querySelector(':scope > .diff-file-footer')?.remove()
+
+    const btn = document.createElement('button')
+    btn.type = 'button'
+    btn.setAttribute('data-toggle-reviewed', path)
+    if (becomingReviewed) {
+      btn.className = 'diff-file-mark active'
+      btn.title = 'Marked reviewed — click to unmark'
+      btn.setAttribute('aria-pressed', 'true')
+      btn.textContent = '✓ reviewed'
+      // Header order per renderFileSection: ... reviewed-toggle, relate-btn.
+      // Insert before the relate button so we don't swap their positions
+      // on files that have related-file edges.
+      const relateBtn = header?.querySelector('.diff-relate-btn')
+      if (relateBtn) header.insertBefore(btn, relateBtn)
+      else header?.appendChild(btn)
+    } else {
+      btn.className = 'diff-file-mark'
+      btn.title = 'Mark this file reviewed'
+      btn.setAttribute('aria-pressed', 'false')
+      btn.textContent = '○ Mark reviewed'
+      const footer = document.createElement('footer')
+      footer.className = 'diff-file-footer'
+      footer.appendChild(btn)
+      section.appendChild(footer)
+    }
+
+    refreshReviewBanner()
+  }
+
+  /**
+   * Replace the diff-control-strip ("review banner") in place. Used by
+   * the reviewed-toggle's optimistic DOM path so the "N of T remaining"
+   * summary and Reset button surface as soon as the first file is
+   * marked, without re-rendering the 67-file body underneath.
+   */
+  function refreshReviewBanner() {
+    const body = $('[data-body]')
+    const existing = body?.querySelector('.diff-review-banner')
+    const visibleCount = computeVisibleFiles().length
+    const html = renderReviewBanner(visibleCount)
+    if (!existing) {
+      // No banner yet (e.g. first mark on a previously-empty reviewed
+      // set) — prepend the freshly-rendered one above the file list.
+      if (html && body) body.insertAdjacentHTML('afterbegin', html)
+      return
+    }
+    if (!html) { existing.remove(); return }
+    const tmp = document.createElement('template')
+    tmp.innerHTML = html
+    existing.replaceWith(tmp.content.firstChild)
   }
 
   async function resetReviewed() {
@@ -1682,9 +1548,6 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
       ? [...visibleFiles].sort((a, b) => compareForReview(a, b, priorities))
       : visibleFiles
     const showRelateBtn = isFull && !!priorities
-    // Per-file thread badge data — computed once per render rather than
-    // per file so the O(threads) view-filter pass doesn't repeat.
-    const threadBadges = threadBadgesByFileForCurrentView()
     const filesHtml = orderedFiles.map((f) => {
       // Per-file relationship to the filter anchor. Only meaningful in
       // filter mode AND when this file isn't the anchor itself.
@@ -1706,7 +1569,6 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
         priorityEntry: priorities?.[f.path] || null,
         relationship,
         anchorPath: filterAnchor,
-        threadBadge: threadBadges.get(f.path) || null,
       })
     }).join('')
     body.innerHTML = banners + filesHtml
@@ -1717,7 +1579,6 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
     renderInlineComments()
     maybeScrollToAnchor()
     applySymbolHighlights()
-    applyCommentSelection()
   }
 
   // One-shot scroll: when the user clicked "Jump to diff" from the threads
@@ -1759,12 +1620,10 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
     const body = $('[data-body]')
     if (!body) return
     body.querySelectorAll('.diff-row-thread').forEach((r) => r.remove())
-    // Clear stale multi-line range ribbons before re-applying.
-    body.querySelectorAll('.has-thread-range').forEach((el) => el.classList.remove('has-thread-range'))
 
     if (!state.threads.length) return
     const view = viewForCurrentIndex()
-    const cells = [...body.querySelectorAll('[data-side][data-line][data-path]')]
+    const cells = [...body.querySelectorAll('.diff-text[data-side][data-line][data-path]')]
 
     for (const t of state.threads) {
       // Only render threads created in the current view to keep anchor
@@ -1777,27 +1636,13 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
         if (t.sha !== c?.sha) continue
       }
       const file = t.file
-      const lineStart = Number(t.line)
-      const lineEnd = Number.isFinite(Number(t.line_end)) && t.line_end ? Number(t.line_end) : lineStart
+      const line = String(t.line ?? '')
       const side = t.side ?? 'new'
-      if (!Number.isFinite(lineStart)) continue
-      // Collect every rendered cell (gutter or text) on (file, side) whose
-      // data-line falls in the thread's range. For single-line threads
-      // this collapses to one text cell — the existing splice-below path.
-      let anchorTextCell = null
-      let anchorLine = -1
-      for (const c of cells) {
-        if (c.dataset.path !== file || c.dataset.side !== side) continue
-        const ln = Number(c.dataset.line)
-        if (!Number.isFinite(ln) || ln < lineStart || ln > lineEnd) continue
-        if (lineEnd > lineStart) c.classList.add('has-thread-range')
-        if (c.classList.contains('diff-text') && ln >= anchorLine) {
-          anchorLine = ln
-          anchorTextCell = c
-        }
-      }
-      if (!anchorTextCell) continue
-      const row = anchorTextCell.closest('tr')
+      const cell = cells.find(
+        (c) => c.dataset.path === file && c.dataset.line === line && c.dataset.side === side
+      )
+      if (!cell) continue
+      const row = cell.closest('tr')
       if (!row?.parentNode) continue
       const display = makeThreadDisplayRow(t)
       row.parentNode.insertBefore(display, row.nextSibling)
@@ -1840,7 +1685,7 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
       '<td colspan="4" class="diff-thread-cell">' +
         `<div class="diff-thread ${stateClass}" data-thread-id="${escapeHtml(thread.id)}">` +
           '<div class="diff-thread-header">' +
-            `<button type="button" class="diff-thread-anchor" data-show-thread="${escapeHtml(thread.id)}" title="Open thread">${escapeHtml(thread.file)}:${escapeHtml(formatLineRange(thread))} <span class="diff-thread-side">(${escapeHtml(thread.side || 'new')})</span></button>` +
+            `<button type="button" class="diff-thread-anchor" data-show-thread="${escapeHtml(thread.id)}" title="Open thread">${escapeHtml(thread.file)}:${escapeHtml(String(thread.line))} <span class="diff-thread-side">(${escapeHtml(thread.side || 'new')})</span></button>` +
             statePill +
             `<span class="card-local-pill view-${thread.view || 'full'}">${escapeHtml(thread.view || 'full')}</span>` +
           '</div>' +
@@ -1858,6 +1703,12 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
     if (isStale()) return
     const cached = cacheKey ? loadCachedDiff(cacheKey) : null
     if (cached) {
+      // Hydrate the reviewed set before the first paint so cached-diff
+      // navigation doesn't show the same expanded→collapsed flash as a
+      // fresh load. Cheap: most jumps hit the in-memory state.reviewedSha
+      // === sha short-circuit; only the first cached load this session
+      // actually hits the network here.
+      if (isFullIndex(state.index) && cached.sha) await applyReviewedState(cached.sha)
       if (isStale()) return
       state.loading = false
       state.diff    = cached
@@ -1869,7 +1720,18 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
     state.loading = true
     renderBody()
     try {
-      const diff = await api(fetchUrl)
+      // Kick off the reviewed fetch in parallel with the diff fetch for
+      // Full view. Keyed off branchInfo.head_sha — known up front, and in
+      // practice equal to the diff response's sha (HEAD doesn't move
+      // between the back-to-back /branch and /diff calls). If they ever
+      // diverge, the post-load refreshReviewed() pass catches the mismatch
+      // and refetches; the worst case is reverting to today's behavior
+      // for a single load.
+      const reviewedKey = isFullIndex(expectedIndex) ? branchInfo?.head_sha : null
+      const [diff] = await Promise.all([
+        api(fetchUrl),
+        reviewedKey ? applyReviewedState(reviewedKey) : Promise.resolve(null),
+      ])
       if (isStale()) return
       const writeKey = isFullIndex(expectedIndex) && diff?.sha ? `full:${diff.sha}` : cacheKey
       if (state.index !== expectedIndex) {

@@ -1,6 +1,6 @@
 import { api } from '../api.js'
 import { store } from '../store.js'
-import { escapeHtml, inlineCode, relTime, formatLineRange } from '../util.js'
+import { escapeHtml, inlineCode, relTime } from '../util.js'
 import { openThreadModal } from '../modals.js'
 import { subscribeRepoEvents, unsubscribeRepoEvents } from '../sse.js'
 import { ROUTES } from '../routes.js'
@@ -187,7 +187,7 @@ function renderThreadRow(t) {
   return `<button type="button" class="thread-row ${stateClass}" data-open-thread="${escapeHtml(t.id)}">
     <div class="thread-row-top">
       <span class="thread-row-state">${stateLabel}</span>
-      <span class="thread-row-anchor">L${escapeHtml(formatLineRange(t))}</span>
+      <span class="thread-row-anchor">L${escapeHtml(String(t.line ?? ''))}</span>
       <span class="thread-row-view view-${t.view || 'full'}">${escapeHtml(t.view || 'full')}</span>
       <span class="thread-row-replies">${replies} ${replies === 1 ? 'msg' : 'msgs'}</span>
       <span class="thread-row-when">${escapeHtml(relTime(when))}</span>
