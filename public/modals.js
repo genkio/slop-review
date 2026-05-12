@@ -181,13 +181,28 @@ export function openThreadModal(threadId, opts = {}) {
     // helpful for an irregular browsing workflow.
     const navHtml = renderThreadNav(thread.id, threadOrder)
 
+    // Modal head layout has two shapes depending on whether prev/next thread
+    // nav is present:
+    //   - With nav (threads page): nav goes top-left, filename top-right,
+    //     and the file:line subtitle gets its own line below — there's no
+    //     room to inline it without crowding.
+    //   - Without nav (diff page opens modal): the top row would otherwise
+    //     be empty except for the filename floating right. Inline the
+    //     subtitle there instead of dangling it on its own line.
+    const headHtml = navHtml
+      ? `<div class="thread-modal-head">
+          ${navHtml}
+          <div class="thread-modal-head-spacer"></div>
+          ${filenameBtn}
+        </div>
+        <div class="sub">${escapeHtml(subLabel)} ${jumpLink}</div>`
+      : `<div class="thread-modal-head">
+          <div class="sub thread-modal-sub-inline">${escapeHtml(subLabel)} ${jumpLink}</div>
+          ${filenameBtn}
+        </div>`
+
     return `
-      <div class="thread-modal-head">
-        ${navHtml}
-        <div class="thread-modal-head-spacer"></div>
-        ${filenameBtn}
-      </div>
-      <div class="sub">${escapeHtml(subLabel)} ${jumpLink}</div>
+      ${headHtml}
       ${resolvedSub}
       <div class="thread-list" data-thread-list>${msgs}</div>
       <div class="thread-reply">
@@ -253,8 +268,13 @@ export function openThreadModal(threadId, opts = {}) {
     const replyBtn = backdrop.querySelector('[data-reply]')
     // Only auto-focus on the very first mount. Re-focusing on prev/next
     // would scroll the modal to the textarea position — the user is
-    // navigating threads, not composing replies.
-    if (isInitialMount) ta?.focus()
+    // navigating threads, not composing replies. `preventScroll: true`
+    // is load-bearing for the diff-page case: focus() otherwise asks the
+    // browser to scroll the textarea into view, which walks up scroll
+    // containers and yanks the underlying diff page's scrollTop to a
+    // new position. The textarea is already visible inside the modal,
+    // so preventScroll loses nothing.
+    if (isInitialMount) ta?.focus({ preventScroll: true })
 
     replyBtn?.addEventListener('click', async () => {
       const body = ta.value.trim()

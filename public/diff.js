@@ -1014,8 +1014,14 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
     // click handler in events.js can't open the thread (no repoId/getThread
     // context at that level), so we own it here where we have state.threads
     // and repo.id in scope. stopPropagation prevents the toast from firing.
+    // data-show-thread sits on both the file:line anchor button AND each
+    // comment body — clicking either opens the modal (matches the threads
+    // page behavior where any thread-row click opens the detail). We bail
+    // on active text selection so users can still highlight comment text
+    // to copy without the click being interpreted as "open modal."
     const showThread = e.target.closest('[data-show-thread]')
     if (showThread) {
+      if (window.getSelection?.()?.toString().trim()) return
       e.preventDefault(); e.stopPropagation()
       const tid = showThread.dataset.showThread
       openThreadModal(tid, {
@@ -1627,14 +1633,55 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
         anchorPath: filterAnchor,
       })
     }).join('')
+    // Preserve scroll across `innerHTML` swaps. `overflow-anchor: none`
+    // (see .diff-body) means the browser won't compensate when content
+    // is replaced — and renderBody is called for every SSE-triggered
+    // thread refresh, every filter toggle, every split↔inline switch.
+    // Without this, opening a thread modal stamps `last_read_at` on the
+    // server, which broadcasts an SSE event, which triggers loadThreads()
+    // → renderBody(), and the user finds the diff page scrolled to a
+    // random position when they close the modal.
+    //
+    // The deferred-restore part matters: directly after innerHTML, the
+    // body's scrollHeight transiently drops (collapse/expand of file
+    // sections happens in subsequent ticks via reviewed-state hydration
+    // and other async fixups), so a sync `scrollTop = prev` gets clamped
+    // to whatever maxScroll currently is. preserveScrollTo schedules a
+    // ResizeObserver that retries the assignment as the content grows
+    // back, then disconnects once the target fits. The initial-mount
+    // path (state.shouldResetScroll) still wins so the first render
+    // lands at the top of the file as intended.
+    const prevScroll = body.scrollTop
     body.innerHTML = banners + filesHtml
     if (state.shouldResetScroll) {
       body.scrollTop = 0
       state.shouldResetScroll = false
+    } else if (prevScroll > 0) {
+      preserveScrollTo(body, prevScroll)
     }
     renderInlineComments()
     maybeScrollToAnchor()
     applySymbolHighlights()
+  }
+
+  function preserveScrollTo(el, target) {
+    const maxNow = el.scrollHeight - el.clientHeight
+    if (maxNow >= target) {
+      el.scrollTop = target
+      return
+    }
+    // Content height isn't sufficient yet — wait for it to grow.
+    // Multiple ticks because layout passes settle over a few frames.
+    el.scrollTop = maxNow
+    const ro = new ResizeObserver(() => {
+      const max = el.scrollHeight - el.clientHeight
+      if (max >= target) {
+        el.scrollTop = target
+        ro.disconnect()
+      }
+    })
+    ro.observe(el)
+    setTimeout(() => ro.disconnect(), 2000)
   }
 
   // One-shot scroll: when the user clicked "Jump to diff" from the threads
@@ -1753,7 +1800,7 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
             <button type="button" class="diff-thread-edit" data-edit-comment data-comment-id="${escapeHtml(c.id)}" data-thread-id="${escapeHtml(thread.id)}" aria-label="Edit comment" title="Edit comment">✎</button>
             <button type="button" class="diff-thread-remove" data-remove-comment data-comment-id="${escapeHtml(c.id)}" data-thread-id="${escapeHtml(thread.id)}" aria-label="Remove comment" title="Remove comment">×</button>
           </div>
-          <div class="diff-thread-body" data-body>${inlineCode(c.body)}</div>
+          <div class="diff-thread-body" data-body data-show-thread="${escapeHtml(thread.id)}" role="button">${inlineCode(c.body)}</div>
         </div>`
       )
       .join('')
@@ -1953,6 +2000,16 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
       const r = await api(`/api/repos/${encodeURIComponent(repo.id)}/threads`)
       if (isStale()) return
       state.threads = r?.threads || []
+      // Capture scroll BEFORE any DOM mutation. renderInlineComments
+      // briefly removes-then-re-adds inline thread rows, and renderBody
+      // below replaces body.innerHTML wholesale — both can clamp scrollTop
+      // due to `overflow-anchor: none` on .diff-body. Without this save,
+      // every SSE-triggered refresh (e.g. last_read_at stamp on modal
+      // open, new comment from an LLM, resolve toggle) yanked the diff
+      // view's scroll position to a different spot, leaving the user
+      // somewhere unexpected when they close the modal.
+      const bodyEl = $('[data-body]')
+      const savedScroll = bodyEl?.scrollTop ?? 0
       renderInlineComments()
       // Threads button only makes sense once at least one thread exists —
       // otherwise it'd just bounce the router straight back here.
@@ -1961,6 +2018,14 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
       // Banner hosts the threads-filter chip — re-render so newly-arrived
       // threads (e.g. via SSE) reveal the chip without a manual reload.
       renderBody()
+      // Belt-and-suspenders restore: renderBody's preservation already
+      // handles the innerHTML swap inside that call (deferred via
+      // ResizeObserver while the content settles), but if anything outside
+      // renderBody has shifted scroll between our entry capture and now,
+      // re-apply the saved value through the same deferred-restore helper.
+      if (bodyEl && savedScroll > 0 && bodyEl.scrollTop !== savedScroll) {
+        preserveScrollTo(bodyEl, savedScroll)
+      }
     } catch {}
   }
 
@@ -1972,5 +2037,23 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
 
   await loadThreads()
   if (isStale()) return
+
+  // Auto-scroll to the jumped-from thread's anchor on Jump-to-file. The
+  // URL's `?thread=` was already plumbed into state.filter.threadId at
+  // mount (see renderDiffView's `filter:` initializer); pair it with the
+  // freshly-loaded thread record to derive `{file, line, side}` and let
+  // the existing one-shot `scrollToAnchor` machinery do the rest — it
+  // auto-uncollapses reviewed files, defers a frame for layout, scrolls
+  // to center, flashes the cell, and toasts gracefully if the anchor
+  // line is missing from the current diff (e.g. anchor lost after a
+  // rebase). If the thread record is missing (deleted between page
+  // loads), we silently no-op.
+  if (!scrollToAnchor && state.filter?.kind === 'file' && state.filter.threadId) {
+    const t = state.threads.find((x) => x.id === state.filter.threadId)
+    if (t?.file && t?.line) {
+      scrollToAnchor = { file: t.file, line: t.line, side: t.side || 'new' }
+    }
+  }
+
   await load()
 }

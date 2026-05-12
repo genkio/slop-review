@@ -1146,6 +1146,18 @@ a.card-file:hover .card-file-mark {
   margin-bottom: 6px;
 }
 .thread-modal-head-spacer { flex: 1; }
+/* When the modal head has no prev/next nav (the diff-page Jump-to-modal
+   case), the file:line subtitle is inlined into the head row instead of
+   dangling on its own line. The combined-class selector beats `.modal
+   .sub` on specificity so its margin/padding/border defaults are
+   suppressed, letting the head read as one tight row. */
+.modal .thread-modal-head .sub.thread-modal-sub-inline {
+  flex: 1;
+  margin: 0;
+  padding-bottom: 0;
+  border-bottom: 0;
+  min-width: 0;
+}
 .thread-modal-nav {
   display: inline-flex;
   align-items: center;
@@ -3069,6 +3081,13 @@ a.card-file:hover .card-file-mark {
   line-height: 1.5;
   color: var(--fg);
   white-space: pre-wrap;
+  /* Body is clickable — opens the thread modal (mirrors the threads page,
+     where any row click opens the detail). Text selection is preserved
+     by a guard in the click handler. */
+  cursor: pointer;
+}
+.diff-thread-body:hover {
+  color: var(--ink);
 }
 .diff-thread-body code {
   font-family: var(--font-mono);
@@ -3360,6 +3379,14 @@ a.card-file:hover .card-file-mark {
   border-left: 4px solid var(--accent);
   background: color-mix(in srgb, var(--accent) 16%, transparent);
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 45%, transparent);
+  /* The inset accent ring creates a visible top edge that the header text
+     would otherwise butt against — reads as cramped. Padding gives the
+     ring a balanced internal margin. Left padding is inherited from the
+     base `.diff-thread` (10 px, for the state-color ribbon), so only
+     top/right/bottom need compensating here. */
+  padding-top: 8px;
+  padding-right: 8px;
+  padding-bottom: 8px;
 }
 .diff-thread.state-resolved.is-jumped-from {
   border-left-color: var(--lane-done);
