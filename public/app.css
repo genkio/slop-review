@@ -2918,6 +2918,62 @@ a.card-file:hover .card-file-mark {
 }
 .diff-add-comment[hidden] { display: none; }
 
+/* —— Gutter selection (multi-line comment) ——
+   The line-number gutter is an alternative entry point to commenting: a
+   plain click on a `<td class="diff-no">` with a `data-line` starts a
+   selection; a second click on a same-(path, side) gutter cell extends
+   the range toward whichever endpoint is closer. While a selection is
+   active the diff renderer splices a CTA row beneath the last in-range
+   row and paints a left ribbon across both gutter and text cells of
+   every selected line. */
+.diff-no[data-line] {
+  cursor: pointer;
+}
+.diff-no[data-line]:hover {
+  background: color-mix(in srgb, var(--accent) 10%, var(--bg-deep));
+  color: var(--fg);
+}
+.diff-no.is-comment-selected,
+.diff-text.is-comment-selected {
+  box-shadow: inset 3px 0 0 var(--accent);
+  background: color-mix(in srgb, var(--accent) 8%, var(--card));
+}
+.diff-no.is-comment-selected {
+  color: var(--fg);
+  font-weight: 600;
+}
+.diff-row-comment-cta > .diff-comment-cta-cell {
+  padding: 8px 16px;
+  background: color-mix(in srgb, var(--accent) 6%, var(--card));
+  border-top: 1px solid color-mix(in srgb, var(--accent) 28%, transparent);
+  border-bottom: 1px solid color-mix(in srgb, var(--accent) 28%, transparent);
+}
+.diff-comment-cta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diff-comment-cta-label {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--fg);
+  letter-spacing: 0;
+}
+.diff-comment-cta-actions {
+  display: flex;
+  gap: 8px;
+}
+
+/* Multi-line thread range ribbon — analogous to the selection ribbon, but
+   in the muted explain-blue used by inline thread rows so it reads as
+   "comment already exists here" rather than "selection in progress". */
+.diff-no.has-thread-range,
+.diff-text.has-thread-range {
+  box-shadow: inset 3px 0 0 color-mix(in srgb, var(--lane-explain) 70%, transparent);
+}
+
 /* Editor row spliced beneath the clicked diff line. Spans all 4 columns
    so it reads as a separate block, not a continuation of the diff table. */
 .diff-row-editor > .diff-editor-cell {
