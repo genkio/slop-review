@@ -3349,15 +3349,42 @@ a.card-file:hover .card-file-mark {
    matches the URL's `?thread=` param so the user can spot the
    conversation they came from amid other threads in the same file. Same
    visual idiom as the threads-page .thread-row.is-recent: 4 px accent
-   left-ribbon + faint accent wash. State takes precedence over the
-   breadcrumb, so resolved/your-turn ribbons stay if the matched thread
-   carries one. */
+   left-ribbon + accent wash. State takes precedence over the ribbon
+   color (so a resolved thread keeps its green/done ribbon), which means
+   the background wash + inset accent ring carry the "jumped-from"
+   signal alone when state ribbons stay. Both are tuned strong enough
+   to stay legible against any state wash — too faint and the cue
+   disappears when neighboring threads share a state (e.g. all
+   resolved). */
 .diff-thread.is-jumped-from {
   border-left: 4px solid var(--accent);
-  background: color-mix(in srgb, var(--accent) 7%, transparent);
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 45%, transparent);
 }
 .diff-thread.state-resolved.is-jumped-from {
   border-left-color: var(--lane-done);
+}
+
+/* Spotlight mode: when any thread on the page carries `is-jumped-from`
+   (i.e. the user landed here via Jump-to-file with a target thread),
+   neutralize the *other* inline threads so the target reads
+   unambiguously. Two stacked overrides because dimming opacity alone
+   leaves the state-ribbon's hue recognizable (a blue at 45% opacity
+   still reads as blue) — and the user's intent in this mode is "focus
+   on this one thread," not "browse all threads with state legibility."
+   Hover restores opacity for inspection; the structural hairline
+   border stays so layout doesn't shift. */
+.diff-page:has(.diff-thread.is-jumped-from) .diff-row-thread:not(:has(.diff-thread.is-jumped-from)) {
+  opacity: 0.5;
+  transition: opacity 0.15s ease;
+}
+.diff-page:has(.diff-thread.is-jumped-from) .diff-row-thread:not(:has(.diff-thread.is-jumped-from)) .diff-thread {
+  border-left-color: var(--hairline);
+  background: transparent;
+  box-shadow: none;
+}
+.diff-page:has(.diff-thread.is-jumped-from) .diff-row-thread:not(:has(.diff-thread.is-jumped-from)):hover {
+  opacity: 1;
 }
 .diff-thread .state-pill {
   margin-left: 8px;

@@ -47,8 +47,12 @@ export async function renderDiffPage(parsed = { variant: 'full' }, isCurrent = (
   }
 
   // Empty-state branches: render an explanatory card and stop.
+  // The on-base case only counts as empty when there's literally nothing
+  // to diff — no local changes AND no commits to review against either
+  // origin or HEAD~1 (the on-base review fallback in `getBranchInfo`
+  // flips `has_commits_ahead` to true when HEAD has a parent).
   if (branchInfo.detached || !branchInfo.has_origin_head ||
-      (branchInfo.on_base && !branchInfo.has_local_changes)) {
+      (branchInfo.on_base && !branchInfo.has_local_changes && !branchInfo.has_commits_ahead)) {
     main.innerHTML = `
       <div class="app-page repo-page">
         <div class="page-head">
@@ -121,8 +125,8 @@ function renderBranchCard(info) {
   if (!info.has_origin_head) {
     return `<div class="branch-empty"><b>Can't detect base branch.</b> Run <code>git remote set-head origin -a</code> in your repo, then refresh.</div>`
   }
-  if (info.on_base && !info.has_local_changes) {
-    return `<div class="branch-empty">You're on <code>${escapeHtml(info.base_branch)}</code> with no local changes. Checkout a feature branch and refresh.</div>`
+  if (info.on_base && !info.has_local_changes && !info.has_commits_ahead) {
+    return `<div class="branch-empty">You're on <code>${escapeHtml(info.base_branch)}</code> with nothing to review — no local changes and no prior commit. Make some changes or checkout a feature branch and refresh.</div>`
   }
   const lines = []
   if (info.current_branch)  lines.push(`<div><b>Branch:</b> <code>${escapeHtml(info.current_branch)}</code></div>`)

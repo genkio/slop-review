@@ -1527,7 +1527,13 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
       shaEl.dataset.shaFull = headSha
       const baseRef = branchInfo?.base_branch || ''
       const headRef = state.branch || ''
-      $('[data-headline]').textContent = baseRef && headRef ? `${headRef} ← ${baseRef}` : 'Full diff'
+      // When on the base branch, `current === base` so `main ← main` would
+      // be misleading — the actual diff base is HEAD~1 (the on-base review
+      // fallback). Surface the branch + a neutral 'review' label instead.
+      const onBase = !!branchInfo?.on_base
+      $('[data-headline]').textContent = onBase && headRef
+        ? `${headRef} · review`
+        : (baseRef && headRef ? `${headRef} ← ${baseRef}` : 'Full diff')
       $('[data-author]').textContent   = headSha ? `head ${headSha.slice(0, 7)}` : ''
       $('[data-when]').textContent     = `${state.commits.length} commit${state.commits.length === 1 ? '' : 's'}`
       const fcount = fd?.files?.length || 0

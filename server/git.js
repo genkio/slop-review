@@ -86,8 +86,36 @@ export async function getBranchInfo(repoPath) {
     } catch {}
   }
 
+  // On-base review fallback: when sitting on main/master with nothing ahead
+  // of origin, synthesize a merge-base = the empty-tree SHA so the user can
+  // review the entire history reachable from HEAD. This keeps `/commits`
+  // (the per-commit nav) and `/diff` (the cumulative Full diff) consistent
+  // — both range over `<empty-tree>..HEAD`, so the per-commit list walks
+  // every commit on main (capped at `getCommits`'s limit) and the Full
+  // diff shows the corresponding cumulative content. We use the empty-tree
+  // rather than `HEAD~1` so navigation reaches the *first* commit too,
+  // which matters in fresh projects with only a handful of commits.
+  //
+  // Both `git diff` and `git log` accept the empty-tree SHA as a valid
+  // range endpoint, so no special-casing is needed in getFullDiff /
+  // getCommits. We derive the SHA with `hash-object` rather than hardcoding
+  // `4b825dc6…` so SHA-256 repos work too (they use a different constant).
+  if (out.on_base && !out.has_commits_ahead && out.head_sha) {
+    try {
+      const { stdout: empty } = await git(repoPath, ['hash-object', '-t', 'tree', '/dev/null'])
+      out.merge_base_sha = empty.trim()
+      out.has_commits_ahead = true
+    } catch {}
+  }
+
+  // Exclude `.reviews/` from local-change detection. Those JSONs are
+  // slop-review's own thread store — not user code work. Counting them
+  // as local changes would flip the diff page's default landing to the
+  // Local view as soon as the first thread is created, which then poisons
+  // subsequent threads with `view: 'local'` and breaks jump-to-file on a
+  // clean main. Mirrors the same exclusion already in server/overview.js.
   try {
-    await git(repoPath, ['diff', '--quiet', 'HEAD'])
+    await git(repoPath, ['diff', '--quiet', 'HEAD', '--', '.', ':(exclude).reviews/**'])
   } catch (e) {
     // exit 1 => has changes; other codes => unrelated error
     if (e?.code === 1) out.has_local_changes = true
@@ -96,6 +124,7 @@ export async function getBranchInfo(repoPath) {
     try {
       const { stdout: untracked } = await git(repoPath, [
         'ls-files', '--others', '--exclude-standard', '-z',
+        '--', '.', ':(exclude).reviews/**',
       ])
       if (untracked.length > 0) out.has_local_changes = true
     } catch {}
@@ -170,6 +199,14 @@ export function isValidSha(s) {
 /**
  * Get the per-commit diff. Returns the same `files[]` shape as taiou's
  * diff endpoints so the frontend's diff modal can consume it uniformly.
+ *
+ * Root-commit caveat: `<sha>^!` is the standard "this commit's changes"
+ * shorthand and expands to `<sha>^..<sha>` for normal commits. For root
+ * commits it silently degrades to single-arg-diff semantics (`<sha>` vs
+ * working tree), which is incorrect — both `git rev-parse <root>^!` and
+ * `git diff <root>^!` succeed with exit 0 but the diff is meaningless.
+ * When the commit has no parents, we explicitly use `<empty-tree>..<sha>`
+ * so the root commit renders as all-files-added.
  */
 export async function getCommitDiff(repoPath, sha) {
   if (!isValidSha(sha)) throw new Error('invalid sha')
@@ -181,8 +218,16 @@ export async function getCommitDiff(repoPath, sha) {
     'show', '--no-patch', `--pretty=format:${fmt}`, sha,
   ])
   const [full_sha, short_sha, headline, message, author, authored_at, parents] = metaRaw.split(SEP)
+  const parentList = (parents || '').trim().split(/\s+/).filter(Boolean)
 
-  const files = await getDiffFiles(repoPath, [`${sha}^!`])
+  let range
+  if (parentList.length === 0) {
+    const { stdout: empty } = await git(repoPath, ['hash-object', '-t', 'tree', '/dev/null'])
+    range = `${empty.trim()}..${full_sha}`
+  } else {
+    range = `${full_sha}^!`
+  }
+  const files = await getDiffFiles(repoPath, [range])
   return {
     sha: full_sha,
     short_sha,
@@ -190,7 +235,7 @@ export async function getCommitDiff(repoPath, sha) {
     message: message || '',
     author: author || '',
     authored_at: authored_at || '',
-    parents: (parents || '').trim().split(/\s+/).filter(Boolean),
+    parents: parentList,
     files,
     truncated: false,
   }
@@ -211,14 +256,19 @@ export async function getFullDiff(repoPath, mergeBase, head) {
  * Local diff = `git diff HEAD` (tracked changes) + `git ls-files --others`
  * for untracked. Untracked are NOT synthesized into add patches; they're
  * surfaced as a banner via `untracked_files`.
+ *
+ * `.reviews/` is excluded from both sides — slop-review's own thread store
+ * isn't user-authored code, and surfacing thread JSONs in the Local view
+ * is noise (the threads themselves are visible on the Threads page).
  */
 export async function getLocalDiff(repoPath) {
-  const files = await getDiffFiles(repoPath, ['HEAD'])
+  const files = await getDiffFiles(repoPath, ['HEAD', '--', '.', ':(exclude).reviews/**'])
 
   let untracked_files = []
   try {
     const { stdout } = await git(repoPath, [
       'ls-files', '--others', '--exclude-standard', '-z',
+      '--', '.', ':(exclude).reviews/**',
     ])
     untracked_files = stdout.split('\0').filter(Boolean)
   } catch {}
