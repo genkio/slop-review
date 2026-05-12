@@ -6,7 +6,7 @@ import { extname, normalize, resolve as resolvePath, sep } from 'node:path'
 // Minimal zero-dependency HTTP layer for slop-review. Replaces hono +
 // @hono/node-server while preserving the slice of API the route handlers
 // already use:
-//   - createApp().get/post/put/delete/use(pattern, handler)
+//   - createApp().get/post/put/patch/delete/use(pattern, handler)
 //   - ctx.req.param(name) / ctx.req.query(name) / ctx.req.json()
 //   - ctx.json(body, status?) / ctx.text(body, status?) / ctx.header(k, v)
 //   - stream(ctx, async (s) => …) for SSE, with s.write + s.onAbort
@@ -127,6 +127,7 @@ export function createApp() {
     get:    (p, h) => add('GET',    p, h),
     post:   (p, h) => add('POST',   p, h),
     put:    (p, h) => add('PUT',    p, h),
+    patch:  (p, h) => add('PATCH',  p, h),
     delete: (p, h) => add('DELETE', p, h),
     use: (pattern, handler) => {
       const { regex } = compilePath(pattern)

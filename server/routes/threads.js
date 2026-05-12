@@ -105,6 +105,30 @@ export function registerThreadRoutes(app) {
     return c.json({ ok: true, comment, branch, branch_id: branchId, threads })
   })
 
+  // Edit a comment's body in place. Author role (`user`), `posted_at`, and
+  // the thread's `last_read_at` are deliberately preserved — the gesture is
+  // "correct what was said," not "post a new message". State derivation
+  // keys off `comments[last].user`, so mutating the body alone keeps pills
+  // stable. Works for both reviewer- and reviewee-authored comments.
+  app.patch('/api/repos/:id/threads/:thread_id/comments/:comment_id', async (c) => {
+    const { repo, branchId, branch, error } = await withRepoAndBranch(c)
+    if (error) return error
+    const tid = c.req.param('thread_id')
+    const cid = c.req.param('comment_id')
+    const body = await c.req.json().catch(() => ({}))
+    const text = String(body?.body || '').trim()
+    if (!text) return c.json({ error: 'body required' }, 400)
+
+    const thread = await readThread(repo.path, branchId, tid)
+    if (!thread) return c.json({ error: 'thread not found' }, 404)
+    const idx = (thread.comments || []).findIndex((m) => m.id === cid)
+    if (idx < 0) return c.json({ error: 'comment not found' }, 404)
+    thread.comments[idx] = { ...thread.comments[idx], body: text }
+    await writeThread(repo.path, branchId, thread)
+    const threads = await listThreadsWithState(repo.path, branchId)
+    return c.json({ ok: true, comment: thread.comments[idx], branch, branch_id: branchId, threads })
+  })
+
   app.delete('/api/repos/:id/threads/:thread_id/comments/:comment_id', async (c) => {
     const { repo, branchId, branch, error } = await withRepoAndBranch(c)
     if (error) return error

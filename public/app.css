@@ -994,10 +994,12 @@ a.card-file:hover .card-file-mark {
   margin-left: 8px;
   letter-spacing: 0.02em;
 }
-/* Per-comment `×` in the thread modal. Same idiom as .diff-thread-remove
-   so the affordance reads identically across the two surfaces. */
+/* Per-comment `✎` edit and `×` remove in the thread modal. Same idiom as
+   .diff-thread-edit / .diff-thread-remove so the affordances read
+   identically across the two surfaces. Edit carries margin-left:auto so
+   the pair gets pushed flush right; remove sits immediately after. */
+.msg-edit,
 .msg-remove {
-  margin-left: auto;
   padding: 0;
   width: 18px; height: 18px;
   background: transparent;
@@ -1013,12 +1015,32 @@ a.card-file:hover .card-file-mark {
   opacity: 0.55;
   transition: opacity .15s var(--ease), color .15s var(--ease), background .15s var(--ease);
 }
+.msg-edit { margin-left: auto; margin-right: 2px; font-size: 12px; }
+.msg:hover .msg-edit,
 .msg:hover .msg-remove { opacity: 1; }
+.msg-edit:hover,
 .msg-remove:hover {
   color: var(--accent);
   background: color-mix(in srgb, var(--accent) 10%, transparent);
 }
+.msg-edit:disabled,
 .msg-remove:disabled { opacity: 0.3; cursor: not-allowed; }
+/* Inline edit form swapped in for .msg-body when editing. */
+.msg-edit-form { display: flex; flex-direction: column; gap: 8px; }
+.msg-edit-input {
+  width: 100%;
+  resize: vertical;
+  font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--fg);
+  background: var(--bg);
+  border: 1px solid var(--hairline-strong);
+  border-radius: 4px;
+  padding: 6px 8px;
+}
+.msg-edit-input:focus { outline: 1px solid var(--accent); outline-offset: 0; }
+.msg-edit-actions { display: flex; justify-content: flex-end; gap: 8px; }
 .msg-body {
   font-size: 14px;
   color: var(--fg);
@@ -2980,11 +3002,13 @@ a.card-file:hover .card-file-mark {
   gap: 8px;
   margin-bottom: 4px;
 }
-/* Per-comment `×` — anchored to the right edge of the meta row, muted by
-   default, accent-red on hover. Always shown (not hover-revealed) inside
-   `.diff-thread-comment` so it's discoverable without an exploratory hover. */
+/* Per-comment `✎` edit + `×` remove — pinned to the right edge of the
+   meta row, muted by default, accent on hover. Both always shown (not
+   hover-revealed) inside `.diff-thread-comment` so they're discoverable
+   without an exploratory hover. Edit carries margin-left:auto so the pair
+   gets pushed flush right with no gap between them. */
+.diff-thread-edit,
 .diff-thread-remove {
-  margin-left: auto;
   padding: 0;
   width: 18px; height: 18px;
   background: transparent;
@@ -3001,12 +3025,32 @@ a.card-file:hover .card-file-mark {
   opacity: 0.55;
   transition: opacity .15s var(--ease), color .15s var(--ease), background .15s var(--ease);
 }
+.diff-thread-edit { margin-left: auto; margin-right: 2px; font-size: 12px; }
+.diff-thread-comment:hover .diff-thread-edit,
 .diff-thread-comment:hover .diff-thread-remove { opacity: 1; }
+.diff-thread-edit:hover,
 .diff-thread-remove:hover {
   color: var(--accent);
   background: color-mix(in srgb, var(--accent) 10%, transparent);
 }
+.diff-thread-edit:disabled,
 .diff-thread-remove:disabled { opacity: 0.3; cursor: not-allowed; }
+/* Inline edit form swapped in for .diff-thread-body when editing. */
+.diff-thread-edit-form { display: flex; flex-direction: column; gap: 6px; margin-top: 4px; }
+.diff-thread-edit-input {
+  width: 100%;
+  resize: vertical;
+  font-family: var(--font-sans);
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--fg);
+  background: var(--bg);
+  border: 1px solid var(--hairline-strong);
+  border-radius: 4px;
+  padding: 6px 8px;
+}
+.diff-thread-edit-input:focus { outline: 1px solid var(--accent); outline-offset: 0; }
+.diff-thread-edit-actions { display: flex; justify-content: flex-end; gap: 8px; }
 .diff-thread-user {
   font-family: var(--font-sans);
   font-weight: 600;

@@ -68,14 +68,20 @@ export function makeModal(innerHtml, opts = {}) {
   return backdrop
 }
 
-function commentHtml(c, removable = false) {
-  const removeBtn = removable
-    ? `<button type="button" class="msg-remove" data-remove-comment data-comment-id="${escapeHtml(c.id)}" aria-label="Remove comment" title="Remove comment">×</button>`
+function commentHtml(c, interactive = false) {
+  // Edit + remove sit together at the right edge of the meta row. The first
+  // one carries `margin-left: auto` (in CSS) so both get pushed right while
+  // staying flush to each other. Body is rendered as raw text via
+  // inlineCode; the edit handler reads the unrendered string from the
+  // thread state, never from this HTML.
+  const actions = interactive
+    ? `<button type="button" class="msg-edit" data-edit-comment data-comment-id="${escapeHtml(c.id)}" aria-label="Edit comment" title="Edit comment">✎</button>` +
+      `<button type="button" class="msg-remove" data-remove-comment data-comment-id="${escapeHtml(c.id)}" aria-label="Remove comment" title="Remove comment">×</button>`
     : ''
   return `
     <div class="msg" data-comment-id="${escapeHtml(c.id)}">
-      <div class="msg-head"><span class="msg-who">${escapeHtml(c.user)}</span><span class="msg-when">${escapeHtml(relTime(c.posted_at || c.created_at))}</span>${removeBtn}</div>
-      <div class="msg-body">${inlineCode(c.body)}</div>
+      <div class="msg-head"><span class="msg-who">${escapeHtml(c.user)}</span><span class="msg-when">${escapeHtml(relTime(c.posted_at || c.created_at))}</span>${actions}</div>
+      <div class="msg-body" data-body>${inlineCode(c.body)}</div>
     </div>`
 }
 
@@ -392,6 +398,12 @@ export function openThreadModal(threadId, opts = {}) {
   backdrop = null  // ensure first mountOrUpdate creates the backdrop
   mountOrUpdate()
   backdrop.addEventListener('click', (e) => {
+    const editBtn = e.target.closest('[data-edit-comment]')
+    if (editBtn) {
+      e.stopPropagation()
+      beginEditComment(editBtn.dataset.commentId)
+      return
+    }
     const btn = e.target.closest('[data-remove-comment]')
     if (!btn) return
     e.stopPropagation()
@@ -422,6 +434,73 @@ export function openThreadModal(threadId, opts = {}) {
       },
     })
   })
+
+  // In-place edit of a comment body. Replaces `.msg-body` with a textarea +
+  // Save / Cancel buttons. Save → PATCH → swap the new body back in. Cancel
+  // restores the original markup. `last_read_at` is intentionally not
+  // bumped (the server preserves it too) — editing is a correction, not a
+  // new event in the thread.
+  function beginEditComment(commentId) {
+    const msgEl = backdrop.querySelector(`.msg[data-comment-id="${commentId}"]`)
+    const bodyEl = msgEl?.querySelector('[data-body]')
+    if (!msgEl || !bodyEl) return
+    if (msgEl.querySelector('[data-edit-form]')) return    // already editing
+    const t = getThread(currentId)
+    const comment = (t?.comments || []).find((m) => m.id === commentId)
+    if (!comment) return
+
+    const originalHtml = bodyEl.outerHTML
+    const form = document.createElement('div')
+    form.className = 'msg-body msg-edit-form'
+    form.dataset.body = ''
+    form.dataset.editForm = ''
+    form.innerHTML =
+      '<textarea class="msg-edit-input" rows="3"></textarea>' +
+      '<div class="msg-edit-actions">' +
+        '<button type="button" data-edit-cancel>Cancel</button>' +
+        '<button type="button" class="primary" data-edit-save>Save</button>' +
+      '</div>'
+    bodyEl.replaceWith(form)
+    const ta = form.querySelector('textarea')
+    ta.value = comment.body || ''
+    ta.focus()
+    // Place cursor at end rather than selecting all — matches common
+    // "edit my own message" behavior in chat UIs.
+    ta.setSelectionRange(ta.value.length, ta.value.length)
+
+    const cancel = () => {
+      const restored = document.createElement('template')
+      restored.innerHTML = originalHtml.trim()
+      form.replaceWith(restored.content.firstChild)
+    }
+    form.querySelector('[data-edit-cancel]').addEventListener('click', cancel)
+    form.querySelector('[data-edit-save]').addEventListener('click', async () => {
+      const text = ta.value.trim()
+      if (!text) { ta.focus(); return }
+      if (text === (comment.body || '').trim()) { cancel(); return }
+      const saveBtn = form.querySelector('[data-edit-save]')
+      const cancelBtn = form.querySelector('[data-edit-cancel]')
+      saveBtn.disabled = true; cancelBtn.disabled = true
+      saveBtn.textContent = 'Saving…'
+      try {
+        const res = await api(
+          `/api/repos/${encodeURIComponent(repoId)}/threads/${encodeURIComponent(currentId)}/comments/${encodeURIComponent(commentId)}`,
+          { method: 'PATCH', body: JSON.stringify({ body: text }) }
+        )
+        const newBody = document.createElement('div')
+        newBody.className = 'msg-body'
+        newBody.dataset.body = ''
+        newBody.innerHTML = inlineCode(res?.comment?.body ?? text)
+        form.replaceWith(newBody)
+        toast('Comment updated')
+        onChanged?.(res)
+      } catch (err) {
+        saveBtn.disabled = false; cancelBtn.disabled = false
+        saveBtn.textContent = 'Save'
+        toast('Edit failed: ' + (err.message || 'unknown'))
+      }
+    })
+  }
 }
 
 /** Read the "last viewed" thread id stashed by openThreadModal. */

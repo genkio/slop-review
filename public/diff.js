@@ -1026,6 +1026,15 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
       return
     }
 
+    // Per-comment ✎ edit on inline thread rows. Body-only mutation —
+    // posted_at and the author role stay frozen so state pills don't move.
+    const editBtn = e.target.closest('[data-edit-comment]')
+    if (editBtn) {
+      e.preventDefault(); e.stopPropagation()
+      beginEditInlineComment(editBtn)
+      return
+    }
+
     // Per-comment × delete on inline thread rows (mine + LLM replies).
     const removeBtn = e.target.closest('[data-remove-comment]')
     if (removeBtn) {
@@ -1735,9 +1744,10 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
           <div class="diff-thread-meta">
             <span class="diff-thread-user">@${escapeHtml(c.user)}</span>
             <span class="diff-thread-when">${escapeHtml(relTime(c.posted_at || c.created_at))}</span>
+            <button type="button" class="diff-thread-edit" data-edit-comment data-comment-id="${escapeHtml(c.id)}" data-thread-id="${escapeHtml(thread.id)}" aria-label="Edit comment" title="Edit comment">✎</button>
             <button type="button" class="diff-thread-remove" data-remove-comment data-comment-id="${escapeHtml(c.id)}" data-thread-id="${escapeHtml(thread.id)}" aria-label="Remove comment" title="Remove comment">×</button>
           </div>
-          <div class="diff-thread-body">${inlineCode(c.body)}</div>
+          <div class="diff-thread-body" data-body>${inlineCode(c.body)}</div>
         </div>`
       )
       .join('')
@@ -1755,6 +1765,80 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
       '</td>'
 
     return tr
+  }
+
+  // In-place edit of an inline thread comment. Mirrors the modal flow:
+  // swap `.diff-thread-body` for a textarea + Save/Cancel; PATCH on save;
+  // restore raw markup on cancel. Re-rendering the whole diff via
+  // `loadThreads()` would drop the inline thread row state (collapse,
+  // intra-line highlight, scroll position), so we patch the single element
+  // and let SSE pick up the JSON write afterwards.
+  function beginEditInlineComment(btn) {
+    const tid = btn.dataset.threadId
+    const cid = btn.dataset.commentId
+    const commentEl = btn.closest('.diff-thread-comment')
+    const bodyEl = commentEl?.querySelector('[data-body]')
+    if (!commentEl || !bodyEl) return
+    if (commentEl.querySelector('[data-edit-form]')) return    // already editing
+    const thread = state.threads.find((t) => t.id === tid)
+    const comment = thread?.comments?.find((m) => m.id === cid)
+    if (!comment) return
+
+    const originalHtml = bodyEl.outerHTML
+    const form = document.createElement('div')
+    form.className = 'diff-thread-body diff-thread-edit-form'
+    form.dataset.body = ''
+    form.dataset.editForm = ''
+    form.innerHTML =
+      '<textarea class="diff-thread-edit-input" rows="3"></textarea>' +
+      '<div class="diff-thread-edit-actions">' +
+        '<button type="button" data-edit-cancel>Cancel</button>' +
+        '<button type="button" class="primary" data-edit-save>Save</button>' +
+      '</div>'
+    bodyEl.replaceWith(form)
+    const ta = form.querySelector('textarea')
+    ta.value = comment.body || ''
+    ta.focus()
+    ta.setSelectionRange(ta.value.length, ta.value.length)
+
+    const cancel = () => {
+      const restored = document.createElement('template')
+      restored.innerHTML = originalHtml.trim()
+      form.replaceWith(restored.content.firstChild)
+    }
+    form.querySelector('[data-edit-cancel]').addEventListener('click', (ev) => {
+      ev.stopPropagation()
+      cancel()
+    })
+    form.querySelector('[data-edit-save]').addEventListener('click', async (ev) => {
+      ev.stopPropagation()
+      const text = ta.value.trim()
+      if (!text) { ta.focus(); return }
+      if (text === (comment.body || '').trim()) { cancel(); return }
+      const saveBtn = form.querySelector('[data-edit-save]')
+      const cancelBtn = form.querySelector('[data-edit-cancel]')
+      saveBtn.disabled = true; cancelBtn.disabled = true
+      saveBtn.textContent = 'Saving…'
+      try {
+        const res = await api(
+          `/api/repos/${encodeURIComponent(repo.id)}/threads/${encodeURIComponent(tid)}/comments/${encodeURIComponent(cid)}`,
+          { method: 'PATCH', body: JSON.stringify({ body: text }) }
+        )
+        const newBody = document.createElement('div')
+        newBody.className = 'diff-thread-body'
+        newBody.dataset.body = ''
+        newBody.innerHTML = inlineCode(res?.comment?.body ?? text)
+        form.replaceWith(newBody)
+        // Keep local state.threads in sync so subsequent edits read the
+        // updated body without waiting for the SSE-triggered loadThreads.
+        if (comment) comment.body = res?.comment?.body ?? text
+        toast('Comment updated')
+      } catch (err) {
+        saveBtn.disabled = false; cancelBtn.disabled = false
+        saveBtn.textContent = 'Save'
+        toast('Edit failed: ' + (err.message || 'unknown'))
+      }
+    })
   }
 
   // ------------------------------------------------------------------
