@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.11.0](https://github.com/genkio/slop-review/compare/v0.10.0...v0.11.0) (2026-05-12)
+
+
+### Features
+
+* per-comment editing ([90dbaa0](https://github.com/genkio/slop-review/commit/90dbaa0565271d490ac7f38b0d5375a19f9e5f39))
+* review on main/master without a feature branch ([1e887cd](https://github.com/genkio/slop-review/commit/1e887cdc6459bf61d2c532cd8d13cd01356bb3b7))
+
+
+### Bug Fixes
+
+* restore multi-line comment selection ([e29bad1](https://github.com/genkio/slop-review/commit/e29bad14a7f8ada7c515132acc601b3d35652b77))
+
 ## [0.10.0](https://github.com/genkio/slop-review/compare/v0.9.0...v0.10.0) (2026-05-11)
 
 
