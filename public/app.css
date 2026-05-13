@@ -1986,15 +1986,18 @@ a.card-file:hover .card-file-mark {
   user-select: none;           /* dragging-to-select on the path bar shouldn't toggle */
 }
 /* When a review banner is sitting at the visual top, file heads stack
-   below it instead of fighting for the same y. Banner with just the
-   controls row is ~44 minus body padding-top (16) → 28px sticky offset.
-   When the counts strip is present (banner becomes two-tier), bump the
-   offset so the head doesn't slide under the strip. */
+   below it instead of fighting for the same y. The math: banner border
+   + padding + content height ≈ 46px for controls-only, ≈ 85px once the
+   counts strip is added; subtract the body's 16px padding-top and add
+   a few px of breathing room so the path reads as visibly *under* the
+   banner rather than barely-touching it. Previously the offsets were
+   undershooting the banner height (28 / 60) and the path's top stroke
+   was getting clipped. */
 .diff-body:has(> .diff-review-banner) .diff-file-head {
-  top: 28px;
+  top: 36px;
 }
 .diff-body:has(> .diff-review-banner .diff-review-counts) .diff-file-head {
-  top: 60px;
+  top: 74px;
 }
 .diff-file.is-collapsed .diff-file-head {
   border-bottom-color: transparent;  /* nothing under the head — drop the divider */
@@ -2956,10 +2959,12 @@ button.diff-review-counts-total:focus-visible {
   .diff-table { font-size: 12px; }
   .diff-file-head { top: -10px; }
   /* Mobile: smaller body padding (10), so the banner sticks at -10 and
-     the file-head offset shifts accordingly. */
+     the file-head offset shifts accordingly. Same banner-height math as
+     desktop (≈46 / ≈85) minus the 10px padding, plus a few px of
+     breathing room so the path clears the banner cleanly. */
   .diff-review-banner { top: -10px; }
-  .diff-body:has(> .diff-review-banner) .diff-file-head { top: 30px; }
-  .diff-body:has(> .diff-review-banner .diff-review-counts) .diff-file-head { top: 64px; }
+  .diff-body:has(> .diff-review-banner) .diff-file-head { top: 40px; }
+  .diff-body:has(> .diff-review-banner .diff-review-counts) .diff-file-head { top: 80px; }
 }
 
 /* ——————————————————— Local ("fake") review threads ———————————————————
