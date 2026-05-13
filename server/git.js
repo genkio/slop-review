@@ -197,6 +197,42 @@ export function isValidSha(s) {
 }
 
 /**
+ * Look up blob SHA at `ref` for each path. Paths absent from the tree
+ * (e.g. deleted at `ref`, or a directory rather than a file) come back as
+ * `null` so callers can distinguish "this file is gone here" from "this
+ * file has blob X" — both stable states a reviewed-mark may want to pin.
+ *
+ * One subprocess regardless of path count. `-z` keeps NUL-separated output
+ * so paths with newlines survive intact, and `--` is essential — without
+ * it a path that happens to look like a ref ("HEAD", "master") collides
+ * with revision parsing.
+ */
+export async function getBlobShasAt(repoPath, ref, paths) {
+  const out = new Map()
+  const list = (paths || []).filter(Boolean)
+  if (!list.length) return out
+  for (const p of list) out.set(p, null)
+  try {
+    const { stdout } = await git(repoPath, ['ls-tree', '-z', ref, '--', ...list])
+    for (const rec of stdout.split('\0')) {
+      if (!rec) continue
+      const tabIdx = rec.indexOf('\t')
+      if (tabIdx < 0) continue
+      const meta = rec.slice(0, tabIdx).trim().split(/\s+/)
+      // meta = [mode, type, object]. Filter to blobs — a directory entry
+      // would also surface as a `tree` record we don't want to record.
+      if (meta[1] !== 'blob') continue
+      const p = rec.slice(tabIdx + 1)
+      const sha = meta[2]
+      if (p && sha) out.set(p, sha)
+    }
+  } catch {
+    // ref unreadable (e.g. unborn HEAD) — leave entries as `null`.
+  }
+  return out
+}
+
+/**
  * Get the per-commit diff. Returns the same `files[]` shape as taiou's
  * diff endpoints so the frontend's diff modal can consume it uniformly.
  *
@@ -228,6 +264,25 @@ export async function getCommitDiff(repoPath, sha) {
     range = `${full_sha}^!`
   }
   const files = await getDiffFiles(repoPath, [range])
+
+  // Per-file `is_unchanged_since_commit` powers the commit-view reviewed
+  // gate: a file may only be marked reviewed from a commit's view if its
+  // blob at that commit equals its blob at HEAD (i.e. no later commit
+  // touched it). Two batched ls-tree calls — one at the commit, one at
+  // HEAD — let the client decide synchronously on click, with no extra
+  // server round trip. For deleted files (absent at both refs) both
+  // lookups return null, so the comparison correctly resolves to true.
+  const paths = files.map((f) => f.path).filter(Boolean)
+  const [commitBlobs, headBlobs] = await Promise.all([
+    getBlobShasAt(repoPath, full_sha, paths),
+    getBlobShasAt(repoPath, 'HEAD', paths),
+  ])
+  for (const f of files) {
+    const cb = commitBlobs.get(f.path) ?? null
+    const hb = headBlobs.get(f.path) ?? null
+    f.is_unchanged_since_commit = cb === hb
+  }
+
   return {
     sha: full_sha,
     short_sha,

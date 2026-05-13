@@ -81,11 +81,33 @@ export async function renderDiffPage(parsed = { variant: 'full' }, isCurrent = (
   const hasLocal = !!branchInfo.has_local_changes
 
   // Resolve initialIndex from the parsed-hash variant.
-  let initialIndex = commits.length                               // default: Full
+  let initialIndex = commits.length                               // fallback: Full
   if (parsed.variant === 'local' && hasLocal) initialIndex = commits.length + 1
   else if (parsed.variant === 'commit' && parsed.sha) {
     const idx = commits.findIndex((c) => (c.sha || '').startsWith(parsed.sha))
     if (idx >= 0) initialIndex = idx
+  }
+  else if (commits.length > 0) {
+    // Bare `#/diff` (cold launch, no explicit variant) → land on a
+    // per-commit view rather than dumping the reviewer into the whole
+    // cumulative diff. Two flavors keyed on whether this is a feature
+    // branch or the on-base browse mode:
+    //
+    //   - Feature branch  → FIRST commit. The natural review flow is
+    //                       "walk forward from base", so we start at
+    //                       the bottom of the stack.
+    //   - On-base browse  → LATEST commit. The empty-tree merge-base
+    //                       fallback can synthesize hundreds of commits
+    //                       (whole repo history), so anchoring at the
+    //                       dawn of the project is rarely useful — the
+    //                       most recent change is.
+    //
+    // Reload-on-Full caveat: `#/diff` is also what we emit when the user
+    // is sitting on Full, so reloading there lands on first/last commit
+    // instead. Acceptable: Full is one Next-click away. A separate
+    // explicit-Full URL would be the cleaner fix but isn't worth the
+    // route churn right now.
+    initialIndex = branchInfo.on_base ? commits.length - 1 : 0
   }
 
   // On the base branch with only local changes → land on local view.

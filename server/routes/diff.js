@@ -49,6 +49,13 @@ export function registerDiffRoutes(app) {
     if (!isValidSha(sha)) return c.json({ error: 'invalid sha' }, 400)
     try {
       const diff = await getCommitDiff(repo.path, sha)
+      // Same importance-ordering the Full diff already enjoys — reference
+      // count first, then status / support / path. The reference graph is
+      // built from each file's content at THIS commit's SHA, so imports
+      // that didn't yet exist (or were since refactored) don't pollute
+      // the ranking. Failure-soft: null priorities means the client
+      // falls back to the server's existing file order.
+      diff.priorities = await computePrioritiesAtSha(repo.path, diff.sha, diff.files)
       return c.json(diff)
     } catch (e) {
       return c.json({ error: e.message || 'commit diff failed' }, 500)
@@ -89,7 +96,7 @@ export function registerDiffRoutes(app) {
     const head_sha = c.req.query('head_sha') || null
     const branch = (await getBranchInfo(repo.path)).current_branch
     const branchId = sanitizeBranchId(branch || 'detached')
-    const data = await readReviewed(repo.path, branchId, head_sha)
+    const data = await readReviewed(repo.path, branchId)
     return c.json({ head_sha: head_sha || data.head_sha, paths: data.paths })
   })
 
@@ -110,7 +117,7 @@ export function registerDiffRoutes(app) {
     const branchId = sanitizeBranchId(branch || 'detached')
     const final = mode === 'replace'
       ? incoming
-      : [...new Set([...(await readReviewed(repo.path, branchId, head_sha)).paths, ...incoming])]
+      : [...new Set([...(await readReviewed(repo.path, branchId)).paths, ...incoming])]
     const out = await writeReviewed(repo.path, branchId, head_sha, final)
     return c.json({ ok: true, head_sha: out.head_sha, paths: out.paths })
   })

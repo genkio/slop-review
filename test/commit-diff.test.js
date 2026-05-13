@@ -70,6 +70,50 @@ test('non-root commit diff is unchanged — just that commit\'s changes', async 
   }
 })
 
+test('is_unchanged_since_commit flags whether HEAD blob equals commit blob', async () => {
+  // Three commits: C1 adds a.txt, C2 adds b.txt, C3 modifies a.txt.
+  // From C1's view: a.txt has later changes (modified in C3)   → false.
+  //                 b.txt isn't in C1.
+  // From C2's view: b.txt has no later changes                  → true.
+  // From C3's view: a.txt is the latest change to itself        → true.
+  //
+  // This is the contract the commit-view reviewed gate consumes: a file
+  // can be marked reviewed only when this flag is true.
+  const root = mkdtempSync(join(tmpdir(), 'slop-commit-diff-unchanged-'))
+  const work = join(root, 'work')
+  const g = (cwd, args) => execFileSync('git', args, { cwd, stdio: 'pipe' })
+  try {
+    execFileSync('git', ['init', '-q', '-b', 'main', work], { stdio: 'pipe' })
+    g(work, ['config', 'user.email', 'test@example.com'])
+    g(work, ['config', 'user.name', 'Test'])
+    g(work, ['config', 'commit.gpgsign', 'false'])
+
+    writeFileSync(join(work, 'a.txt'), 'one\n')
+    g(work, ['add', 'a.txt'])
+    g(work, ['commit', '-m', 'c1: add a.txt'])
+    const c1 = execFileSync('git', ['-C', work, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim()
+
+    writeFileSync(join(work, 'b.txt'), 'two\n')
+    g(work, ['add', 'b.txt'])
+    g(work, ['commit', '-m', 'c2: add b.txt'])
+    const c2 = execFileSync('git', ['-C', work, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim()
+
+    writeFileSync(join(work, 'a.txt'), 'one updated\n')
+    g(work, ['add', 'a.txt'])
+    g(work, ['commit', '-m', 'c3: modify a.txt'])
+
+    const d1 = await getCommitDiff(work, c1)
+    const a1 = d1.files.find((f) => f.path === 'a.txt')
+    assert.equal(a1.is_unchanged_since_commit, false, 'a.txt in c1 has later changes (c3)')
+
+    const d2 = await getCommitDiff(work, c2)
+    const b2 = d2.files.find((f) => f.path === 'b.txt')
+    assert.equal(b2.is_unchanged_since_commit, true, 'b.txt in c2 has no later changes')
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
 test('root commit diff is non-empty even when working tree equals HEAD (single-commit repo)', async () => {
   // The "hodor" symptom: a 1-commit repo where working tree == HEAD ==
   // root. With the bug, `git diff <root>` produces zero output (working

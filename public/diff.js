@@ -6,7 +6,11 @@ import { intraLineSegments } from './intra-line-diff.js'
 import { ROUTES } from './routes.js'
 import { setupOverviewNav } from './overview-nav.js'
 
-const DIFF_CACHE_PREFIX = 'slop-review:diff:v1:'
+// v2: commit-diff files now include `is_unchanged_since_commit`, which
+// drives the per-commit reviewed gate. Older cached payloads don't have
+// the field and would let a click sneak past the gate, so we burn the
+// cache by bumping the prefix.
+const DIFF_CACHE_PREFIX = 'slop-review:diff:v2:'
 
 function loadCachedDiff(sha) {
   try {
@@ -280,13 +284,16 @@ function renderFileSection(file, mode, sha, opts = {}) {
       relateBtn = `<button type="button" class="diff-relate-btn${isFilterAnchor ? ' active' : ''}" data-relate-anchor="${escapeHtml(file.path)}" title="${title}">${label}</button>`
     }
   }
-  // Per-file reviewed state is now expressed visually only — the
+  // Per-file reviewed state is expressed visually only — the
   // `.is-reviewed` green wash on `.diff-file-head` (see app.css) is the
   // sole indicator. There's no separate Mark/Unmark button: clicking the
-  // header to collapse a file in Full view also marks it reviewed; the
-  // header click to expand also unmarks. Per-commit and Local views
-  // still toggle collapse alone, since their reviewed-batches store
-  // (HEAD-SHA-keyed against the Full file set) doesn't apply.
+  // header to collapse a file in Full OR commit view also marks it
+  // reviewed; the header click to expand also unmarks. In commit view
+  // the mark is gated to files whose blob at the commit equals their
+  // blob at HEAD (`is_unchanged_since_commit`), so we never persist a
+  // mark against content the user wasn't actually looking at. Local
+  // view still toggles collapse alone — there's no stable blob to pin a
+  // working-tree mark against.
 
   // Relationship chip — only on non-anchor files in filter mode
   let relChip = ''
@@ -1355,16 +1362,33 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
     if (!section) return
     const path = section.dataset.path
     const willCollapse = !state.collapsedPaths.has(path)
-    // Mark-reviewed gate: in Full view, collapsing a not-yet-reviewed file
-    // also marks it reviewed (see the conflate block below). Block that
-    // transition when the file still has unresolved threads — the user
-    // shouldn't be able to close out feedback they haven't addressed.
-    // Bail before any DOM/state mutation so the file stays expanded too.
-    if (willCollapse && isFullIndex(state.index) && !state.reviewed.has(path)) {
+    // Full AND commit views conflate collapse with mark-reviewed. Local
+    // view doesn't — there's no stable blob to pin a working-tree mark
+    // against, so its header toggles collapse alone.
+    const isFull   = isFullIndex(state.index)
+    const isCommit = isCommitIndex(state.index)
+    const supportsReviewed = isFull || isCommit
+    const willMarkReviewed = willCollapse && supportsReviewed && !state.reviewed.has(path)
+    // Mark-reviewed gates. Bail before any DOM/state mutation so the file
+    // stays expanded too — the toast is the user's only signal that the
+    // gesture refused, and silently collapsing would erase it.
+    if (willMarkReviewed) {
       const unresolved = unresolvedThreadCountFor(path)
       if (unresolved > 0) {
         toast(`Resolve ${unresolved} open thread${unresolved === 1 ? '' : 's'} on ${path.split('/').pop()} before marking it reviewed`)
         return
+      }
+      // Commit-view-only gate: the file must have no later changes. The
+      // server reaches the same conclusion on its own (the blob it would
+      // store wouldn't match the user's intended review target), but
+      // letting the user mark and then silently re-invalidate on next
+      // read would be hostile. We block here and toast instead.
+      if (isCommit) {
+        const file = state.diff?.files?.find((f) => f.path === path)
+        if (file && file.is_unchanged_since_commit === false) {
+          toast(`${path.split('/').pop()} has later changes — mark it reviewed from its last-touched commit or from the Full diff`)
+          return
+        }
       }
     }
     if (willCollapse) {
@@ -1382,20 +1406,21 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
       toggleBtn.setAttribute('aria-expanded', String(!willCollapse))
       toggleBtn.setAttribute('aria-label', `${willCollapse ? 'Expand' : 'Collapse'} file ${path}`)
     }
-    // Conflate mark-reviewed with the collapse gesture on Full view. The
-    // reviewed-batches store is HEAD-SHA-keyed against the Full file set,
-    // so per-commit / Local headers continue to toggle collapse only.
-    // We sync collapse → reviewed (not the other way) so the persisted
-    // reviewed set follows from the user's last collapse gesture.
-    if (isFullIndex(state.index)) {
+    // Sync collapse → reviewed (not the other way) so the persisted
+    // reviewed set follows from the user's last collapse gesture. The
+    // reviewed set is global per path, so unmarking from any view
+    // (expanding a previously-reviewed file) clears the mark everywhere
+    // — symmetric with marking from any view that the gate above allows.
+    if (supportsReviewed) {
       const currentlyReviewed = state.reviewed.has(path)
       if (willCollapse !== currentlyReviewed) toggleFileReviewed(path)
     }
   })
 
-  const isFullIndex  = (idx) => idx === state.commits.length
-  const isLocalIndex = (idx) => state.hasLocal && idx === state.commits.length + 1
-  const maxIndex     = ()    => state.commits.length + (state.hasLocal ? 1 : 0)
+  const isFullIndex   = (idx) => idx === state.commits.length
+  const isCommitIndex = (idx) => idx >= 0 && idx < state.commits.length
+  const isLocalIndex  = (idx) => state.hasLocal && idx === state.commits.length + 1
+  const maxIndex      = ()    => state.commits.length + (state.hasLocal ? 1 : 0)
 
   async function goto(idx) {
     if (idx < 0 || idx > maxIndex()) return
@@ -1501,7 +1526,12 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
 
   async function refreshReviewed() {
     if (isStale()) return
-    if (!isFullIndex(state.index)) {
+    // Full + commit views both consult state.reviewed (per-file blob
+    // validation lives on the server, so the same set is meaningful in
+    // either view). Local view doesn't support reviewed marks — drop the
+    // set when we land there so the green wash doesn't leak in.
+    const supportsReviewed = isFullIndex(state.index) || isCommitIndex(state.index)
+    if (!supportsReviewed) {
       if (state.reviewed.size || state.reviewedSha) {
         state.reviewed    = new Set()
         state.reviewedSha = null
@@ -1509,7 +1539,10 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
       }
       return
     }
-    const sha = state.diff?.sha
+    // Keyed on branchInfo.head_sha rather than state.diff.sha — the latter
+    // is the commit SHA in commit view, which would re-fetch on every
+    // commit-nav even though the underlying reviewed set is HEAD-scoped.
+    const sha = branchInfo?.head_sha
     if (!sha) return
     if (state.reviewedSha === sha) return
     const changed = await applyReviewedState(sha)
@@ -1529,7 +1562,12 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
    * pattern the collapse-toggle handler already uses above.
    */
   async function toggleFileReviewed(path) {
-    const sha = state.diff?.sha
+    // Always key off HEAD, never the per-commit diff's sha. In commit view
+    // state.diff.sha is the commit's SHA, but the reviewed store is
+    // HEAD-scoped — sending the commit SHA as head_sha would corrupt the
+    // stored metadata and cause subsequent reads to thrash the in-memory
+    // cache key (state.reviewedSha === sha mismatches on every nav).
+    const sha = branchInfo?.head_sha
     if (!sha || !path) return
     const currently = state.reviewed.has(path)
     const becomingReviewed = !currently
@@ -1603,7 +1641,7 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
     try {
       await api(`/api/repos/${encodeURIComponent(repo.id)}/reviewed`, { method: 'DELETE' })
       state.reviewed     = new Set()
-      state.reviewedSha  = state.diff?.sha || null
+      state.reviewedSha  = branchInfo?.head_sha || null
       renderBody()
       toast('Reviewed marks cleared')
     } catch (e) {
@@ -1676,16 +1714,26 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
         '</div>'
     } else {
       // Resting state — right side hosts (in order) reviewed summary +
-      // Reset action when any files are marked, then the threads-filter
-      // chip when threads exist. Order is "info first, action last" so
-      // the right side reads left-to-right as a sentence.
-      const hasReviewed = isFull && state.reviewed.size > 0
+      // Reset action when any files in this view are marked, then the
+      // threads-filter chip when threads exist. Order is "info first,
+      // action last" so the right side reads left-to-right as a sentence.
+      // Counts are scoped to files in THIS view, not the global reviewed
+      // set: in Full view that's equivalent (every reviewed file is in
+      // scope), but in commit view it's what the user means by "X of T
+      // remaining" — anything else would compare the commit's file count
+      // against marks made elsewhere on the branch and read as gibberish.
+      const isCommit = isCommitIndex(state.index)
+      const supportsReviewed = isFull || isCommit
+      const reviewedInView = supportsReviewed
+        ? (state.diff?.files || []).filter((f) => state.reviewed.has(f.path)).length
+        : 0
+      const hasReviewed = reviewedInView > 0
       const rightParts  = []
       if (hasReviewed) {
-        const remaining = Math.max(0, totalFiles - state.reviewed.size)
+        const remaining = Math.max(0, totalFiles - reviewedInView)
         rightParts.push(
-          `<span class="diff-review-summary">${remaining} of ${totalFiles} remaining <span class="diff-review-meta">· ${state.reviewed.size} reviewed</span></span>` +
-          '<button type="button" class="diff-review-reset" data-reset-reviewed title="Clear all reviewed marks">Reset</button>'
+          `<span class="diff-review-summary">${remaining} of ${totalFiles} remaining <span class="diff-review-meta">· ${reviewedInView} reviewed</span></span>` +
+          '<button type="button" class="diff-review-reset" data-reset-reviewed title="Clear all reviewed marks across the branch">Reset</button>'
         )
       }
       if (threadCount > 0) {
@@ -2358,7 +2406,8 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
       // fresh load. Cheap: most jumps hit the in-memory state.reviewedSha
       // === sha short-circuit; only the first cached load this session
       // actually hits the network here.
-      if (isFullIndex(state.index) && cached.sha) await applyReviewedState(cached.sha)
+      const supportsReviewed = isFullIndex(state.index) || isCommitIndex(state.index)
+      if (supportsReviewed && branchInfo?.head_sha) await applyReviewedState(branchInfo.head_sha)
       if (isStale()) return
       ensureSingleFileExpanded()
       state.loading = false
@@ -2371,14 +2420,13 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
     state.loading = true
     renderBody()
     try {
-      // Kick off the reviewed fetch in parallel with the diff fetch for
-      // Full view. Keyed off branchInfo.head_sha — known up front, and in
-      // practice equal to the diff response's sha (HEAD doesn't move
-      // between the back-to-back /branch and /diff calls). If they ever
-      // diverge, the post-load refreshReviewed() pass catches the mismatch
-      // and refetches; the worst case is reverting to today's behavior
-      // for a single load.
-      const reviewedKey = isFullIndex(expectedIndex) ? branchInfo?.head_sha : null
+      // Kick off the reviewed fetch in parallel with the diff fetch.
+      // Keyed off branchInfo.head_sha — stable across commit nav within
+      // one branch state, so a single fetch covers Full + every commit
+      // view, and state.reviewedSha === sha short-circuits subsequent
+      // nav with no network call.
+      const supportsReviewed = isFullIndex(expectedIndex) || isCommitIndex(expectedIndex)
+      const reviewedKey = supportsReviewed ? branchInfo?.head_sha : null
       const [diff] = await Promise.all([
         api(fetchUrl),
         reviewedKey ? applyReviewedState(reviewedKey) : Promise.resolve(null),
