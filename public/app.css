@@ -2203,7 +2203,6 @@ button.diff-review-counts-total:focus-visible {
 .diff-review-right {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
   flex: 0 0 auto;
   flex-wrap: wrap;
 }
@@ -2216,6 +2215,25 @@ button.diff-review-counts-total:focus-visible {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+/* Reviewed-count summary text. Picks up the same softer fg the threads
+   filter chip uses (`.diff-filter-chip` → var(--fg-soft)) so the two
+   right-side phrases read as visually paired sentence fragments rather
+   than competing labels at different colour weights. Drops a step in
+   font size from the banner's 12px → 11px to read as quiet status copy
+   rather than a primary control. */
+.diff-review-summary {
+  color: var(--fg-soft);
+  font-size: 11px;
+}
+/* Tight wrapper around the summary text + its × reset affordance. The
+   outer .diff-review-right's 8px gap separates this group from the
+   threads-filter chip; inside the group we use a much smaller gap so the
+   × hugs the count it acts on, reading as one unit. */
+.diff-review-summary-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
 .diff-review-label code {
   font-family: var(--font-mono);
   font-size: 11px;
@@ -2223,11 +2241,6 @@ button.diff-review-counts-total:focus-visible {
   background: var(--bg-deep);
   padding: 1px 5px;
   border-radius: 2px;
-}
-.diff-review-meta {
-  color: var(--fg-muted);
-  font-size: 11px;
-  margin-left: 2px;
 }
 .diff-review-actions {
   display: inline-flex;
@@ -2237,24 +2250,25 @@ button.diff-review-counts-total:focus-visible {
 /* Compact override for buttons living in the right-side cluster of the
    review banner — defaults are 13px/7-12 which would tower over the
    chip and the surrounding 12px text. Targets both the legacy
-   .diff-review-actions wrapper and the newer .diff-review-right wrapper. */
+   .diff-review-actions wrapper and the newer .diff-review-right wrapper.
+   The icon-only × buttons (.diff-filter-close, .diff-review-reset) get
+   their own square-icon style below and override this back to 18px. */
 .diff-review-actions button,
 .diff-review-right > button,
-.diff-review-right .diff-filter-clear,
-.diff-review-right .diff-review-reset {
+.diff-review-right .diff-filter-clear {
   font-size: 11px;
   padding: 4px 10px;
 }
 
-/* Clear-filter close affordance — replaces the prior "Show all" text
-   button when a filter is active. Reads as a quiet dismiss icon, not a
-   loud labeled action: the active filter label right beside it already
-   describes the state, so the affordance only needs to convey "tap to
-   clear." Selector is qualified by `.diff-review-right` so it wins
-   specificity over the compact-button override above (which would
-   otherwise apply `font-size: 11px; padding: 4px 10px` and squash the
-   icon into a pill). */
-.diff-review-right .diff-filter-close {
+/* Icon × affordances in the right-side cluster: the filter dismiss and
+   the reviewed-marks reset. Both read as quiet square icons rather than
+   labeled buttons — context to their left (filter label / "N of T files
+   remaining") already explains what's being cleared, so the button only
+   needs to convey "tap to clear." Selectors are qualified by
+   `.diff-review-right` so they win specificity over the compact-button
+   override above (which would otherwise squash the icon into a pill). */
+.diff-review-right .diff-filter-close,
+.diff-review-right .diff-review-reset {
   width: 22px;
   height: 22px;
   padding: 0;
@@ -2273,12 +2287,14 @@ button.diff-review-counts-total:focus-visible {
   transition: color .15s var(--ease), border-color .15s var(--ease),
               background .15s var(--ease);
 }
-.diff-review-right .diff-filter-close:hover:not(:disabled) {
+.diff-review-right .diff-filter-close:hover:not(:disabled),
+.diff-review-right .diff-review-reset:hover:not(:disabled) {
   color: var(--accent);
   border-color: color-mix(in srgb, var(--accent) 35%, transparent);
   background: color-mix(in srgb, var(--accent) 7%, transparent);
 }
-.diff-review-right .diff-filter-close:focus-visible {
+.diff-review-right .diff-filter-close:focus-visible,
+.diff-review-right .diff-review-reset:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
 }

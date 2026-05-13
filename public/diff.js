@@ -1354,7 +1354,7 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
       }
       return
     }
-    if (e.target.closest('[data-reset-reviewed]'))     { resetReviewed(); return }
+    if (e.target.closest('[data-reset-reviewed]'))     { confirmResetReviewed(); return }
 
     const head = e.target.closest('[data-toggle-collapse]')
     if (!head) return
@@ -1637,11 +1637,72 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
     existing.replaceWith(tmp.content.firstChild)
   }
 
-  async function resetReviewed() {
+  // Confirmation-gated wrapper around `resetReviewed`. The scope is
+  // view-sensitive: in Full view the × clears every reviewed mark on the
+  // branch, but in a per-commit view it should only clear marks for files
+  // visible in THIS commit — anything else would make the confirmation
+  // contradict the "N of T files remaining" promise next to it. Mirrors
+  // the `confirmBulkDeleteLastReplies` modal shape below.
+  function confirmResetReviewed() {
+    const isFull   = isFullIndex(state.index)
+    const isCommit = isCommitIndex(state.index)
+    let targetPaths
+    if (isFull) {
+      targetPaths = new Set(state.reviewed)
+    } else if (isCommit) {
+      targetPaths = new Set(
+        (state.diff?.files || [])
+          .map((f) => f.path)
+          .filter((p) => state.reviewed.has(p))
+      )
+    } else {
+      return
+    }
+    const count = targetPaths.size
+    if (!count) return
+    const scope = isFull ? 'across the branch' : 'in this commit'
+    const heading = isFull ? 'Clear all reviewed marks?' : 'Clear reviewed marks in this commit?'
+    const detail = `Clears the reviewed mark on ${count} file${count === 1 ? '' : 's'} ${scope}. You'll need to re-mark them.`
+    const backdrop = makeModal(`
+      <h2>${escapeHtml(heading)}</h2>
+      <p class="modal-text">${escapeHtml(detail)}</p>
+      <div class="modal-actions is-reversed">
+        <button class="danger" data-confirm>Clear marks</button>
+        <button data-close>Cancel</button>
+      </div>`)
+    const confirmBtn = backdrop.querySelector('[data-confirm]')
+    const cancelBtn = backdrop.querySelector('[data-close]')
+    confirmBtn.onclick = async () => {
+      confirmBtn.disabled = true
+      cancelBtn.disabled = true
+      confirmBtn.textContent = 'Clearing…'
+      try { await resetReviewed({ paths: targetPaths }) } finally { backdrop.remove() }
+    }
+  }
+
+  /**
+   * Clear the reviewed marks named in `paths` (or all marks when omitted).
+   * Routes through DELETE when the remaining set would be empty — the
+   * branch sidecar is unlinked cleanly — and through PUT mode=replace
+   * otherwise, so a commit-view reset peels off exactly the visible
+   * subset and leaves marks on files outside this commit untouched.
+   */
+  async function resetReviewed({ paths } = {}) {
+    const sha = branchInfo?.head_sha
+    if (!sha) return
+    const removeSet = paths || new Set(state.reviewed)
+    const next = new Set([...state.reviewed].filter((p) => !removeSet.has(p)))
     try {
-      await api(`/api/repos/${encodeURIComponent(repo.id)}/reviewed`, { method: 'DELETE' })
-      state.reviewed     = new Set()
-      state.reviewedSha  = branchInfo?.head_sha || null
+      if (next.size === 0) {
+        await api(`/api/repos/${encodeURIComponent(repo.id)}/reviewed`, { method: 'DELETE' })
+      } else {
+        await api(`/api/repos/${encodeURIComponent(repo.id)}/reviewed`, {
+          method: 'PUT',
+          body: JSON.stringify({ head_sha: sha, paths: [...next], mode: 'replace' }),
+        })
+      }
+      state.reviewed    = next
+      state.reviewedSha = sha
       renderBody()
       toast.ok('Reviewed marks cleared')
     } catch (e) {
@@ -1731,9 +1792,23 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
       const rightParts  = []
       if (hasReviewed) {
         const remaining = Math.max(0, totalFiles - reviewedInView)
+        // The × is view-sensitive: in Full view it clears every mark on
+        // the branch; in a per-commit view it only clears the marks
+        // visible right here. Tooltip + aria-label tell the truth either
+        // way so the gesture isn't a surprise.
+        const resetAria  = isFull ? 'Clear all reviewed marks' : 'Clear reviewed marks in this commit'
+        const resetTitle = isFull
+          ? 'Clear all reviewed marks across the branch'
+          : `Clear ${reviewedInView} reviewed mark${reviewedInView === 1 ? '' : 's'} in this commit`
+        // Group the summary text with its × so the pair reads as one unit
+        // — the wrapper's tight gap pulls the affordance up against the
+        // count it acts on, while the outer .diff-review-right gap keeps
+        // the threads-filter chip a normal step away.
         rightParts.push(
-          `<span class="diff-review-summary">${remaining} of ${totalFiles} remaining <span class="diff-review-meta">· ${reviewedInView} reviewed</span></span>` +
-          '<button type="button" class="diff-review-reset" data-reset-reviewed title="Clear all reviewed marks across the branch">Reset</button>'
+          '<span class="diff-review-summary-group">' +
+            `<span class="diff-review-summary">${remaining} of ${totalFiles} files remaining</span>` +
+            `<button type="button" class="diff-review-reset" data-reset-reviewed aria-label="${escapeHtml(resetAria)}" title="${escapeHtml(resetTitle)}">×</button>` +
+          '</span>'
         )
       }
       if (threadCount > 0) {
