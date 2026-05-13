@@ -2,7 +2,6 @@ import { api } from '../api.js'
 import { store } from '../store.js'
 import { escapeHtml, sanitizeBranchId } from '../util.js'
 import { renderDiffView, disposeDiffView } from '../diff.js'
-import { ROUTES } from '../routes.js'
 import { setupOverviewNav } from '../overview-nav.js'
 
 let emptyOverviewNavDispose = null
@@ -30,7 +29,7 @@ export async function renderDiffPage(parsed = { variant: 'full' }, isCurrent = (
   disposeDiffPage()
 
   const repo = store.state.repos[0]
-  if (!repo) { location.hash = ROUTES.threads(); return }
+  if (!repo) return
   if (!isCurrent()) return
 
   const main = document.getElementById('main')
@@ -59,7 +58,6 @@ export async function renderDiffPage(parsed = { variant: 'full' }, isCurrent = (
           <h1>${escapeHtml(repo.display_name)}</h1>
           <div class="actions">
             <span data-overview-nav class="overview-nav-slot"></span>
-            <a class="page-nav" href="${ROUTES.threads()}">Threads</a>
           </div>
         </div>
         <div class="branch-card">${renderBranchCard(branchInfo)}</div>
@@ -95,11 +93,12 @@ export async function renderDiffPage(parsed = { variant: 'full' }, isCurrent = (
 
   const branchId = sanitizeBranchId(branchInfo.current_branch || '')
 
-  // Cross-page thread context: when `?file=…&thread=…` is in the hash,
-  // the diff view filters to that one file and surfaces a "← Back to
-  // thread" link in the diff control strip. Both fields ride the URL
-  // (not sessionStorage) so back/forward, refresh, and bookmark all
-  // route the user to the same focused view.
+  // Thread context: when `?file=…&thread=…` is in the hash, the diff
+  // view filters to that one file and surfaces a "← Back to thread"
+  // affordance. When only `?thread=…` is present, the diff view
+  // auto-opens that thread's modal after the first thread load. Both
+  // fields ride the URL (not sessionStorage) so back/forward, refresh,
+  // and bookmark all route the user to the same focused view.
   const singleFile      = parsed.file || null
   const threadContextId = parsed.threadId || null
 

@@ -1110,7 +1110,7 @@ a.card-file:hover .card-file-mark {
   border: 1px solid var(--hairline-strong);
   border-radius: var(--radius-lg) var(--radius-lg) 0 0;
   width: 100%;
-  max-width: 600px;
+  max-width: 800px;
   max-height: 90vh;
   overflow-y: auto;
   padding: 24px 24px 20px;
@@ -1121,6 +1121,29 @@ a.card-file:hover .card-file-mark {
   position: relative;
 }
 @media (min-width: 600px) { .modal { border-radius: var(--radius-lg); } }
+
+/* Wide modal variant — used by the overview modal so the Mental Model
+   two-column grid + What Changed card grid get the same breathing room
+   they had on the (now-removed) standalone overview page. */
+.modal.modal-wide { max-width: 960px; }
+.overview-modal-head {
+  display: flex;
+  align-items: baseline;
+  gap: 14px;
+  flex-wrap: wrap;
+  margin: 0 0 18px;
+  padding-right: 32px;             /* keep clear of the × close button */
+}
+.overview-modal-head h2 {
+  margin: 0;
+  padding-right: 0;
+}
+.overview-modal-body { min-height: 80px; }
+.overview-modal-body .overview-actions {
+  margin-top: 24px;
+  display: flex;
+  justify-content: flex-end;
+}
 
 .modal h2 {
   font-family: var(--font-sans);
@@ -1133,103 +1156,56 @@ a.card-file:hover .card-file-mark {
   line-height: 1.3;
 }
 
-/* Header row of the thread modal. The H2 title and × close button were
-   removed (the thread modal opts out of makeModal's close button via
-   noCloseButton — its Close lives in the footer). The row now reads
-   left→right: prev/next nav, an empty spacer, the "Jump to file" link,
-   and the click-to-copy filename pill anchored at the far-right
-   (occupying the slot the × used to claim). */
-.thread-modal-head {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-bottom: 6px;
-}
-.thread-modal-head-spacer { flex: 1; }
-/* When the modal head has no prev/next nav (the diff-page Jump-to-modal
-   case), the file:line subtitle is inlined into the head row instead of
-   dangling on its own line. The combined-class selector beats `.modal
-   .sub` on specificity so its margin/padding/border defaults are
-   suppressed, letting the head read as one tight row. */
-.modal .thread-modal-head .sub.thread-modal-sub-inline {
-  flex: 1;
-  margin: 0;
-  padding-bottom: 0;
-  border-bottom: 0;
-  min-width: 0;
-}
+/* Prev / Next nav row — text-link buttons sitting between the reply
+   textarea and the modal-actions footer. Replaces the prior side
+   chevrons (which lived outside `.modal` as backdrop siblings). The
+   buttons override the global `button` rules (border, padding,
+   background) so they read as plain text links rather than chips. */
 .thread-modal-nav {
-  display: inline-flex;
+  display: flex;
+  justify-content: space-between;
   align-items: center;
-  gap: 4px;
-  flex-shrink: 0;
+  margin-top: 14px;
 }
-/* "Jump to file" link — rendered inline at the end of the .sub line so
-   it sits right next to the file:line label it acts on. A subtle
-   accent-tinted chip with a leading → glyph, sans-serif against the
-   mono .sub text — reads as a quiet "go to this view" companion to
-   the file path, not a separate header action. */
-.thread-jump-link {
-  display: inline-flex;
-  align-items: baseline;
-  gap: 4px;
-  font-family: var(--font-sans);
-  font-size: 11px;
-  padding: 2px 7px;
-  margin-left: 4px;
-  background: color-mix(in srgb, var(--accent) 6%, transparent);
-  border: none;
-  border-radius: 3px;
-  color: var(--accent);
-  cursor: pointer;
-  text-decoration: none;
-  vertical-align: baseline;
-  transition: background .15s var(--ease), color .15s var(--ease);
-}
-.thread-jump-link::before {
-  content: "→";
-  font-size: 10px;
-  opacity: 0.7;
-  transition: opacity .15s var(--ease);
-}
-.thread-jump-link:hover {
-  background: color-mix(in srgb, var(--accent) 14%, transparent);
-}
-.thread-jump-link:hover::before {
-  opacity: 1;
-}
-.thread-nav-btn {
-  width: 26px;
-  height: 26px;
+.thread-modal-nav-link {
+  background: transparent;
+  border: 0;
   padding: 0;
-  border: 1px solid var(--hairline);
-  background: var(--bg-deep);
-  border-radius: 2px;
   font-family: var(--font-sans);
-  font-size: 16px;
-  line-height: 1;
+  font-size: 13px;
   color: var(--fg-muted);
   cursor: pointer;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  transition: color .15s var(--ease), border-color .15s var(--ease), background .15s var(--ease);
+  transition: color .15s var(--ease);
 }
-.thread-nav-btn:hover:not(:disabled) {
-  color: var(--ink);
-  border-color: var(--hairline-strong);
-  background: var(--card);
+.thread-modal-nav-link:hover:not(:disabled) {
+  /* Defeat the global `button:hover` rule which would re-add a border
+     and the `var(--card)` background — both are wrong for a text link. */
+  color: var(--accent);
+  border-color: transparent;
+  background: transparent;
 }
-.thread-nav-btn:disabled {
-  opacity: 0.35;
+.thread-modal-nav-link:disabled {
+  opacity: 0.4;
   cursor: not-allowed;
 }
-.thread-nav-position {
+.thread-modal-nav-link:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+/* Tighten the gap between the nav row and the modal-actions divider —
+   `.modal-actions` ships with `margin-top: 24px` for top-level modals,
+   which leaves too much air when the nav row sits directly above it. */
+.thread-modal-nav + .modal-actions { margin-top: 12px; }
+
+/* "N of M" indicator — rides inline in the .sub row right after the
+   thread-hex filename pill. Muted because it's secondary context, not
+   navigation chrome (the actual navigation is the Prev/Next text row). */
+.thread-modal-position {
   font-family: var(--font-mono);
   font-size: 11px;
   color: var(--fg-muted);
-  min-width: 3.5em;
-  text-align: center;
+  flex-shrink: 0;
 }
 
 .modal-close {
@@ -1262,13 +1238,29 @@ a.card-file:hover .card-file-mark {
   background: color-mix(in srgb, var(--accent) 7%, transparent);
 }
 .modal .sub {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
   font-family: var(--font-mono);
   font-size: 11px;
   color: var(--fg-soft);
   margin: 0 0 20px;
   padding-bottom: 18px;
   border-bottom: 1px solid var(--hairline);
+}
+/* File:line label — keeps word-break: break-all here (not on the flex
+   parent) so long paths can wrap without disturbing the right-aligned
+   filename pill. min-width:0 lets it actually shrink inside the flex
+   row when the modal is narrow. */
+.modal .sub .thread-modal-sub-label {
   word-break: break-all;
+  min-width: 0;
+}
+/* Thread hex filename pill — pushed to the right edge of the .sub row
+   so file:line and the bookkeeping id share one line instead of stacking. */
+.modal .sub .thread-filename {
+  margin-left: auto;
+  flex-shrink: 0;
 }
 .modal .sub a {
   color: inherit;
@@ -1345,6 +1337,14 @@ a.card-file:hover .card-file-mark {
   flex-wrap: wrap;
 }
 .modal-actions button:first-child { margin-right: auto; }
+/* Reversed layout: primary / destructive action sits on the left where
+   the eye lands, Cancel / Close drifts to the right edge. Used by the
+   thread modal (Resolve / Delete | Close) and by destructive confirm
+   modals (Delete | Cancel) so the dangerous button isn't the one a
+   distracted user's eye lands on. Overrides the first-child auto-margin
+   (default convention) and pushes the trailing button instead. */
+.modal-actions.is-reversed button:first-child { margin-right: 0; }
+.modal-actions.is-reversed button:last-child  { margin-left: auto; }
 
 /* ——————————————————— Toast ——————————————————— */
 .toast {
@@ -1957,10 +1957,15 @@ a.card-file:hover .card-file-mark {
   user-select: none;           /* dragging-to-select on the path bar shouldn't toggle */
 }
 /* When a review banner is sitting at the visual top, file heads stack
-   below it instead of fighting for the same y. Banner is min-height: 40,
-   minus body padding-top (16) → 24px sticky offset for the file head. */
+   below it instead of fighting for the same y. Banner with just the
+   controls row is ~44 minus body padding-top (16) → 28px sticky offset.
+   When the counts strip is present (banner becomes two-tier), bump the
+   offset so the head doesn't slide under the strip. */
 .diff-body:has(> .diff-review-banner) .diff-file-head {
-  top: 24px;
+  top: 28px;
+}
+.diff-body:has(> .diff-review-banner .diff-review-counts) .diff-file-head {
+  top: 60px;
 }
 .diff-file.is-collapsed .diff-file-head {
   border-bottom-color: transparent;  /* nothing under the head — drop the divider */
@@ -2074,9 +2079,8 @@ a.card-file:hover .card-file-mark {
    modifiers — same shape, different accent color. */
 .diff-review-banner {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
+  flex-direction: column;
+  gap: 8px;
   padding: 8px 14px;
   margin-bottom: 14px;
   font-family: var(--font-sans);
@@ -2084,18 +2088,68 @@ a.card-file:hover .card-file-mark {
   border: 1px solid var(--hairline);
   border-radius: 2px;
   background: var(--card);
-  flex-wrap: wrap;
   /* Sticky at the same offset as file-heads (compensating for body
      padding-top of 16px) so the banner stays parked at the visual top
-     while the user scrolls through long file lists. min-height locks
-     the visual height so the file-head sticky offset below can target
-     a known number — without it, slight font-metric variance would
-     leave a thin gap or cause overlap. */
+     while the user scrolls through long file lists. */
   position: sticky;
   top: -16px;
   z-index: 3;
-  min-height: 40px;
   box-sizing: border-box;
+}
+/* Inner controls row — was the banner's flex content before the counts
+   strip pushed it down a level. Same shape (view toggle on the left,
+   right-cluster on the right) so the resting/filter/related/threads
+   variants all read identically below the counts row above. */
+.diff-review-controls {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  min-height: 28px;
+}
+/* Thread counts strip — top row of the banner when the current branch
+   has at least one thread. Separated by a hairline so the counts read
+   as informational/glanceable, distinct from the actionable controls
+   row beneath. */
+.diff-review-counts {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--hairline);
+}
+.diff-review-counts .state-pill {
+  font-size: 11px;
+  padding: 2px 8px;
+}
+.diff-review-counts-total {
+  margin-left: auto;
+  color: var(--fg-muted);
+  font-size: 11px;
+  font-family: var(--font-mono);
+  background: transparent;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+  letter-spacing: 0.02em;
+  transition: color .15s var(--ease);
+}
+button.diff-review-counts-total {
+  /* Dotted underline cues this is an action, not a static label. The
+     `data-show-thread` attribute opens the first thread's modal. */
+  border-bottom: 1px dotted color-mix(in srgb, currentColor 50%, transparent);
+  padding-bottom: 1px;
+}
+button.diff-review-counts-total:hover {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+}
+button.diff-review-counts-total:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+  border-radius: 2px;
 }
 .diff-review-banner.is-filter {
   border-left: 3px solid var(--lane-explain);
@@ -2160,12 +2214,47 @@ a.card-file:hover .card-file-mark {
   padding: 4px 10px;
 }
 
+/* Clear-filter close affordance — replaces the prior "Show all" text
+   button when a filter is active. Reads as a quiet dismiss icon, not a
+   loud labeled action: the active filter label right beside it already
+   describes the state, so the affordance only needs to convey "tap to
+   clear." Selector is qualified by `.diff-review-right` so it wins
+   specificity over the compact-button override above (which would
+   otherwise apply `font-size: 11px; padding: 4px 10px` and squash the
+   icon into a pill). */
+.diff-review-right .diff-filter-close {
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 2px;
+  font-family: var(--font-sans);
+  font-size: 18px;
+  font-weight: 300;
+  line-height: 1;
+  color: var(--fg-muted);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: color .15s var(--ease), border-color .15s var(--ease),
+              background .15s var(--ease);
+}
+.diff-review-right .diff-filter-close:hover:not(:disabled) {
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 35%, transparent);
+  background: color-mix(in srgb, var(--accent) 7%, transparent);
+}
+.diff-review-right .diff-filter-close:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
 /* Per-file relate-filter button. Sits at the trailing edge of the file
-   header next to the per-file mark-reviewed toggle. Shape is deliberately
-   identical to .diff-file-mark so the trailing-edge cluster reads as a
-   coherent two-button strip — only the lane accent differs (explain blue
-   here vs done green for mark) so the active state telegraphs which kind
-   of state is engaged. */
+   header. (The peer mark-reviewed button used to live alongside it; that
+   gesture is now fused into the header collapse-toggle, so this is the
+   only trailing-edge action button left.) */
 .diff-relate-btn {
   appearance: none;
   font: inherit;
@@ -2841,6 +2930,7 @@ a.card-file:hover .card-file-mark {
      the file-head offset shifts accordingly. */
   .diff-review-banner { top: -10px; }
   .diff-body:has(> .diff-review-banner) .diff-file-head { top: 30px; }
+  .diff-body:has(> .diff-review-banner .diff-review-counts) .diff-file-head { top: 64px; }
 }
 
 /* ——————————————————— Local ("fake") review threads ———————————————————
@@ -3042,17 +3132,6 @@ a.card-file:hover .card-file-mark {
      switching between states doesn't shift the text horizontally. */
   padding-left: 10px;
 }
-.diff-thread-header {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-family: var(--font-mono);
-  font-size: 10.5px;
-  color: var(--fg-muted);
-  letter-spacing: 0;
-}
-.diff-thread-anchor { letter-spacing: 0; }
-.diff-thread-side { color: var(--lane-explain); font-style: normal; }
 .diff-thread-comments {
   display: flex;
   flex-direction: column;
@@ -3153,15 +3232,13 @@ a.card-file:hover .card-file-mark {
   border-radius: 2px;
 }
 
-/* ——————————————————— Thread modal — local-thread reply UI ———————————————————
-   Appended to openThreadModal when thread.kind === 'local'. Reuses the
-   same input + actions vocabulary as the diff editor row, scaled for
-   modal context. */
+/* ——————————————————— Thread modal — reply UI ———————————————————
+   The Reply submit lives in the modal-actions footer (alongside Resolve
+   and Delete), so the textarea here is a bare composer with no
+   absolutely-positioned children — resize handle, padding, and submit
+   button are all back to conventional placements. */
 .thread-reply {
   margin-top: 12px;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
 }
 .thread-reply-input {
   width: 100%;
@@ -3180,11 +3257,6 @@ a.card-file:hover .card-file-mark {
   outline: none;
   border-color: var(--lane-explain);
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--lane-explain) 18%, transparent);
-}
-.thread-reply-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
 }
 
 /* Respect reduced motion */
@@ -3237,26 +3309,11 @@ a.card-file:hover .card-file-mark {
 .btn:hover { border-color: var(--accent); }
 .btn[hidden] { display: none; }
 
-/* Threads page */
-.threads-page .threads-meta {
-  margin-top: 16px;
-  padding: 12px 0;
-  border-bottom: 1px solid var(--hairline);
-  color: var(--fg-soft);
-}
-.threads-meta code { font-family: var(--font-mono); color: var(--ink); background: var(--bg-deep); padding: 1px 6px; border-radius: 3px; font-size: 12px; }
-
-.threads-counts {
-  display: flex;
-  gap: 16px;
-  align-items: center;
-  flex-wrap: wrap;
-  padding: 16px 0;
-  margin-bottom: 16px;
-  border-bottom: 1px solid var(--hairline);
-}
-.threads-total { color: var(--fg-muted); margin-left: auto; font-size: 12px; }
-
+/* State pills — used in the diff control banner's counts strip (and
+   inside the thread modal head). The threads page that used to host
+   these was folded into the diff page in 0.5; the pill rules survived
+   intact because both the counts strip and the inline diff thread state
+   wash share the same accent palette. */
 .state-pill {
   display: inline-flex;
   align-items: center;
@@ -3267,137 +3324,58 @@ a.card-file:hover .card-file-mark {
   font-weight: 500;
   border: 1px solid var(--hairline);
 }
-.state-pill.state-your-turn {
-  color: var(--lane-done);
-  border-color: var(--lane-done);
-  background: color-mix(in srgb, var(--lane-done) 10%, transparent);
-}
-.state-pill.state-awaiting {
-  color: var(--lane-explain);
-  border-color: var(--lane-explain);
-  background: color-mix(in srgb, var(--lane-explain) 10%, transparent);
-}
-.state-pill.state-read {
+/* Muted variant used by the counts-strip's reviewer / reviewee message
+   tallies. These pills aren't tracking thread state — they're just
+   message counts split by author — so they intentionally don't carry
+   any of the state-color accents (green for done-lane, blue for
+   explain-lane, etc.). Borderless-feeling, low-contrast — just text. */
+.state-pill.is-count {
   color: var(--fg-muted);
   border-color: var(--hairline);
 }
-/* Resolved is the human bookkeeping flag — pill is green like done-lane,
-   slightly more saturated than your-turn so the eye reads ✓ as "closed"
-   rather than "actionable". */
+/* Small inline × on the reviewee-replies pill. Triggers a bulk-delete of
+   the last reply from every multi-comment thread (see
+   confirmBulkDeleteLastReplies). Resting state is fully muted so it
+   reads as a subtle affordance; hover flips to `--lane-removed` red as
+   a "this is destructive" cue before the click commits. The qualified
+   selector (`.state-pill .state-pill-x`) wins specificity over both the
+   base `button` rule and `button:hover:not(:disabled)`. */
+.state-pill .state-pill-x {
+  margin-left: 2px;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  font-family: var(--font-sans);
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 1;
+  color: var(--fg-muted);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: color .15s var(--ease), background .15s var(--ease);
+}
+.state-pill .state-pill-x:hover:not(:disabled) {
+  color: var(--lane-removed);
+  background: color-mix(in srgb, var(--lane-removed) 12%, transparent);
+  border-color: transparent;
+}
+.state-pill .state-pill-x:focus-visible {
+  outline: 2px solid var(--lane-removed);
+  outline-offset: 1px;
+}
+/* Resolved is the human bookkeeping flag — pill is green like done-lane
+   with a soft fill, so the ✓ reads as "closed" against the otherwise
+   muted reviewer/reviewee siblings on either side. */
 .state-pill.state-resolved {
   color: var(--lane-done);
   border-color: var(--lane-done);
   background: color-mix(in srgb, var(--lane-done) 14%, transparent);
   font-weight: 600;
-}
-
-.thread-file {
-  margin-bottom: 24px;
-}
-.thread-file-head {
-  padding: 8px 12px;
-  background: var(--bg-deep);
-  border: 1px solid var(--hairline);
-  border-radius: 4px 4px 0 0;
-  border-bottom: none;
-}
-.thread-file-head code { font-family: var(--font-mono); font-size: 13px; color: var(--ink); }
-.thread-file-list {
-  border: 1px solid var(--hairline);
-  border-radius: 0 0 4px 4px;
-  background: var(--card);
-}
-.thread-row {
-  display: grid;
-  grid-template-columns: auto auto auto 1fr auto auto;
-  gap: 12px;
-  align-items: center;
-  width: 100%;
-  padding: 10px 14px;
-  border: none;
-  background: none;
-  text-align: left;
-  cursor: pointer;
-  border-bottom: 1px solid var(--hairline);
-  font-family: var(--font-sans);
-  color: var(--fg);
-  transition: background .15s var(--ease);
-}
-.thread-row:last-child { border-bottom: none; }
-.thread-row:hover { background: var(--bg-deep); }
-.thread-row-state { font-size: 14px; }
-.thread-row-anchor {
-  font-family: var(--font-mono);
-  font-size: 12px;
-  color: var(--fg-muted);
-}
-.thread-row-view {
-  font-family: var(--font-mono);
-  font-size: 11px;
-  padding: 2px 6px;
-  border-radius: 3px;
-  text-transform: uppercase;
-  font-weight: 600;
-  letter-spacing: 0.04em;
-}
-.thread-row-view.view-commit { color: var(--lane-working); background: color-mix(in srgb, var(--lane-working) 12%, transparent); }
-.thread-row-view.view-full   { color: var(--lane-explain); background: color-mix(in srgb, var(--lane-explain) 12%, transparent); }
-.thread-row-view.view-local  { color: var(--lane-review); background: color-mix(in srgb, var(--lane-review) 12%, transparent); }
-.thread-row-preview {
-  font-size: 13px;
-  color: var(--fg-soft);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  min-width: 0;
-}
-.thread-row-replies {
-  font-size: 11px;
-  color: var(--fg-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-}
-.thread-row-when { font-size: 11px; color: var(--fg-muted); }
-
-.thread-row.state-your-turn .thread-row-state { animation: pulse-glow 2s ease-in-out infinite; }
-@keyframes pulse-glow {
-  0%, 100% { opacity: 0.6; }
-  50% { opacity: 1; }
-}
-
-/* Resolved threads on the threads page: thicker accent-green left ribbon
-   so the eye scans past them when looking for actionable work, but the
-   body text stays at full opacity (per the chosen design — visible-but-
-   out-of-the-way, never folded). The ✓ glyph in .thread-row-state gets
-   the same green so the pulse-glow logic above doesn't apply (resolved
-   is never "your turn"). */
-.thread-row.state-resolved {
-  border-left: 4px solid var(--lane-done);
-  padding-left: 10px;       /* compensate so column alignment matches non-resolved rows */
-  background: color-mix(in srgb, var(--lane-done) 3%, transparent);
-}
-.thread-row.state-resolved .thread-row-state {
-  color: var(--lane-done);
-  font-weight: 700;
-}
-
-/* Recently-viewed breadcrumb. Painted on the row matching the modal's
-   sessionStorage breadcrumb so the user can re-find where they were
-   after closing the modal or returning from the diff view. Same 4 px
-   left-ribbon idiom as state-resolved (so column alignment compensates
-   identically), but in the accent color and with a slightly stronger
-   wash so it reads as "you were here" not "this is done". */
-.thread-row.is-recent {
-  border-left: 4px solid var(--accent);
-  padding-left: 10px;
-  background: color-mix(in srgb, var(--accent) 6%, transparent);
-}
-/* The resolved + is-recent combo is rare but possible — keep the
-   resolved-green ribbon (state takes precedence over breadcrumb) and
-   let the background blend show both. */
-.thread-row.state-resolved.is-recent {
-  border-left-color: var(--lane-done);
-  background: color-mix(in srgb, var(--accent) 6%, color-mix(in srgb, var(--lane-done) 3%, transparent));
 }
 
 /* In-diff thread display: state-aware emphasis on `your turn` rows */
@@ -3469,12 +3447,6 @@ a.card-file:hover .card-file-mark {
 .diff-page:has(.diff-thread.is-jumped-from) .diff-row-thread:not(:has(.diff-thread.is-jumped-from)):hover {
   opacity: 1;
 }
-.diff-thread .state-pill {
-  margin-left: 8px;
-  font-size: 10px;
-  padding: 2px 8px;
-}
-
 /* View-pill colors for thread-modal title badge */
 .card-local-pill.view-commit { background: color-mix(in srgb, var(--lane-working) 12%, transparent); border-color: var(--lane-working); color: var(--lane-working); }
 .card-local-pill.view-full   { background: color-mix(in srgb, var(--lane-explain) 12%, transparent); border-color: var(--lane-explain); color: var(--lane-explain); }
@@ -3504,7 +3476,6 @@ a.card-file:hover .card-file-mark {
   display: inline-flex;
   align-items: baseline;
   gap: 6px;
-  margin-left: 12px;
   padding: 0;
   border: none;
   background: transparent;
@@ -3564,59 +3535,6 @@ a.card-file:hover .card-file-mark {
 }
 .thread-filename.is-copied .thread-filename-text {
   border-bottom: 1px solid var(--lane-done);
-}
-
-.diff-thread-anchor {
-  border: none;
-  background: none;
-  padding: 0;
-  font-family: var(--font-mono);
-  font-size: 12px;
-  color: var(--ink);
-  cursor: pointer;
-  text-decoration: underline;
-  text-decoration-thickness: 0.5px;
-  text-decoration-color: var(--hairline-strong);
-  text-underline-offset: 2px;
-}
-.diff-thread-anchor:hover { text-decoration-color: var(--accent); }
-
-/* Thread row two-line layout (with code snippet) */
-.thread-row {
-  display: block;
-  padding: 12px 16px;
-}
-.thread-row-top {
-  display: grid;
-  grid-template-columns: auto auto auto 1fr auto;
-  gap: 12px;
-  align-items: center;
-}
-.thread-row-snippet {
-  margin-top: 8px;
-  padding: 7px 10px;
-  background: var(--bg-deep);
-  border: 1px solid var(--hairline);
-  border-left: 2px solid var(--hairline-strong);
-  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
-  overflow: hidden;
-}
-.thread-row-code {
-  font-family: var(--font-mono);
-  font-size: 12px;
-  color: var(--ink);
-  white-space: pre;
-  display: block;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.thread-row-preview {
-  margin-top: 6px;
-  font-size: 13px;
-  color: var(--fg-soft);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 /* ———————————————————————————————————————————————————————— */
@@ -3759,21 +3677,8 @@ body:has(.diff-page) main {
   color: color-mix(in srgb, var(--lane-removed) 80%, var(--ink));
 }
 
-/* Generated overview page. Width comes from the shared `.app-page`
-   shell defined near the top — keeping the rule here for any
-   overview-specific layout the page might pick up later. */
-.overview-page {
-  /* width: inherited from .app-page */
-}
-
-/* Title row: page-head h1 paired with a small generated-at label. */
-.overview-page-title {
-  display: flex;
-  align-items: baseline;
-  gap: 14px;
-  flex-wrap: wrap;
-  min-width: 0;
-}
+/* Overview is rendered inside a wide modal (see .modal.modal-wide above);
+   the rules below style the markdown body the modal hosts. */
 .overview-generated {
   font-family: var(--font-mono);
   font-size: 11px;
@@ -4177,7 +4082,28 @@ body:has(.diff-page) main {
 /* ———————————————————————————————————————————————————————— */
 .diff-file {
   content-visibility: auto;
-  contain-intrinsic-size: 0 800px;
+  /* `auto` makes the browser remember each section's last-rendered size
+     instead of using the 800 px fallback as the intrinsic size on every
+     evict. Without `auto`, an off-screen file always claims 800 px even
+     after we've measured its real height; scrolling past a long file
+     would then snap the body's scrollHeight down dramatically as the
+     file evicts, and a `scrollIntoView` target computed against the
+     "everything real" layout would land somewhere wildly off once
+     sections shrunk back to placeholders. The 800 px keeps a sensible
+     first-paint estimate for sections that have never rendered. */
+  contain-intrinsic-size: auto 800px;
+}
+/* Defeats content-visibility for the duration of a jump-to-anchor scroll
+   so the body's scrollHeight reflects every file's real height. Even
+   with `contain-intrinsic-size: auto`, sections that have never been
+   visited in the current session still claim only 800 px; that's not
+   enough to reach a target cell sitting in the lower half of a large
+   diff. The class is added at jump start and removed ~500 ms later by
+   `convergeScrollToCenter`. */
+.diff-file.is-jumping {
+  content-visibility: visible;
+}
+.diff-file {
   /* Layout containment: this file's internal layout cannot
      affect anything outside the section. Lets the browser
      skip layout work for files outside the viewport even more
@@ -4194,65 +4120,6 @@ body:has(.diff-page) main {
   content-visibility: visible;
   contain-intrinsic-size: auto;
   contain: none;
-}
-
-/* Per-file mark-reviewed toggle button on each .diff-file-head.
-   Sits trailing-edge, peer of the relate button. Two states:
-   - inactive: hairline border, "○ mark"
-   - active:   lane-done green border + bg, "✓ reviewed" */
-/* Per-file mark-reviewed toggle on each .diff-file-head. Compact shape
-   matching the diff-relate-btn so the trailing-edge cluster reads as a
-   coherent action strip. */
-.diff-file-mark {
-  appearance: none;
-  font: inherit;
-  font-size: 11px;
-  font-weight: 500;
-  letter-spacing: 0;
-  text-transform: none;
-  padding: 3px 9px;
-  margin-left: 4px;
-  border: 1px solid var(--hairline-strong);
-  border-radius: var(--radius-sm);
-  background: var(--card);
-  color: var(--fg-soft);
-  cursor: pointer;
-  white-space: nowrap;
-  transition: border-color .15s var(--ease), color .15s var(--ease), background .15s var(--ease);
-}
-.diff-file-mark:hover {
-  border-color: var(--lane-done);
-  color: var(--lane-done);
-}
-.diff-file-mark.active {
-  border-color: var(--lane-done);
-  color: var(--lane-done);
-  background: color-mix(in srgb, var(--lane-done) 12%, transparent);
-}
-.diff-file-mark.active:hover {
-  border-color: var(--accent);
-  color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 12%, transparent);
-}
-
-/* Per-file footer — end-of-content landmark hosting the `Mark reviewed`
-   button for unreviewed files. Quiet by design: thin top hairline, faint
-   muted surface, right-aligned cluster so the button sits where the reader's
-   eye is settling after a top-to-bottom read. Only rendered when there's a
-   button to show (gated by renderFile in public/diff.js), so the hairline
-   never appears empty under reviewed files or in per-commit / Local views.
-   Hidden defensively when the file is collapsed — the body is already out
-   of the way, so the footer should be too. */
-.diff-file-footer {
-  display: flex;
-  justify-content: flex-end;
-  align-items: center;
-  padding: 10px 14px;
-  border-top: 1px solid var(--hairline);
-  background: color-mix(in srgb, var(--bg-deep) 50%, transparent);
-}
-.diff-file.is-collapsed .diff-file-footer {
-  display: none;
 }
 
 /* —— Install-suggestion banner ——

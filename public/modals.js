@@ -2,7 +2,7 @@ import { api } from './api.js'
 import { escapeHtml, inlineCode, relTime, toast, copyToClipboard, formatLineRange } from './util.js'
 
 export function makeModal(innerHtml, opts = {}) {
-  const { onClose, noCloseButton = false } = opts
+  const { onClose, noCloseButton = false, noBackdropClose = false } = opts
   const backdrop = document.createElement('div')
   backdrop.className = 'modal-backdrop'
   // Dynamic z-stack: layer above any modal already on screen so confirms
@@ -49,7 +49,15 @@ export function makeModal(innerHtml, opts = {}) {
   // openThreadModal's prev/next navigation replaces `.modal` innerHTML
   // in place, so the original × element gets thrown away.
   backdrop.addEventListener('click', (e) => {
-    if (e.target === backdrop) { close(); return }
+    // `noBackdropClose` callers (the thread modal) have their own Close
+    // button in the footer and treat backdrop clicks as accidental — a
+    // misfire that throws away an in-flight reply textarea would be more
+    // disruptive than the convenience of click-outside-to-dismiss. Esc
+    // still works (handled by the keydown listener above).
+    if (e.target === backdrop) {
+      if (!noBackdropClose) close()
+      return
+    }
     if (e.target.closest('[data-close]')) close()
   })
   // Fires onClose even when the caller bypasses `close()` and removes
@@ -87,14 +95,14 @@ function commentHtml(c, interactive = false) {
 
 export function confirmRemoveComment({ isLast, onConfirm }) {
   const detail = isLast
-    ? 'This is the last comment in the thread, so the entire thread file will be removed too.'
-    : 'Removes this comment from the thread.'
+    ? 'This is the last comment in the thread, so the entire thread file will be deleted too.'
+    : 'Deletes this comment from the thread.'
   const backdrop = makeModal(`
-    <h2>Remove comment?</h2>
+    <h2>Delete this comment?</h2>
     <p class="modal-text">${escapeHtml(detail)} This can't be undone.</p>
-    <div class="modal-actions">
+    <div class="modal-actions is-reversed">
+      <button class="danger" data-confirm>Delete</button>
       <button data-close>Cancel</button>
-      <button class="primary" data-confirm>Remove</button>
     </div>`)
   backdrop.querySelector('[data-confirm]').onclick = () => {
     backdrop.remove()
@@ -107,16 +115,27 @@ export function confirmRemoveComment({ isLast, onConfirm }) {
  * from the freshest snapshot via the supplied `getThread` callback so a
  * thread that just got an LLM reply via SSE shows the latest content.
  *
- * `onChanged` fires after any mutation (reply / delete / comment delete)
- * so the host page can re-render its thread list / inline display.
+ * `onChanged` fires after a real mutation (reply / resolve / delete-thread
+ * / delete-comment / edit-comment) so the host page can re-render its
+ * thread list / inline display.
+ *
+ * `onRead` fires after the /read stamp returns. It's intentionally a
+ * separate hook from `onChanged` because /read isn't a real mutation —
+ * its only visible effect is the single thread's state-pill flipping
+ * from "your_turn" to "read". Hosts that route /read through `onChanged`
+ * pay for a full diff re-render every time the modal opens or the user
+ * hits prev/next, which can drift the diff-body scroll position (the
+ * `preserveScrollTo` ResizeObserver dance vs. `overflow-anchor: none`
+ * is imperfect on body-wide innerHTML swaps). Hosts can either omit
+ * `onRead` (default behavior: skip refresh entirely — the pill update
+ * lags one user action) or supply a lightweight refresh that doesn't
+ * wipe innerHTML.
+ *
+ * `onNavigate(newId)` fires after a prev/next step so the host page can
+ * re-aim its scroll (the diff page jumps to the new anchor).
  */
-// SessionStorage key for the "recently viewed thread" breadcrumb the
-// threads page paints as a thick left ribbon. Set whenever a modal opens
-// or prev/next steps to a new thread; read on every threads-page render.
-const LAST_OPENED_KEY = 'slop-review:last-opened-thread'
-
 export function openThreadModal(threadId, opts = {}) {
-  const { repoId, getThread, jumpToDiff, onChanged, onClose, threadOrder } = opts
+  const { repoId, getThread, onChanged, onRead, onClose, onNavigate, threadOrder } = opts
   if (!repoId || !getThread) {
     toast('Cannot open thread (missing context)')
     return
@@ -129,11 +148,33 @@ export function openThreadModal(threadId, opts = {}) {
   // breaking the relationship between modal and URL.
   let currentId = threadId
   let backdrop = null
-  // Textarea auto-focus runs only on the very first mount. Re-running it
-  // on prev/next would yank the modal scroll position downward as the
-  // browser tries to bring the textarea into view — exactly the wrong
-  // gesture for "I'm browsing through threads."
-  let isInitialMount = true
+
+  /**
+   * Shared "I'm done with this thread, move me along" advance step used
+   * by Delete and Resolve. Prefers the next thread in `threadOrder`,
+   * falling back to the previous one when current sits at the end.
+   * Splices the current id out of `threadOrder` so position labels
+   * ("N of M") stay truthful and so the user doesn't cycle back through
+   * a thread they've explicitly signed off on. When no neighbour remains,
+   * the modal closes — i.e. the user finished the last thread, so the
+   * "advance" gesture naturally becomes "I'm done with the whole batch."
+   */
+  const advanceAfterDone = () => {
+    let nextId = null
+    if (Array.isArray(threadOrder) && threadOrder.length > 1) {
+      nextId = adjacentThreadId(currentId, threadOrder, +1)
+            ?? adjacentThreadId(currentId, threadOrder, -1)
+      const idx = threadOrder.indexOf(currentId)
+      if (idx >= 0) threadOrder.splice(idx, 1)
+    }
+    if (nextId) {
+      currentId = nextId
+      mountOrUpdate()
+      onNavigate?.(nextId)
+    } else {
+      backdrop?.remove()
+    }
+  }
 
   const buildInnerHtml = (thread) => {
     const subLabel = thread.file ? `${thread.file}:${formatLineRange(thread)}` : 'Thread'
@@ -150,13 +191,6 @@ export function openThreadModal(threadId, opts = {}) {
 
     const msgs = (thread.comments || []).map((c) => commentHtml(c, true)).join('')
 
-    // "Jump to file" lives in the modal head — closer to the file:line
-    // subtitle it acts on. The old footer "Jump to diff" button is gone;
-    // its data-jump hook moves with it so the existing click wiring works.
-    const jumpLink = jumpToDiff
-      ? '<button type="button" class="thread-jump-link" data-jump title="Open this file in the diff view">Jump to file</button>'
-      : ''
-
     // Resolution toggle. Label + class flip based on the current state so
     // a single click does whatever is locally meaningful: "✓ Resolve" on
     // an open thread, "Reopen" on a resolved one. Resolved threads also
@@ -169,52 +203,72 @@ export function openThreadModal(threadId, opts = {}) {
       ? `<div class="thread-resolved-note">Resolved ${escapeHtml(relTime(thread.resolved_at))}</div>`
       : ''
 
-    // The filename copy-to-clipboard button sits at the top-right of the
-    // modal head — taking over the spot the `×` close button used to
-    // occupy (the thread modal opts out via noCloseButton: true).
-    const filenameBtn = fileNameForCopy
-      ? `<button type="button" class="thread-filename" data-copy-filename data-filename="${escapeHtml(fileNameForCopy)}" title="Click to copy — paste into a chat to reference this thread"><span class="thread-filename-text">${escapeHtml(fileNameForCopy)}</span></button>`
+    // Filename copy-to-clipboard. Displayed as the bare 8-hex thread id
+    // (e.g. `b0d370da` from `thread_open_b0d370da.json`) so it reads as a
+    // quiet right-aligned identifier on the same row as the file:line
+    // subtitle, not a noisy `thread_open_*.json` filename. The full
+    // filename still rides in `data-filename` because that's what the
+    // agent-chat paste workflow expects — paste either the hex or the
+    // full filename and the slop-review skill resolves to the same JSON.
+    const hexId = (thread.id || '').replace(/^thread_/, '')
+    const filenameBtn = fileNameForCopy && hexId
+      ? `<button type="button" class="thread-filename" data-copy-filename data-filename="${escapeHtml(fileNameForCopy)}" title="Click to copy ${escapeHtml(fileNameForCopy)} — paste into a chat to reference this thread"><span class="thread-filename-text">${escapeHtml(hexId)}</span></button>`
       : ''
 
-    // Prev/next thread navigation. Disabled at the ends rather than
-    // wrapping — wrap-around at boundaries is more disorienting than
-    // helpful for an irregular browsing workflow.
-    const navHtml = renderThreadNav(thread.id, threadOrder)
+    // navAvailable + navIdx feed two pieces of nav UI rendered later in
+    // this function: the "N of M" position label on the .sub row, and
+    // the Prev / Next text-link row above the modal-actions footer. The
+    // text-link row replaces the older side-chevron buttons that lived
+    // outside `.modal`; consolidating both nav surfaces inline simplifies
+    // the mount/unmount story (no more once-and-done attach for the
+    // chevrons), at the cost of pushing the prev/next visual one row
+    // further from the modal edge — fine for this content-dense modal.
+    const navAvailable = Array.isArray(threadOrder) && threadOrder.length > 1
+    const navIdx = navAvailable ? threadOrder.indexOf(thread.id) : -1
+    const navPosition = navAvailable && navIdx >= 0
+      ? `${navIdx + 1} of ${threadOrder.length}`
+      : ''
+    const positionHtml = navPosition
+      ? `<span class="thread-modal-position">${escapeHtml(navPosition)}</span>`
+      : ''
 
-    // Modal head layout has two shapes depending on whether prev/next thread
-    // nav is present:
-    //   - With nav (threads page): nav goes top-left, filename top-right,
-    //     and the file:line subtitle gets its own line below — there's no
-    //     room to inline it without crowding.
-    //   - Without nav (diff page opens modal): the top row would otherwise
-    //     be empty except for the filename floating right. Inline the
-    //     subtitle there instead of dangling it on its own line.
-    const headHtml = navHtml
-      ? `<div class="thread-modal-head">
-          ${navHtml}
-          <div class="thread-modal-head-spacer"></div>
-          ${filenameBtn}
-        </div>
-        <div class="sub">${escapeHtml(subLabel)} ${jumpLink}</div>`
-      : `<div class="thread-modal-head">
-          <div class="sub thread-modal-sub-inline">${escapeHtml(subLabel)} ${jumpLink}</div>
-          ${filenameBtn}
+    // Sub row: file:line on the left, then a right-cluster with the
+    // thread-hex filename pill and (when nav is available) the "N of M"
+    // position indicator. The filename uses `margin-left: auto` in CSS
+    // to consume slack and push itself + the position label to the right
+    // edge. One row instead of three (was: head + filename + sub) so the
+    // meta block doesn't waste vertical space.
+    const subHtml = `<div class="sub">
+      <span class="thread-modal-sub-label">${escapeHtml(subLabel)}</span>
+      ${filenameBtn}
+      ${positionHtml}
+    </div>`
+
+    // Prev / Next text-link nav row. Rendered as buttons (semantically
+    // actionable, keyboard-friendly) styled to read as plain text. Lives
+    // *inside* the modal's innerHTML, so it gets re-rendered on every
+    // mountOrUpdate — listeners are re-attached in wireHandlers (no
+    // once-and-done dance like the old side chevrons needed). Hidden
+    // entirely when there's only one thread on the branch.
+    const navHtml = navAvailable
+      ? `<div class="thread-modal-nav">
+          <button type="button" class="thread-modal-nav-link" data-thread-prev ${navIdx <= 0 ? 'disabled' : ''}>Prev</button>
+          <button type="button" class="thread-modal-nav-link" data-thread-next ${navIdx >= threadOrder.length - 1 ? 'disabled' : ''}>Next</button>
         </div>`
+      : ''
 
     return `
-      ${headHtml}
+      ${subHtml}
       ${resolvedSub}
       <div class="thread-list" data-thread-list>${msgs}</div>
       <div class="thread-reply">
         <textarea class="thread-reply-input" rows="3" placeholder="Add a follow-up comment…"></textarea>
-        <div class="thread-reply-actions">
-          <button type="button" data-reply>Reply</button>
-        </div>
       </div>
-      <div class="modal-actions">
-        <button data-close>Close</button>
+      ${navHtml}
+      <div class="modal-actions is-reversed">
         ${resolveBtn}
-        <button type="button" class="danger" data-delete>Delete thread</button>
+        <button type="button" class="danger" data-delete>Delete</button>
+        <button type="button" data-reply>Reply</button>
       </div>`
   }
 
@@ -224,11 +278,6 @@ export function openThreadModal(threadId, opts = {}) {
       toast('Thread not found')
       return
     }
-
-    // Stash the breadcrumb every time the modal lands on a thread —
-    // initial open, prev/next nav, or even a re-render after resolution
-    // toggle. Reads of this key happen on the threads page render path.
-    try { sessionStorage.setItem(LAST_OPENED_KEY, currentId) } catch {}
 
     // Keep `?thread=` in the URL synced with the modal's current thread.
     // Two reasons: (a) refresh restores the thread you were actually
@@ -242,7 +291,92 @@ export function openThreadModal(threadId, opts = {}) {
 
     const html = buildInnerHtml(thread)
     if (!backdrop) {
-      backdrop = makeModal(html, { onClose, noCloseButton: true })
+      // ArrowLeft / ArrowRight → step prev / next thread. Document-scoped
+      // so it fires regardless of which element inside the modal has
+      // focus (otherwise a focused button would swallow the keyboard
+      // event before it ever reached a backdrop-scoped listener).
+      // Active-element gate is narrower than the Esc dispatcher in
+      // makeModal: we bail only when the cursor is in an actual text
+      // input (textarea / contentEditable / text-like <input>), so that
+      // native cursor movement inside those still wins. The reply
+      // textarea is not auto-focused on mount, so arrow nav works
+      // immediately after the modal opens.
+      const onArrowNav = (e) => {
+        if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return
+        // Shift+arrow is reserved for diff-page commit navigation (see
+        // diff.js onKey). Bail BEFORE swallowing the event so the
+        // bubble-phase onKey listener gets a clean shot. This also
+        // makes Shift+arrow work for native text-selection extension
+        // inside the reply textarea — Shift bypasses our claim entirely.
+        if (e.shiftKey) return
+        // Text-input cursor movement wins: bail BEFORE swallowing the
+        // event so the textarea / contentEditable / text-like <input>
+        // gets its native behaviour. Same compromise as before — typing
+        // a reply inside the modal still works.
+        const ae = document.activeElement
+        if (ae) {
+          if (ae.tagName === 'TEXTAREA' || ae.isContentEditable) return
+          if (ae.tagName === 'INPUT') {
+            const t = (ae.type || 'text').toLowerCase()
+            const textLike = ['text','search','email','url','tel','password','number','date','time','month','week','datetime-local']
+            if (textLike.includes(t)) return
+          }
+        }
+        // Thread modal is on screen — arrow keys belong to the modal
+        // stack, NOT the diff page underneath. Swallow the event so
+        // anything else listening for bare arrows can't react.
+        //
+        // The primary line of defence is actually the keybinding
+        // contract: diff.js's onKey requires Shift+arrow for commit
+        // nav (we bailed above when shiftKey is true), so plain arrows
+        // won't trigger `goto` even if the event reached it. Capture-
+        // phase registration + `stopImmediatePropagation` here are
+        // defence-in-depth — they ensure that if a future listener
+        // anywhere starts handling bare arrows, the thread modal's
+        // claim stays unambiguous. Stop unconditionally — even when
+        // there's no neighbour to navigate to (threadOrder.length < 2),
+        // bare arrows belong to the modal.
+        e.preventDefault()
+        e.stopImmediatePropagation()
+        // Only NAVIGATE when this modal is the topmost — a confirm
+        // modal layered on top (Delete this thread? Delete this
+        // comment?) interactively owns the keyboard, so we swallow the
+        // key here but don't step threads beneath it.
+        const all = document.querySelectorAll('.modal-backdrop')
+        if (all[all.length - 1] !== backdrop) return
+        if (!Array.isArray(threadOrder) || threadOrder.length < 2) return
+        const dir = e.key === 'ArrowLeft' ? -1 : +1
+        const adj = adjacentThreadId(currentId, threadOrder, dir)
+        if (!adj) return
+        currentId = adj
+        mountOrUpdate()
+        onNavigate?.(adj)
+      }
+      // Wrap the host's onClose so the keydown listener is torn down when
+      // the modal closes — every call to openThreadModal adds one, so
+      // without cleanup we'd leak a handler per session that fires
+      // against a detached `backdrop` closure.
+      const wrappedOnClose = () => {
+        document.removeEventListener('keydown', onArrowNav, true)
+        onClose?.()
+      }
+      // No `noBackdropClose` flag: clicking outside the modal closes it
+      // (user requested). Trade-off: a misclick on the backdrop will
+      // discard any in-flight reply text in the textarea. Esc with the
+      // textarea focused is still blocked by makeModal's keydown listener
+      // (Esc-while-typing is a different muscle memory), so the user
+      // retains one safe dismissal path that won't surprise them.
+      backdrop = makeModal(html, { onClose: wrappedOnClose, noCloseButton: true })
+      // Capture-phase registration is load-bearing: the diff page's
+      // onKey listener (at diff.js:500-501) was registered earlier
+      // during the diff page mount, also on `document`, in the default
+      // bubble phase. Same-element bubble listeners fire in
+      // registration order, so without `capture: true` the diff page's
+      // onKey would run FIRST and call `goto()` before this handler
+      // could stop it. Registering for capture phase guarantees we run
+      // first regardless of registration order, which lets the
+      // stopImmediatePropagation above actually pre-empt onKey.
+      document.addEventListener('keydown', onArrowNav, true)
     } else {
       // Replace `.modal`'s innerHTML in place. The backdrop's MutationObserver
       // only fires when the backdrop itself leaves the DOM, so swapping
@@ -254,31 +388,34 @@ export function openThreadModal(threadId, opts = {}) {
     }
 
     // Stamp last_read_at on open / on navigation. Fire-and-forget;
-    // failure leaves the pill green which is harmless.
+    // failure leaves the pill green which is harmless. The response
+    // is routed through `onRead` (NOT `onChanged`) — see the docstring
+    // above. The default `onRead` is undefined, so by default we skip
+    // any host-side refresh and let the pill update lag one user
+    // action. Hosts that want immediate-but-cheap refresh can opt in
+    // by supplying onRead.
     api(`/api/repos/${encodeURIComponent(repoId)}/threads/${encodeURIComponent(currentId)}/read`, { method: 'POST' })
-      .then((res) => { if (res?.threads) onChanged?.(res) })
+      .then((res) => { if (res?.threads) onRead?.(res) })
       .catch(() => {})
 
     wireHandlers(thread)
-    isInitialMount = false
   }
 
   const wireHandlers = (thread) => {
     const ta = backdrop.querySelector('.thread-reply-input')
     const replyBtn = backdrop.querySelector('[data-reply]')
-    // Only auto-focus on the very first mount. Re-focusing on prev/next
-    // would scroll the modal to the textarea position — the user is
-    // navigating threads, not composing replies. `preventScroll: true`
-    // is load-bearing for the diff-page case: focus() otherwise asks the
-    // browser to scroll the textarea into view, which walks up scroll
-    // containers and yanks the underlying diff page's scrollTop to a
-    // new position. The textarea is already visible inside the modal,
-    // so preventScroll loses nothing.
-    if (isInitialMount) ta?.focus({ preventScroll: true })
+    // No auto-focus on mount: the focused textarea would swallow
+    // ArrowLeft / ArrowRight (cursor movement inside text wins over the
+    // global keydown handler that drives prev/next thread navigation).
+    // The user can click the textarea when ready to compose a reply.
 
     replyBtn?.addEventListener('click', async () => {
       const body = ta.value.trim()
       if (!body) { ta.focus(); return }
+      // Reply is a plain text button now (lives in the footer's modal-
+      // actions row alongside Resolve and Delete), so the conventional
+      // textContent swap to "Saving…" + disabled state gives the user
+      // unambiguous in-flight feedback.
       replyBtn.disabled = true
       replyBtn.textContent = 'Saving…'
       try {
@@ -300,23 +437,19 @@ export function openThreadModal(threadId, opts = {}) {
       }
     })
 
-    if (jumpToDiff) {
-      backdrop.querySelector('[data-jump]')?.addEventListener('click', () => {
-        backdrop.remove()
-        jumpToDiff(thread)
-      })
-    }
-
-    // Prev/next thread navigation. Same closure as the rest of the modal,
-    // so opts (jumpToDiff, onChanged, threadOrder, onClose) flow into the
-    // re-rendered modal unchanged.
+    // Prev / Next nav. Re-wired on every mountOrUpdate because the modal
+    // innerHTML is swapped on navigation, so the button nodes are fresh
+    // (the listeners on the previous mount were tied to nodes that got
+    // garbage-collected with the old innerHTML — no duplicate-handler
+    // pileup risk). Disabled state is baked into the rendered HTML via
+    // the `disabled` attribute, so we don't need a separate sync pass.
     backdrop.querySelector('[data-thread-prev]')?.addEventListener('click', () => {
       const adj = adjacentThreadId(currentId, threadOrder, -1)
-      if (adj) { currentId = adj; mountOrUpdate() }
+      if (adj) { currentId = adj; mountOrUpdate(); onNavigate?.(adj) }
     })
     backdrop.querySelector('[data-thread-next]')?.addEventListener('click', () => {
       const adj = adjacentThreadId(currentId, threadOrder, +1)
-      if (adj) { currentId = adj; mountOrUpdate() }
+      if (adj) { currentId = adj; mountOrUpdate(); onNavigate?.(adj) }
     })
 
     // Click-to-copy on the filename affordance. Lets the developer grab
@@ -360,23 +493,25 @@ export function openThreadModal(threadId, opts = {}) {
           `/api/repos/${encodeURIComponent(repoId)}/threads/${encodeURIComponent(currentId)}/${path}`,
           { method: 'POST' }
         )
-        const updated = res?.threads?.find((t) => t.id === currentId)
-        thread.resolved_at = updated?.resolved_at ?? (toResolved ? new Date().toISOString() : null)
-        const newBtnHtml = toResolved
-          ? '<button type="button" class="thread-unresolve" data-unresolve>Reopen</button>'
-          : '<button type="button" class="thread-resolve" data-resolve>✓ Resolve</button>'
-        btn.outerHTML = newBtnHtml
-        const existingNote = backdrop.querySelector('.thread-resolved-note')
-        if (toResolved) {
-          const noteHtml = `<div class="thread-resolved-note">Resolved ${escapeHtml(relTime(thread.resolved_at))}</div>`
-          if (existingNote) existingNote.outerHTML = noteHtml
-          else backdrop.querySelector('.sub')?.insertAdjacentHTML('afterend', noteHtml)
-        } else {
-          existingNote?.remove()
-        }
-        wireResolutionToggle()
         onChanged?.(res)
         toast(toResolved ? 'Thread resolved' : 'Thread reopened')
+        if (toResolved) {
+          // User signalled "I'm done with this one" — auto-advance to the
+          // next thread (or close if no neighbour). Skip the in-place
+          // button + sub-note swap below: the modal re-mounts on next
+          // thread via advanceAfterDone, so any in-place edits here would
+          // be thrown away by the innerHTML swap.
+          advanceAfterDone()
+          return
+        }
+        // Reopen: the user wants to keep working on this thread, so stay
+        // put and flip the button back to "✓ Resolve" in place. Drop the
+        // "Resolved Xh ago" sub-note since the thread is open again.
+        const updated = res?.threads?.find((t) => t.id === currentId)
+        thread.resolved_at = updated?.resolved_at ?? null
+        btn.outerHTML = '<button type="button" class="thread-resolve" data-resolve>✓ Resolve</button>'
+        backdrop.querySelector('.thread-resolved-note')?.remove()
+        wireResolutionToggle()
       } catch (e) {
         btn.disabled = false
         btn.textContent = originalLabel
@@ -388,10 +523,10 @@ export function openThreadModal(threadId, opts = {}) {
     backdrop.querySelector('[data-delete]')?.addEventListener('click', () => {
       const confirmBackdrop = makeModal(`
         <h2>Delete this thread?</h2>
-        <p class="modal-text">Removes the thread, its comments, and the on-disk JSON file. This can't be undone.</p>
-        <div class="modal-actions">
+        <p class="modal-text">Deletes the thread, its comments, and the on-disk JSON file. This can't be undone.</p>
+        <div class="modal-actions is-reversed">
+          <button class="danger" data-confirm>Delete</button>
           <button data-close>Cancel</button>
-          <button class="primary" data-confirm>Delete</button>
         </div>`)
       confirmBackdrop.querySelector('[data-confirm]').onclick = async () => {
         try {
@@ -400,9 +535,11 @@ export function openThreadModal(threadId, opts = {}) {
             { method: 'DELETE' }
           )
           confirmBackdrop.remove()
-          backdrop.remove()
           onChanged?.(res)
           toast('Thread deleted')
+          // Auto-advance to the next thread instead of closing the modal.
+          // `advanceAfterDone` closes the modal if no neighbour remains.
+          advanceAfterDone()
         } catch (e) {
           toast('Delete failed: ' + (e.message || 'unknown'))
         }
@@ -523,12 +660,6 @@ export function openThreadModal(threadId, opts = {}) {
   }
 }
 
-/** Read the "last viewed" thread id stashed by openThreadModal. */
-export function getLastOpenedThreadId() {
-  try { return sessionStorage.getItem(LAST_OPENED_KEY) || null }
-  catch { return null }
-}
-
 /**
  * Rewrite `?thread=…` in the current hash to the given id, preserving any
  * other query params (e.g. `?file=…` on the diff page, though the thread
@@ -556,16 +687,3 @@ function adjacentThreadId(currentId, order, step) {
   return next >= 0 && next < order.length ? order[next] : null
 }
 
-function renderThreadNav(currentId, order) {
-  if (!Array.isArray(order) || order.length <= 1) return ''
-  const idx = order.indexOf(currentId)
-  if (idx < 0) return ''
-  const prevDisabled = idx === 0
-  const nextDisabled = idx === order.length - 1
-  const position = `${idx + 1} of ${order.length}`
-  return '<div class="thread-modal-nav" role="group" aria-label="Thread navigation">' +
-    `<button type="button" class="thread-nav-btn" data-thread-prev aria-label="Previous thread" title="Previous thread"${prevDisabled ? ' disabled' : ''}>‹</button>` +
-    `<span class="thread-nav-position">${position}</span>` +
-    `<button type="button" class="thread-nav-btn" data-thread-next aria-label="Next thread" title="Next thread"${nextDisabled ? ' disabled' : ''}>›</button>` +
-  '</div>'
-}

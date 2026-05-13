@@ -1,6 +1,8 @@
 # slop-review
 
-A local PR-review loop for developer ↔ LLM. Run it inside any git repo to leave inline review comments on the diff, ask an LLM (Claude Code, Cursor, Codex, etc.) to act as reviewer or reviewee via the bundled skill, and watch replies stream back live over SSE. Comments live as JSON files under `<repo>/.reviews/` — no GitHub API, no clipboard handoff, no running server required for agent workflows.
+A local PR-review loop for developer ↔ LLM. Run it inside any git repo to leave inline review comments on the diff, then ask an LLM (Claude Code, Cursor, Codex, etc.) to act as reviewer or reviewee via the bundled skill. Comments live as JSON files under `<repo>/.reviews/` — no GitHub API, no clipboard handoff, no running server required for agent workflows.
+
+The UI is a single diff page: pick the full branch diff, the local working-copy diff, or any individual commit; threads and the LLM-generated branch overview both open as modals from the diff header. Agent replies land in the JSON files directly — refresh or reopen a thread to see them.
 
 ## Getting started
 
@@ -15,7 +17,7 @@ Flags: `--port <n>`, `--host <h>`, `--no-open`, `-h`.
 
 Prerequisites: Node ≥ 20, `git` on `PATH`. No runtime dependencies — the server runs on `node:http` + the standard library only, so `npx slop-review` doesn't pull a tree of transitive packages onto your machine.
 
-The Overview page uses `codex exec` in read-only non-interactive mode. If `codex` is not on `PATH` or not logged in, the page shows the captured CLI error and a retry button.
+The Overview modal uses `codex exec` in read-only non-interactive mode to generate a branch summary on demand. If `codex` is not on `PATH` or not logged in, the modal shows the captured CLI error and a retry button.
 
 State (schema version only): `~/.config/slop-review/state.json`.
 
@@ -55,7 +57,7 @@ Now edits to `skills/slop-review/SKILL.md` in this checkout are live in Claude C
 git clone <this-repo> && cd slop-review
 ```
 
-There are no dependencies, the HTTP layer (`server/http.js`) is a small in-house wrapper over `node:http` that handles routing, JSON, static files and SSE. If you change it, exercise the full request surface manually before shipping; the test suite (`npm test`) covers diff/state logic only.
+There are no dependencies, the HTTP layer (`server/http.js`) is a small in-house wrapper over `node:http` that handles routing, JSON, and static files. If you change it, exercise the full request surface manually before shipping; the test suite (`npm test`) covers diff/state logic only.
 
 Frontend (`public/**`) edits don't need a restart — just hard-refresh the browser.
 

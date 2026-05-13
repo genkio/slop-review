@@ -9,7 +9,6 @@ import { extname, normalize, resolve as resolvePath, sep } from 'node:path'
 //   - createApp().get/post/put/patch/delete/use(pattern, handler)
 //   - ctx.req.param(name) / ctx.req.query(name) / ctx.req.json()
 //   - ctx.json(body, status?) / ctx.text(body, status?) / ctx.header(k, v)
-//   - stream(ctx, async (s) => …) for SSE, with s.write + s.onAbort
 //   - serveStatic({ root, rewriteRequestPath }) middleware
 //   - serve({ app, port, hostname }, onListen)
 // Single-user local-machine app; no auth, CORS, or compression knobs.
@@ -228,60 +227,6 @@ export function serveStatic({ root, rewriteRequestPath }) {
       c.rawRes.on('finish', resolveDone)
       fileStream.pipe(c.rawRes)
     })
-  }
-}
-
-/**
- * SSE helper. Mirrors hono/streaming's contract enough that the events
- * route can keep its existing shape:
- *   - `s.write(chunk)` returns a Promise that resolves once the chunk
- *     has been written (honoring backpressure via 'drain').
- *   - `s.onAbort(fn)` fires when the client disconnects.
- *   - The body is left open until `fn` returns; the route handler keeps
- *     the response alive with `await new Promise(() => {})`.
- *
- * Headers set via `c.header(...)` before calling `stream()` are flushed
- * here (Content-Type: text/event-stream, etc).
- */
-export async function stream(c, fn) {
-  const res = c.rawRes
-  c._flushHeaders(200)
-  if (typeof res.flushHeaders === 'function') res.flushHeaders()
-
-  let aborted = false
-  const abortHandlers = []
-  const onClose = () => {
-    if (aborted) return
-    aborted = true
-    for (const h of abortHandlers) {
-      try { h() } catch (e) { console.error('[slop-review] SSE onAbort handler threw:', e) }
-    }
-  }
-  c.rawReq.on('close', onClose)
-
-  const s = {
-    write: (chunk) => {
-      if (aborted || res.writableEnded) return Promise.resolve()
-      return new Promise((resolveWrite, rejectWrite) => {
-        // The write callback fires once the chunk is flushed (including
-        // when buffered under backpressure), giving callers natural
-        // back-pressure handling without a separate 'drain' listener.
-        res.write(chunk, (err) => {
-          if (err) rejectWrite(err)
-          else resolveWrite()
-        })
-      })
-    },
-    onAbort: (h) => { abortHandlers.push(h) },
-  }
-
-  try {
-    await fn(s)
-  } catch (e) {
-    if (!aborted) console.error('[slop-review] SSE handler threw:', e)
-  }
-  if (!res.writableEnded) {
-    try { res.end() } catch {}
   }
 }
 

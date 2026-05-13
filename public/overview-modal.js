@@ -1,187 +1,166 @@
-import { api } from '../api.js'
-import { store } from '../store.js'
-import { escapeHtml, relTime, toast } from '../util.js'
-import { ROUTES } from '../routes.js'
-import { subscribeRepoEvents } from '../sse.js'
+import { api } from './api.js'
+import { escapeHtml, relTime, toast } from './util.js'
+import { makeModal } from './modals.js'
 
 const POLL_MS = 2500
-let pollTimer = null
-let threadsUnsub = null
 
-export async function renderOverviewPage(isCurrent = () => true) {
-  disposeOverviewView()
+/**
+ * Open the generated branch overview inside a modal. Reuses makeModal's
+ * backdrop + Esc handling and the existing section-aware markdown render.
+ * The polling lifecycle (idle → generating → ready, plus stale + error
+ * paths) lives entirely inside this function so the modal own-disposes
+ * its poll timer when the user dismisses it.
+ */
+export function openOverviewModal(repoId) {
+  if (!repoId) return
 
-  const repo = store.state.repos[0]
-  if (!repo) { location.hash = ROUTES.threads(); return }
-  if (!isCurrent()) return
+  let pollTimer = null
+  let disposed = false
+  const clearTimer = () => { if (pollTimer) clearTimeout(pollTimer); pollTimer = null }
 
-  const main = document.getElementById('main')
-  main.innerHTML = `
-    <div class="app-page overview-page">
-      <div class="page-head">
-        <div class="overview-page-title">
-          <h1>Overview</h1>
-          <span class="overview-generated" id="overview-generated" hidden></span>
-        </div>
-        <div class="actions">
-          <a class="page-nav" href="${ROUTES.diffFull()}">Diff</a>
-          <a class="page-nav" data-threads-link href="${ROUTES.threads()}" hidden>Threads</a>
-        </div>
+  const backdrop = makeModal(`
+    <div class="overview-modal" data-overview-modal>
+      <div class="overview-modal-head">
+        <h2>Overview</h2>
+        <span class="overview-generated" data-overview-generated hidden></span>
       </div>
-      <div id="overview-body" class="overview-body">
+      <div class="overview-modal-body" data-overview-body>
         <div class="branch-loading">Loading overview…</div>
       </div>
-    </div>`
+    </div>`, {
+    onClose: () => { disposed = true; clearTimer() },
+  })
+  // Widen the modal so the Mental Model two-column grid + What-Changed
+  // card grid have breathing room — the default 600px max-width crams
+  // every section into a single column.
+  backdrop.querySelector('.modal')?.classList.add('modal-wide')
 
-  refreshThreadsLink(repo, isCurrent)
-  threadsUnsub = subscribeRepoEvents(repo.id, () => refreshThreadsLink(repo, isCurrent))
+  const body = backdrop.querySelector('[data-overview-body]')
+  const stampEl = backdrop.querySelector('[data-overview-generated]')
 
-  await refresh(repo, isCurrent)
-}
-
-export function disposeOverviewView() {
-  if (pollTimer) clearTimeout(pollTimer)
-  pollTimer = null
-  if (threadsUnsub) { try { threadsUnsub() } catch {} }
-  threadsUnsub = null
-}
-
-async function refreshThreadsLink(repo, isCurrent) {
-  try {
-    const r = await api(`/api/repos/${encodeURIComponent(repo.id)}/threads`)
-    if (!isCurrent()) return
-    const link = document.querySelector('[data-threads-link]')
-    if (link) link.hidden = !(r?.threads?.length)
-  } catch {}
-}
-
-async function refresh(repo, isCurrent) {
-  disposeOverviewView()
-  if (!isCurrent()) return
-  const body = document.getElementById('overview-body')
-  if (!body) return
-  try {
-    const status = await api(`/api/repos/${encodeURIComponent(repo.id)}/overview`)
-    if (!isCurrent()) return
-    renderStatus(body, repo, status, isCurrent)
-    if (status.status === 'generating') {
-      pollTimer = setTimeout(() => refresh(repo, isCurrent), POLL_MS)
+  async function refresh() {
+    clearTimer()
+    if (disposed) return
+    try {
+      const status = await api(`/api/repos/${encodeURIComponent(repoId)}/overview`)
+      if (disposed) return
+      renderStatus(status)
+      if (status.status === 'generating') pollTimer = setTimeout(refresh, POLL_MS)
+    } catch (e) {
+      if (disposed) return
+      body.innerHTML = `<div class="branch-error">Failed to load overview: ${escapeHtml(e.message)}</div>`
     }
-  } catch (e) {
-    if (!isCurrent()) return
-    body.innerHTML = `<div class="branch-error">Failed to load overview: ${escapeHtml(e.message)}</div>`
   }
-}
 
-function renderStatus(body, repo, status, isCurrent) {
-  updateGeneratedStamp(status)
+  function renderStatus(status) {
+    updateGeneratedStamp(status)
 
-  if (status.status === 'ready') {
-    const rendered = renderOverview(status.content || '')
+    if (status.status === 'ready') {
+      const rendered = renderOverview(status.content || '')
+      body.innerHTML = `
+        <article class="overview-content">${rendered}</article>
+        <div class="overview-actions">
+          <button type="button" data-regenerate-overview>Regenerate</button>
+        </div>`
+      body.querySelector('[data-regenerate-overview]')?.addEventListener('click', regenerate)
+      return
+    }
+
+    if (status.status === 'generating') {
+      body.innerHTML = `
+        <div class="overview-pending">
+          <span class="wt-spinner" aria-hidden="true"></span>
+          <span>Generating overview…</span>
+        </div>`
+      return
+    }
+
+    if (status.status === 'error' || status.error) {
+      body.innerHTML = `
+        <div class="overview-error">
+          <div class="overview-error-title">Overview generation failed.</div>
+          <pre>${escapeHtml(status.error || 'Unknown error')}</pre>
+          <button type="button" class="primary" data-regenerate-overview>Retry</button>
+        </div>`
+      body.querySelector('[data-regenerate-overview]')?.addEventListener('click', regenerate)
+      return
+    }
+
+    if (status.status === 'stale') {
+      const canRegen = status.can_generate && status.codex_available
+      const headFrag = status.head_sha
+        ? `Current HEAD <code>${escapeHtml(status.head_sha.slice(0, 12))}</code> no longer matches the snapshot this overview was generated for.`
+        : 'New commits or local changes have been made since this overview was generated.'
+      const codexNote = !canRegen && status.codex_error
+        ? `<div class="overview-stale-note">${escapeHtml(status.codex_error)}</div>`
+        : ''
+      const action = canRegen
+        ? '<button type="button" class="primary" data-regenerate-overview>Regenerate overview</button>'
+        : ''
+      const article = status.content
+        ? `<article class="overview-content overview-content-stale" aria-label="Previous overview, out of date">${renderOverview(status.content)}</article>`
+        : ''
+      body.innerHTML = `
+        <div class="overview-stale" role="status">
+          <div class="overview-stale-head">
+            <span class="overview-stale-badge">Out of date</span>
+            <span class="overview-stale-title">This overview no longer reflects the current branch state.</span>
+          </div>
+          <div class="overview-stale-sub">${headFrag}</div>
+          ${codexNote}
+          ${action}
+        </div>
+        ${article}`
+      body.querySelector('[data-regenerate-overview]')?.addEventListener('click', regenerate)
+      return
+    }
+
+    const label = status.can_generate && !status.codex_available && status.codex_error
+      ? status.codex_error
+      : (status.reason || 'No overview has been generated yet.')
+    const action = status.can_generate && status.codex_available
+      ? '<button type="button" class="primary" data-regenerate-overview>Generate overview</button>'
+      : ''
     body.innerHTML = `
-      <article class="overview-content">${rendered}</article>
-      <div class="overview-actions">
-        <button type="button" data-regenerate-overview>Regenerate</button>
+      <div class="overview-empty">
+        <p>${escapeHtml(label)}</p>
+        ${action}
       </div>`
-    body.querySelector('[data-regenerate-overview]')?.addEventListener('click', () => regenerate(body, repo, isCurrent))
-    return
+    body.querySelector('[data-regenerate-overview]')?.addEventListener('click', regenerate)
   }
 
-  if (status.status === 'generating') {
+  function updateGeneratedStamp(status) {
+    if (!stampEl) return
+    if (status?.completed_at) {
+      stampEl.textContent = `Generated ${relTime(status.completed_at)}`
+      stampEl.hidden = false
+    } else {
+      stampEl.textContent = ''
+      stampEl.hidden = true
+    }
+  }
+
+  async function regenerate() {
     body.innerHTML = `
       <div class="overview-pending">
         <span class="wt-spinner" aria-hidden="true"></span>
         <span>Generating overview…</span>
       </div>`
-    return
-  }
-
-  if (status.status === 'error' || status.error) {
-    body.innerHTML = `
-      <div class="overview-error">
-        <div class="overview-error-title">Overview generation failed.</div>
-        <pre>${escapeHtml(status.error || 'Unknown error')}</pre>
-        <button type="button" class="primary" data-regenerate-overview>Retry</button>
-      </div>`
-    body.querySelector('[data-regenerate-overview]')?.addEventListener('click', () => regenerate(body, repo, isCurrent))
-    return
-  }
-
-  if (status.status === 'stale') {
-    const canRegen = status.can_generate && status.codex_available
-    const headFrag = status.head_sha
-      ? `Current HEAD <code>${escapeHtml(status.head_sha.slice(0, 12))}</code> no longer matches the snapshot this overview was generated for.`
-      : 'New commits or local changes have been made since this overview was generated.'
-    const codexNote = !canRegen && status.codex_error
-      ? `<div class="overview-stale-note">${escapeHtml(status.codex_error)}</div>`
-      : ''
-    const action = canRegen
-      ? '<button type="button" class="primary" data-regenerate-overview>Regenerate overview</button>'
-      : ''
-    const article = status.content
-      ? `<article class="overview-content overview-content-stale" aria-label="Previous overview, out of date">${renderOverview(status.content)}</article>`
-      : ''
-    body.innerHTML = `
-      <div class="overview-stale" role="status">
-        <div class="overview-stale-head">
-          <span class="overview-stale-badge">Out of date</span>
-          <span class="overview-stale-title">This overview no longer reflects the current branch state.</span>
-        </div>
-        <div class="overview-stale-sub">${headFrag}</div>
-        ${codexNote}
-        ${action}
-      </div>
-      ${article}`
-    body.querySelector('[data-regenerate-overview]')?.addEventListener('click', () => regenerate(body, repo, isCurrent))
-    return
-  }
-
-  const label = status.can_generate && !status.codex_available && status.codex_error
-    ? status.codex_error
-    : (status.reason || 'No overview has been generated yet.')
-  const action = status.can_generate && status.codex_available
-    ? '<button type="button" class="primary" data-regenerate-overview>Generate overview</button>'
-    : ''
-  body.innerHTML = `
-    <div class="overview-empty">
-      <p>${escapeHtml(label)}</p>
-      ${action}
-    </div>`
-  body.querySelector('[data-regenerate-overview]')?.addEventListener('click', () => regenerate(body, repo, isCurrent))
-}
-
-function updateGeneratedStamp(status) {
-  const el = document.getElementById('overview-generated')
-  if (!el) return
-  if (status?.completed_at) {
-    el.textContent = `Generated ${relTime(status.completed_at)}`
-    el.hidden = false
-  } else {
-    el.textContent = ''
-    el.hidden = true
-  }
-}
-
-async function regenerate(body, repo, isCurrent) {
-  body.innerHTML = `
-    <div class="overview-pending">
-      <span class="wt-spinner" aria-hidden="true"></span>
-      <span>Generating overview…</span>
-    </div>`
-  try {
-    const status = await api(`/api/repos/${encodeURIComponent(repo.id)}/overview`, {
-      method: 'POST',
-      body: JSON.stringify({ force: true }),
-    })
-    if (!isCurrent()) return
-    renderStatus(body, repo, status, isCurrent)
-    if (status.status === 'generating') {
-      pollTimer = setTimeout(() => refresh(repo, isCurrent), POLL_MS)
+    try {
+      const status = await api(`/api/repos/${encodeURIComponent(repoId)}/overview`, {
+        method: 'POST',
+        body: JSON.stringify({ force: true }),
+      })
+      if (disposed) return
+      renderStatus(status)
+      if (status.status === 'generating') pollTimer = setTimeout(refresh, POLL_MS)
+    } catch (e) {
+      toast('Overview failed: ' + (e.message || 'unknown'))
+      await refresh()
     }
-  } catch (e) {
-    toast('Overview failed: ' + (e.message || 'unknown'))
-    await refresh(repo, isCurrent)
   }
+
+  refresh()
 }
 
 function renderOverview(markdown) {

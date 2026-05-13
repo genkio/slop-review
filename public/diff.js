@@ -1,9 +1,8 @@
 import { api } from './api.js'
-import { escapeHtml, inlineCode, relTime, copyToClipboard, toast, formatLineRange } from './util.js'
-import { openThreadModal, confirmRemoveComment } from './modals.js'
+import { escapeHtml, inlineCode, relTime, copyToClipboard, toast } from './util.js'
+import { openThreadModal, confirmRemoveComment, makeModal } from './modals.js'
 import { languageForPath, highlightLine } from './syntax.js'
 import { intraLineSegments } from './intra-line-diff.js'
-import { subscribeRepoEvents } from './sse.js'
 import { ROUTES } from './routes.js'
 import { setupOverviewNav } from './overview-nav.js'
 
@@ -232,7 +231,6 @@ function renderFileSection(file, mode, sha, opts = {}) {
     isReviewed          = false,
     isCollapsed         = false,
     showRelateBtn       = false,
-    showReviewedToggle  = false,
     isFilterAnchor      = false,
     priorityEntry       = null,
     relationship        = null,
@@ -282,25 +280,13 @@ function renderFileSection(file, mode, sha, opts = {}) {
       relateBtn = `<button type="button" class="diff-relate-btn${isFilterAnchor ? ' active' : ''}" data-relate-anchor="${escapeHtml(file.path)}" title="${title}">${label}</button>`
     }
   }
-  // Per-file reviewed toggle — only rendered in Full diff view because the
-  // reviewed-batches store is keyed by HEAD SHA against the full file set.
-  // Per-commit and Local views don't persist this state, so the button is
-  // suppressed there to avoid implying it does. Click stops propagation so
-  // it doesn't trigger the file head's collapse-toggle.
-  //
-  // Split-placement: the `Mark reviewed` action lives at the *footer* of the
-  // file (the user's natural moment to mark is after reading top-to-bottom),
-  // while the `✓ reviewed` toggle stays in the *header* of an already-marked
-  // file (a collapsed-reviewed file shows only its header — the unmark
-  // affordance must be reachable without re-expanding). The button is never
-  // rendered in both places at once, so the user is never confused about
-  // which one to click.
-  const headerReviewedToggle = (showReviewedToggle && isReviewed)
-    ? `<button type="button" class="diff-file-mark active" data-toggle-reviewed="${escapeHtml(file.path)}" title="Marked reviewed — click to unmark" aria-pressed="true">✓ reviewed</button>`
-    : ''
-  const footerReviewedToggle = (showReviewedToggle && !isReviewed)
-    ? `<button type="button" class="diff-file-mark" data-toggle-reviewed="${escapeHtml(file.path)}" title="Mark this file reviewed" aria-pressed="false">○ Mark reviewed</button>`
-    : ''
+  // Per-file reviewed state is now expressed visually only — the
+  // `.is-reviewed` green wash on `.diff-file-head` (see app.css) is the
+  // sole indicator. There's no separate Mark/Unmark button: clicking the
+  // header to collapse a file in Full view also marks it reviewed; the
+  // header click to expand also unmarks. Per-commit and Local views
+  // still toggle collapse alone, since their reviewed-batches store
+  // (HEAD-SHA-keyed against the Full file set) doesn't apply.
 
   // Relationship chip — only on non-anchor files in filter mode
   let relChip = ''
@@ -317,13 +303,6 @@ function renderFileSection(file, mode, sha, opts = {}) {
 
   const sectionClass = `diff-file${isReviewed ? ' is-reviewed' : ''}${isFilterAnchor ? ' is-filter-anchor' : ''}${isCollapsed ? ' is-collapsed' : ''}`
 
-  // Footer wrapper is suppressed when there's nothing to put in it (e.g.
-  // per-commit / Local view, or an already-reviewed file). Keeps the
-  // section clean and avoids an empty hairline strip under reviewed files.
-  const footerHtml = footerReviewedToggle
-    ? `<footer class="diff-file-footer">${footerReviewedToggle}</footer>`
-    : ''
-
   return `<section class="${sectionClass}" data-path="${escapeHtml(file.path)}" data-status="${status}">` +
     `<header class="diff-file-head" data-toggle-collapse>` +
       `<button type="button" class="diff-file-toggle" data-toggle-collapse aria-expanded="${isCollapsed ? 'false' : 'true'}" aria-label="${isCollapsed ? 'Expand file' : 'Collapse file'} ${escapeHtml(file.path)}"></button>` +
@@ -331,18 +310,16 @@ function renderFileSection(file, mode, sha, opts = {}) {
       `<code class="diff-file-path">${pathShown}</code>` +
       `<span class="diff-file-stats"><span class="diff-stat-add">+${file.additions ?? 0}</span> <span class="diff-stat-del">−${file.deletions ?? 0}</span></span>` +
       relChip +
-      headerReviewedToggle +
       relateBtn +
     `</header>` +
     `<div class="diff-file-body">${body}</div>` +
-    footerHtml +
   `</section>`
 }
 
 // Module-level cleanup: when the user navigates away from the diff page
 // (router renders something else into #main), we need to tear down the
-// SSE subscription and key handlers from the previous diff view. The page
-// host calls `disposeDiffView()` on unmount.
+// key handlers from the previous diff view. The page host calls
+// `disposeDiffView()` on unmount.
 let activeDispose = null
 export function disposeDiffView() {
   if (activeDispose) {
@@ -355,7 +332,7 @@ export function disposeDiffView() {
  * Render the full diff view as a regular page (not a modal). Mounts into
  * #main directly; URL is governed by the router's `#/diff[/...]` routing.
  * Caller (pages/diff.js) supplies branch info + commits and the page
- * handles its own keyboard nav, SSE subscription, and URL sync.
+ * handles its own keyboard nav and URL sync.
  *
  * Returns when the initial load+render completes. The caller doesn't need
  * to await it for navigation; it's awaited mainly so `scrollToAnchor`
@@ -363,7 +340,7 @@ export function disposeDiffView() {
  */
 export async function renderDiffView({ repo, branch, branchId, branchInfo, commits, initialIndex = 0, hasLocal = false, scrollToAnchor = null, singleFile = null, threadContextId = null, isCurrent = () => true }) {
   if (!isCurrent()) return
-  // Tear down any previous diff view's listeners + SSE before we re-mount.
+  // Tear down any previous diff view's listeners before we re-mount.
   disposeDiffView()
   if (!isCurrent()) return
 
@@ -407,9 +384,18 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
     commentSelection: null,
     // One-shot flag: true on initial mount + on goto(); cleared by renderBody
     // after applying scrollTop=0. Subsequent renders triggered by
-    // refreshReviewed / SSE / filter-toggle preserve the user's scroll
-    // position — no more snap-back fighting maybeScrollToAnchor.
+    // refreshReviewed / filter-toggle / loadThreads preserve the user's
+    // scroll position — no more snap-back fighting maybeScrollToAnchor.
     shouldResetScroll: true,
+    // Set true while a thread-jump scroll is converging — the scroll-
+    // preservation paths in renderBody/loadThreads bow out for this
+    // window so they don't undo the jump.
+    jumpInFlight: false,
+    // True while the diff body's content-visibility override is applied
+    // (every `.diff-file` carrying `is-jumping`). Set when a thread-jump
+    // pins layout for the modal session; cleared by `releaseJumpLayout`
+    // from the modal's onClose so off-screen sections can re-evict.
+    jumpLayoutApplied: false,
   }
 
   const main = document.getElementById('main')
@@ -440,7 +426,6 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
       </div>
       <div class="diff-actions">
         <span data-overview-nav class="overview-nav-slot"></span>
-        <a class="page-nav" data-threads-link href="${ROUTES.threads()}" hidden>Threads</a>
       </div>
     </header>
     <div class="diff-body" data-body>
@@ -465,11 +450,19 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
   }
   function syncUrl() {
     const next = urlForIndex(state.index)
-    if (location.hash === next) return
-    history.replaceState(null, '', next)
+    // Preserve any query params on the current URL — `?file=…` and
+    // `?thread=…` carry state independent of the diff variant, and
+    // clobbering them here would break the Jump-to-file modal flow and
+    // the auto-reopen-on-?thread path. Only the path portion is
+    // controlled by syncUrl.
+    const hash = location.hash
+    const qIdx = hash.indexOf('?')
+    const currentPath = qIdx < 0 ? hash : hash.slice(0, qIdx)
+    if (currentPath === next) return
+    const query = qIdx < 0 ? '' : hash.slice(qIdx)
+    history.replaceState(null, '', next + query)
   }
 
-  let unsubscribeSse = null
   let disposeOverviewNav = null
   let disposed = false
   let flashTimer = null
@@ -478,7 +471,6 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
     if (disposed) return
     disposed = true
     document.removeEventListener('keydown', onKey)
-    if (unsubscribeSse) { try { unsubscribeSse() } catch {}; unsubscribeSse = null }
     if (disposeOverviewNav) { try { disposeOverviewNav() } catch {}; disposeOverviewNav = null }
     if (flashTimer) { clearTimeout(flashTimer); flashTimer = null }
     // Floating button lives on document.body — its parent isn't the
@@ -505,8 +497,13 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
         e.preventDefault()
       }
     }
-    else if (e.key === 'ArrowLeft' || e.key === '[')  { goto(state.index - 1); e.preventDefault() }
-    else if (e.key === 'ArrowRight' || e.key === ']') { goto(state.index + 1); e.preventDefault() }
+    // Commit / variant navigation: Shift+arrow only. Plain arrows are
+    // reserved for the thread modal's thread-by-thread navigation
+    // (see modals.js onArrowNav); a Shift modifier is the explicit
+    // signal that the user wants to move *between* diffs rather than
+    // between threads.
+    else if (e.key === 'ArrowLeft'  && e.shiftKey) { goto(state.index - 1); e.preventDefault() }
+    else if (e.key === 'ArrowRight' && e.shiftKey) { goto(state.index + 1); e.preventDefault() }
   }
   document.addEventListener('keydown', onKey)
   syncUrl()
@@ -1194,10 +1191,20 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
             anchor_text: anchorText,
           }),
         })
+        // Capture scroll BEFORE the editor row is removed and inline
+        // threads are re-rendered. `editor.remove()` shrinks the
+        // containing .diff-file by the editor's height, and
+        // renderInlineComments wipes-and-re-adds every `.diff-row-thread`
+        // across the whole diff. With `overflow-anchor: none` on
+        // .diff-body, the browser does NOT compensate for these layout
+        // shifts — without preserveScrollTo, the viewport drifts.
+        const bodyEl = $('[data-body]')
+        const savedScroll = bodyEl?.scrollTop ?? 0
         editor.remove()
         if (res.threads) state.threads = res.threads
         clearCommentSelection()
         renderInlineComments()
+        if (bodyEl && savedScroll > 0) preserveScrollTo(bodyEl, savedScroll)
         toast('Comment added')
       } catch (e) {
         submitBtn.disabled = false
@@ -1219,20 +1226,40 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
     // context at that level), so we own it here where we have state.threads
     // and repo.id in scope. stopPropagation prevents the toast from firing.
     // data-show-thread sits on both the file:line anchor button AND each
-    // comment body — clicking either opens the modal (matches the threads
-    // page behavior where any thread-row click opens the detail). We bail
-    // on active text selection so users can still highlight comment text
-    // to copy without the click being interpreted as "open modal."
+    // comment body — clicking either opens the modal. We bail on active
+    // text selection so users can still highlight comment text to copy
+    // without the click being interpreted as "open modal."
     const showThread = e.target.closest('[data-show-thread]')
     if (showThread) {
       if (window.getSelection?.()?.toString().trim()) return
       e.preventDefault(); e.stopPropagation()
-      const tid = showThread.dataset.showThread
-      openThreadModal(tid, {
-        repoId: repo.id,
-        getThread: (id) => state.threads.find((t) => t.id === id),
-        onChanged: () => { loadThreads() },
-      })
+      openThread(showThread.dataset.showThread)
+      return
+    }
+
+    // Counts-strip total → open the first thread in visual document order.
+    // Resolved at click-time (not render-time) because the inline thread
+    // rows aren't in the DOM yet when renderReviewBanner runs — see the
+    // comment on `data-show-first-thread` in renderThreadCounts.
+    if (e.target.closest('[data-show-first-thread]')) {
+      if (window.getSelection?.()?.toString().trim()) return
+      e.preventDefault(); e.stopPropagation()
+      // `*Inclusive` includes anchor-lost threads (different view, or all
+      // threads anchored to a SHA the user isn't currently on) appended
+      // after the rendered ones in (file, line) order, so the click still
+      // resolves to a real thread id and the modal that opens has a
+      // populated `threadOrder` for prev/next + "N of M".
+      const firstId = computeThreadOrderInclusive()[0]
+      if (firstId) openThread(firstId)
+      return
+    }
+
+    // Bulk-delete: drop the last reply from every thread with >1 comment.
+    // Stays inside the diff page (not modals.js) because the action is
+    // host-state-coupled (state.threads, repo.id, loadThreads).
+    if (e.target.closest('[data-clear-replies]')) {
+      e.preventDefault(); e.stopPropagation()
+      confirmBulkDeleteLastReplies()
       return
     }
 
@@ -1296,23 +1323,19 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
     const backToThread = e.target.closest('[data-back-to-thread]')
     if (backToThread) {
       e.preventDefault(); e.stopPropagation()
-      // Navigate to the threads page with the same thread id in the URL
-      // so it reopens the modal. The router will tear down this diff page
-      // (disposeDiffPage on the cross-page transition), so we don't need
-      // to clear state.filter here.
+      // Same-page back-to-thread: clear the file filter, drop ?file= from
+      // the URL, and reopen the thread modal. The modal's syncThreadInUrl
+      // will re-add ?thread= on mount, so we don't need to push it here.
       const threadId = backToThread.dataset.threadId || ''
-      location.hash = ROUTES.threads(threadId ? { thread: threadId } : null)
+      state.filter = null
+      stripFileQuery()
+      renderBody()
+      if (threadId) openThread(threadId)
       return
     }
     if (e.target.closest('[data-clear-filter]')) {
       state.filter = null
       renderBody()
-      return
-    }
-    const markFile = e.target.closest('[data-toggle-reviewed]')
-    if (markFile) {
-      e.preventDefault(); e.stopPropagation()
-      toggleFileReviewed(markFile.dataset.toggleReviewed)
       return
     }
     const view = e.target.closest('[data-view]')
@@ -1332,6 +1355,18 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
     if (!section) return
     const path = section.dataset.path
     const willCollapse = !state.collapsedPaths.has(path)
+    // Mark-reviewed gate: in Full view, collapsing a not-yet-reviewed file
+    // also marks it reviewed (see the conflate block below). Block that
+    // transition when the file still has unresolved threads — the user
+    // shouldn't be able to close out feedback they haven't addressed.
+    // Bail before any DOM/state mutation so the file stays expanded too.
+    if (willCollapse && isFullIndex(state.index) && !state.reviewed.has(path)) {
+      const unresolved = unresolvedThreadCountFor(path)
+      if (unresolved > 0) {
+        toast(`Resolve ${unresolved} open thread${unresolved === 1 ? '' : 's'} on ${path.split('/').pop()} before marking it reviewed`)
+        return
+      }
+    }
     if (willCollapse) {
       state.collapsedPaths.add(path)
       section.classList.add('is-collapsed')
@@ -1346,6 +1381,15 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
     if (toggleBtn) {
       toggleBtn.setAttribute('aria-expanded', String(!willCollapse))
       toggleBtn.setAttribute('aria-label', `${willCollapse ? 'Expand' : 'Collapse'} file ${path}`)
+    }
+    // Conflate mark-reviewed with the collapse gesture on Full view. The
+    // reviewed-batches store is HEAD-SHA-keyed against the Full file set,
+    // so per-commit / Local headers continue to toggle collapse only.
+    // We sync collapse → reviewed (not the other way) so the persisted
+    // reviewed set follows from the user's last collapse gesture.
+    if (isFullIndex(state.index)) {
+      const currentlyReviewed = state.reviewed.has(path)
+      if (willCollapse !== currentlyReviewed) toggleFileReviewed(path)
     }
   })
 
@@ -1369,20 +1413,38 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
   // ------------------------------------------------------------------
   // Reviewed-batches (Full diff only)
   // ------------------------------------------------------------------
-  // Files containing at least one thread anchored in the *current* view.
-  // Mirrors the view-filter logic that renderInlineComments uses, so the
-  // count and the filtered file set agree with what the user actually
-  // sees inline. Returned as a Set<string> of repo-relative paths.
-  function threadFilesForCurrentView() {
-    const view = viewForCurrentIndex()
-    const currentSha = view === 'commit' ? state.commits[state.index]?.sha : null
+  // Files containing at least one thread, regardless of which view the
+  // thread was anchored in. View-agnostic on purpose: a thread left on a
+  // per-commit anchor still represents real feedback on the file, so the
+  // "with threads" chip count and the threads-filter file set must surface
+  // it even when the user is on a different view than where the thread
+  // was created. This matches the precedent set by `unresolvedThreadCountFor`
+  // (which already scans every view) and by the counts-strip total. The
+  // earlier "current-view only" semantic produced a confusing UI where the
+  // chip would silently vanish in one view but reappear in another even
+  // though the same threads existed.
+  function threadFiles() {
     const set = new Set()
     for (const t of state.threads) {
-      if ((t.view || 'full') !== view) continue
-      if (view === 'commit' && t.sha !== currentSha) continue
       if (t.file) set.add(t.file)
     }
     return set
+  }
+
+  // Count of unresolved threads anchored on `path`. Scans every view —
+  // a thread left on a per-commit anchor still represents unaddressed
+  // feedback on the file, so the gate for "can this file be marked
+  // reviewed?" treats it the same as a Full-view thread. Everything not
+  // explicitly `resolved` counts (your_turn / awaiting / read).
+  function unresolvedThreadCountFor(path) {
+    if (!path) return 0
+    let n = 0
+    for (const t of state.threads) {
+      if (t.file !== path) continue
+      if ((t.state || 'awaiting') === 'resolved') continue
+      n++
+    }
+    return n
   }
 
   function computeVisibleFiles() {
@@ -1395,7 +1457,7 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
       return all.filter((f) => f.path === filter.path)
     }
     if (filter?.kind === 'threads') {
-      const set = threadFilesForCurrentView()
+      const set = threadFiles()
       return all.filter((f) => set.has(f.path))
     }
     if (!isFullIndex(state.index)) return all
@@ -1474,13 +1536,13 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
     const next = new Set(state.reviewed)
     if (currently) next.delete(path); else next.add(path)
 
-    // Optimistic state + DOM mutation. The auto-fold-on-mark contract
-    // (spec §7) stays here so the in-memory + DOM views agree before the
-    // PUT lands. Unmark deliberately does NOT auto-unfold — a previously-
-    // reviewed file should keep whatever collapse state the user chose.
+    // Optimistic state + DOM mutation. Collapse is the caller's
+    // responsibility — this function only owns the persisted reviewed
+    // state and the `.is-reviewed` green wash on the header. The header
+    // click handler that drives this also flips `.is-collapsed`, so by
+    // the time the PUT lands the two states already match.
     state.reviewed    = next
     state.reviewedSha = sha
-    if (becomingReviewed) state.collapsedPaths.add(path)
     applyReviewedToggleDom(path, becomingReviewed)
 
     try {
@@ -1488,84 +1550,29 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
         method: 'PUT',
         body: JSON.stringify({ head_sha: sha, paths: [...next], mode: 'replace' }),
       })
-      toast(currently ? `Unmarked ${path.split('/').pop()}` : `Marked ${path.split('/').pop()} reviewed`)
     } catch (e) {
-      // Roll back — server didn't accept the write, so the on-disk
-      // reviewed.json doesn't reflect what the user just saw.
+      // Roll back the reviewed state. We deliberately don't touch
+      // .is-collapsed here — the user's collapse gesture stands on its
+      // own. The next interaction will resync if the mismatch matters.
       const rollback = new Set(state.reviewed)
       if (becomingReviewed) rollback.delete(path); else rollback.add(path)
       state.reviewed = rollback
-      if (becomingReviewed) state.collapsedPaths.delete(path)
       applyReviewedToggleDom(path, !becomingReviewed)
-      toast('Toggle failed: ' + (e.message || 'unknown'))
+      toast('Reviewed toggle failed: ' + (e.message || 'unknown'))
     }
   }
 
   /**
    * Targeted DOM mutation for one file's reviewed/unreviewed transition.
-   * Flips classes on the section, moves the Mark/Unmark button between
-   * header (reviewed) and footer (unreviewed) — mirroring the split-
-   * placement in renderFileSection — and refreshes the review banner so
-   * the "N of T remaining" summary stays in sync. Click handlers stay
-   * live because the diff body uses event delegation (see [data-body]
-   * listener), so we never need to rewire individual buttons.
+   * Just flips `.is-reviewed` on the section (drives the green-wash
+   * header tint) and refreshes the review banner so the "N of T
+   * remaining" summary stays in sync. Collapse class is owned by the
+   * header click handler — not touched here.
    */
   function applyReviewedToggleDom(path, becomingReviewed) {
     const section = root.querySelector(`.diff-file[data-path="${cssEscape(path)}"]`)
     if (!section) return
-
     section.classList.toggle('is-reviewed', becomingReviewed)
-    if (becomingReviewed) {
-      // Auto-collapse on mark. Keep chevron aria in sync — same dance as
-      // the collapse-toggle handler.
-      section.classList.add('is-collapsed')
-      const chev = section.querySelector('.diff-file-toggle')
-      if (chev) {
-        chev.setAttribute('aria-expanded', 'false')
-        chev.setAttribute('aria-label', `Expand file ${path}`)
-      }
-      // Anchor the user to the now-collapsed section's header. Without
-      // this, clicking "Mark reviewed" at the footer of a long file
-      // (after scrolling through it) leaves the browser's scroll
-      // anchoring latched onto the next file's content — so you overshoot
-      // past the file you were supposed to read next. `block: 'nearest'`
-      // is a no-op when the header is already visible (short files), and
-      // pulls it just into view when it isn't (long files).
-      section.scrollIntoView({ block: 'nearest' })
-    }
-
-    // Swap the toggle button: reviewed → header `✓ reviewed`, unreviewed
-    // → footer `○ Mark reviewed`. The button is never rendered in both
-    // places at once (spec §7).
-    const header = section.querySelector('.diff-file-head')
-    section.querySelector('.diff-file-head [data-toggle-reviewed]')?.remove()
-    section.querySelector(':scope > .diff-file-footer')?.remove()
-
-    const btn = document.createElement('button')
-    btn.type = 'button'
-    btn.setAttribute('data-toggle-reviewed', path)
-    if (becomingReviewed) {
-      btn.className = 'diff-file-mark active'
-      btn.title = 'Marked reviewed — click to unmark'
-      btn.setAttribute('aria-pressed', 'true')
-      btn.textContent = '✓ reviewed'
-      // Header order per renderFileSection: ... reviewed-toggle, relate-btn.
-      // Insert before the relate button so we don't swap their positions
-      // on files that have related-file edges.
-      const relateBtn = header?.querySelector('.diff-relate-btn')
-      if (relateBtn) header.insertBefore(btn, relateBtn)
-      else header?.appendChild(btn)
-    } else {
-      btn.className = 'diff-file-mark'
-      btn.title = 'Mark this file reviewed'
-      btn.setAttribute('aria-pressed', 'false')
-      btn.textContent = '○ Mark reviewed'
-      const footer = document.createElement('footer')
-      footer.className = 'diff-file-footer'
-      footer.appendChild(btn)
-      section.appendChild(footer)
-    }
-
     refreshReviewBanner()
   }
 
@@ -1616,10 +1623,16 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
     const filterKind  = state.filter?.kind
     const isFull      = isFullIndex(state.index)
     const totalFiles  = state.diff?.files?.length || 0
-    const threadCount = threadFilesForCurrentView().size
+    const threadCount = threadFiles().size
     const hasFiles    = totalFiles > 0
     const hasFilter   = !!filterKind
     if (!hasFiles && !hasFilter) return ''
+
+    // Thread counts strip — only when the current branch has at least one
+    // thread. Relocated from the (now-removed) threads page; rendered as
+    // a row inside the same banner so the counts read as "controls scoped
+    // to this diff" rather than as a separate header chrome strip.
+    const countsStrip = renderThreadCounts()
 
     // View-toggle markup — always rendered, anchors the left side. The
     // active class is baked at render time; clicks trigger renderBody()
@@ -1630,75 +1643,177 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
         `<button type="button" data-view="inline" class="${state.mode === 'inline' ? 'active' : ''}" role="tab" aria-selected="${state.mode === 'inline'}">Inline</button>` +
       '</div>'
 
-    // Active filter states — right side becomes a focused filter label
-    // + clear action. The view toggle still anchors the left so the user
-    // can switch Split/Inline without clearing the filter first.
+    // Each filter / resting branch produces { variant, rightHtml }. The
+    // outer wrap (below) composes the counts strip + controls row in a
+    // single banner element so layout is consistent across branches.
+    let variant = 'is-summary'
+    let rightHtml = ''
+
     if (filterKind === 'file') {
-      // Thread-context single-file view. The "← Back to thread" affordance
-      // is the primary (and only) action here — it routes back to
-      // `#/?thread=<id>` which reopens the thread modal on the threads
-      // page. No "Viewing: <path>" label: the file path is already
-      // displayed in big mono at the top of the file section right below,
-      // so a second copy would be redundant chrome. If the URL didn't
-      // carry a thread id (e.g. someone bookmarked `#/diff?file=…`), we
-      // swap in a plain "Show all" so the user has an exit.
+      // Thread-context single-file view. "← Back to thread" clears the
+      // filter and reopens the modal same-page (see [data-back-to-thread]
+      // handler). No "Viewing: <path>" label — the file path is already
+      // displayed in big mono at the top of the file section right below.
+      // If the URL didn't carry a thread id, fall back to plain "Show all".
       const threadId = state.filter.threadId || ''
       const action = threadId
         ? `<button type="button" class="diff-filter-clear" data-back-to-thread data-thread-id="${escapeHtml(threadId)}">← Back to thread</button>`
-        : '<button type="button" class="diff-filter-clear" data-clear-filter>Show all</button>'
-      return '<div class="diff-review-banner is-filter is-filter-file">' +
-        viewToggle +
-        `<div class="diff-review-right">${action}</div>` +
-      '</div>'
-    }
-    if (filterKind === 'threads') {
-      return '<div class="diff-review-banner is-filter is-filter-threads">' +
-        viewToggle +
-        '<div class="diff-review-right">' +
-          `<span class="diff-review-label"><span class="diff-filter-dot"></span>Filter: files with threads · ${visibleCount} file${visibleCount === 1 ? '' : 's'}</span>` +
-          '<button type="button" class="diff-filter-clear" data-clear-filter>Show all</button>' +
-        '</div>' +
-      '</div>'
-    }
-    if (filterKind === 'related' && isFull) {
+        : '<button type="button" class="diff-filter-close" data-clear-filter aria-label="Show all" title="Show all">×</button>'
+      variant = 'is-filter is-filter-file'
+      rightHtml = `<div class="diff-review-right">${action}</div>`
+    } else if (filterKind === 'threads') {
+      variant = 'is-filter is-filter-threads'
+      rightHtml = '<div class="diff-review-right">' +
+        `<span class="diff-review-label"><span class="diff-filter-dot"></span>filtered ${visibleCount} file${visibleCount === 1 ? '' : 's'} with threads</span>` +
+        '<button type="button" class="diff-filter-close" data-clear-filter aria-label="Show all" title="Show all">×</button>' +
+        '</div>'
+    } else if (filterKind === 'related' && isFull) {
       const filterAnchor = state.filter.anchor
-      return '<div class="diff-review-banner is-filter">' +
-        viewToggle +
-        '<div class="diff-review-right">' +
-          `<span class="diff-review-label">Filter: related to <code>${escapeHtml(filterAnchor)}</code> · ${visibleCount} file${visibleCount === 1 ? '' : 's'}</span>` +
-          '<button type="button" class="diff-filter-clear" data-clear-filter>Show all</button>' +
-        '</div>' +
-      '</div>'
-    }
-
-    // Resting state — right side hosts (in order) reviewed summary +
-    // Reset action when any files are marked, then the threads-filter
-    // chip when threads exist. Order is "info first, action last" so
-    // the right side reads left-to-right as a sentence.
-    const hasReviewed = isFull && state.reviewed.size > 0
-    const rightParts  = []
-    if (hasReviewed) {
-      const remaining = Math.max(0, totalFiles - state.reviewed.size)
-      rightParts.push(
-        `<span class="diff-review-summary">${remaining} of ${totalFiles} remaining <span class="diff-review-meta">· ${state.reviewed.size} reviewed</span></span>` +
-        '<button type="button" class="diff-review-reset" data-reset-reviewed title="Clear all reviewed marks">Reset</button>'
-      )
-    }
-    if (threadCount > 0) {
-      rightParts.push(
-        `<button type="button" class="diff-filter-chip" data-thread-filter title="Show only files with comment threads (${threadCount} file${threadCount === 1 ? '' : 's'})">` +
-          '<span class="diff-filter-chip-dot" aria-hidden="true"></span>' +
-          `<span class="diff-filter-chip-text">${threadCount} with thread${threadCount === 1 ? '' : 's'}</span>` +
-        '</button>'
-      )
-    }
-
-    return '<div class="diff-review-banner is-summary">' +
-      viewToggle +
-      (rightParts.length
+      variant = 'is-filter'
+      rightHtml = '<div class="diff-review-right">' +
+        `<span class="diff-review-label">Filter: related to <code>${escapeHtml(filterAnchor)}</code> · ${visibleCount} file${visibleCount === 1 ? '' : 's'}</span>` +
+        '<button type="button" class="diff-filter-close" data-clear-filter aria-label="Show all" title="Show all">×</button>' +
+        '</div>'
+    } else {
+      // Resting state — right side hosts (in order) reviewed summary +
+      // Reset action when any files are marked, then the threads-filter
+      // chip when threads exist. Order is "info first, action last" so
+      // the right side reads left-to-right as a sentence.
+      const hasReviewed = isFull && state.reviewed.size > 0
+      const rightParts  = []
+      if (hasReviewed) {
+        const remaining = Math.max(0, totalFiles - state.reviewed.size)
+        rightParts.push(
+          `<span class="diff-review-summary">${remaining} of ${totalFiles} remaining <span class="diff-review-meta">· ${state.reviewed.size} reviewed</span></span>` +
+          '<button type="button" class="diff-review-reset" data-reset-reviewed title="Clear all reviewed marks">Reset</button>'
+        )
+      }
+      if (threadCount > 0) {
+        rightParts.push(
+          `<button type="button" class="diff-filter-chip" data-thread-filter title="Show only files with comment threads (${threadCount} file${threadCount === 1 ? '' : 's'})">` +
+            '<span class="diff-filter-chip-dot" aria-hidden="true"></span>' +
+            `<span class="diff-filter-chip-text">filter ${threadCount} file${threadCount === 1 ? '' : 's'} with threads</span>` +
+          '</button>'
+        )
+      }
+      rightHtml = rightParts.length
         ? `<div class="diff-review-right">${rightParts.join('<span class="diff-review-sep" aria-hidden="true">·</span>')}</div>`
-        : '') +
-    '</div>'
+        : ''
+    }
+
+    const controlsRow = '<div class="diff-review-controls">' + viewToggle + rightHtml + '</div>'
+    return `<div class="diff-review-banner ${variant}">${countsStrip}${controlsRow}</div>`
+  }
+
+  /**
+   * Counts strip rendered as the top row of the diff control banner when
+   * the current branch has at least one thread. Three pills:
+   *   - reviewer: total comments authored by the local human reviewer
+   *     (server stamps these with `user: 'reviewer'`; see
+   *     server/routes/threads.js DEVELOPER_USER)
+   *   - reviewee: total comments authored by anyone else (LLM agent
+   *     replies, etc. — anything that isn't the 'reviewer' marker)
+   *   - resolved: count of threads whose state is 'resolved'
+   * No more your_turn / awaiting / read pills — the reviewer/reviewee
+   * split is a more direct answer to "who's said what so far?" than the
+   * state machine ever was, and the underlying `t.state` field still
+   * drives the inline thread row's left ribbon (see makeThreadDisplayRow).
+   */
+  function renderThreadCounts() {
+    const threads = state.threads || []
+    if (!threads.length) return ''
+    let reviewerMsgs = 0
+    let revieweeMsgs = 0
+    let resolvedCount = 0
+    for (const t of threads) {
+      if ((t.state || 'awaiting') === 'resolved') resolvedCount++
+      for (const c of (t.comments || [])) {
+        if (c.user === 'reviewer') reviewerMsgs++
+        else revieweeMsgs++
+      }
+    }
+    // The total link opens the first thread in visual order. Resolution is
+    // deferred to click-time via the `data-show-first-thread` sentinel
+    // (resolved by the delegated click handler below): at render-time the
+    // inline thread rows don't exist yet (renderInlineComments runs after
+    // renderBody), so `computeThreadOrder()` can't be called here. The
+    // server returns threads in readdir order (alphabetical hex), which is
+    // *not* visual order — baking `threads[0].id` in would land the user
+    // on a random thread. Resolving lazily uses the DOM walk that already
+    // drives the modal's prev/next nav, guaranteeing the click matches the
+    // topmost rendered thread row.
+    const totalLabel = `open 1 out of ${threads.length} thread${threads.length === 1 ? '' : 's'}`
+    const total = `<button type="button" class="diff-review-counts-total" data-show-first-thread title="Open the first thread">${totalLabel}</button>`
+    // The × inside the reviewee-replies pill triggers a bulk delete of the
+    // *last reply* of every thread that has more than one comment. Only
+    // shown when there are replies to delete — otherwise an empty
+    // affordance is just confusing.
+    const repliesClearBtn = revieweeMsgs > 0
+      ? '<button type="button" class="state-pill-x" data-clear-replies aria-label="Delete the last reply from every thread" title="Delete the last reply from every thread">×</button>'
+      : ''
+    return '<div class="diff-review-counts">' +
+      `<span class="state-pill is-count">${reviewerMsgs} reviewer comment${reviewerMsgs === 1 ? '' : 's'}</span>` +
+      `<span class="state-pill is-count">${revieweeMsgs} reviewee repl${revieweeMsgs === 1 ? 'y' : 'ies'}${repliesClearBtn}</span>` +
+      `<span class="state-pill state-resolved">✓ ${resolvedCount} resolved</span>` +
+      total +
+      '</div>'
+  }
+
+  /**
+   * Bulk-delete the latest reply from every thread that has more than one
+   * comment. Threads with a single comment (the initial reviewer message
+   * with no follow-up) are left untouched. Drops one comment per thread —
+   * never deletes a whole thread, since by definition the targets all have
+   * at least 2 comments remaining after the delete.
+   *
+   * Each DELETE is issued in parallel via Promise.allSettled — thread
+   * files are independent on disk (separate JSON files per thread), so
+   * there's no cross-thread contention to serialise around. `allSettled`
+   * (not `all`) keeps a single network or file-system hiccup from aborting
+   * the rest of the batch; partial-success reporting via toast tells the
+   * user exactly what happened.
+   */
+  function confirmBulkDeleteLastReplies() {
+    const targets = []
+    for (const t of state.threads) {
+      const comments = t.comments || []
+      if (comments.length <= 1) continue
+      targets.push({ tid: t.id, cid: comments[comments.length - 1].id })
+    }
+    if (!targets.length) {
+      toast('No replies to delete')
+      return
+    }
+    const count = targets.length
+    const detail = `Removes the most recent reply from ${count} thread${count === 1 ? '' : 's'}. Threads with no replies are unaffected. This can't be undone.`
+    const backdrop = makeModal(`
+      <h2>Delete ${count} last repl${count === 1 ? 'y' : 'ies'}?</h2>
+      <p class="modal-text">${escapeHtml(detail)}</p>
+      <div class="modal-actions is-reversed">
+        <button class="danger" data-confirm>Delete</button>
+        <button data-close>Cancel</button>
+      </div>`)
+    const confirmBtn = backdrop.querySelector('[data-confirm]')
+    const cancelBtn = backdrop.querySelector('[data-close]')
+    confirmBtn.onclick = async () => {
+      confirmBtn.disabled = true
+      cancelBtn.disabled = true
+      confirmBtn.textContent = 'Deleting…'
+      const results = await Promise.allSettled(targets.map(({ tid, cid }) =>
+        api(`/api/repos/${encodeURIComponent(repo.id)}/threads/${encodeURIComponent(tid)}/comments/${encodeURIComponent(cid)}`, { method: 'DELETE' })
+      ))
+      const failed = results.filter((r) => r.status === 'rejected').length
+      const succeeded = results.length - failed
+      backdrop.remove()
+      await loadThreads()
+      if (failed === 0) {
+        toast(`Deleted ${succeeded} repl${succeeded === 1 ? 'y' : 'ies'}`)
+      } else if (succeeded === 0) {
+        toast('All deletes failed')
+      } else {
+        toast(`Deleted ${succeeded}, ${failed} failed`)
+      }
+    }
   }
 
   function renderHead() {
@@ -1831,7 +1946,6 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
         isReviewed: state.reviewed.has(f.path),
         isCollapsed: state.collapsedPaths.has(f.path),
         showRelateBtn,
-        showReviewedToggle: isFull,
         isFilterAnchor: filterAnchor === f.path,
         priorityEntry: priorities?.[f.path] || null,
         relationship,
@@ -1840,12 +1954,11 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
     }).join('')
     // Preserve scroll across `innerHTML` swaps. `overflow-anchor: none`
     // (see .diff-body) means the browser won't compensate when content
-    // is replaced — and renderBody is called for every SSE-triggered
-    // thread refresh, every filter toggle, every split↔inline switch.
-    // Without this, opening a thread modal stamps `last_read_at` on the
-    // server, which broadcasts an SSE event, which triggers loadThreads()
-    // → renderBody(), and the user finds the diff page scrolled to a
-    // random position when they close the modal.
+    // is replaced — and renderBody is called for every filter toggle,
+    // every split↔inline switch, and every loadThreads refresh
+    // (modal open stamps last_read_at, comment add/edit/delete, resolve
+    // toggle). Without this, those triggers would scroll the diff page
+    // to a random position.
     //
     // The deferred-restore part matters: directly after innerHTML, the
     // body's scrollHeight transiently drops (collapse/expand of file
@@ -1858,10 +1971,23 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
     // lands at the top of the file as intended.
     const prevScroll = body.scrollTop
     body.innerHTML = banners + filesHtml
+    // Re-apply the content-visibility override to all freshly-rendered
+    // .diff-file sections if a thread-jump is holding the modal session
+    // open. Without this, a renderBody triggered mid-session (loadThreads,
+    // filter toggle, etc.) would let off-screen files revert to
+    // placeholder heights and the target cell would drift out of viewport
+    // center.
+    if (state.jumpLayoutApplied) {
+      body.querySelectorAll('.diff-file').forEach((s) => s.classList.add('is-jumping'))
+    }
     if (state.shouldResetScroll) {
       body.scrollTop = 0
       state.shouldResetScroll = false
-    } else if (prevScroll > 0) {
+    } else if (prevScroll > 0 && !state.jumpInFlight) {
+      // Suppress scroll preservation while a thread-jump is converging —
+      // the convergence loop is the source of truth for scrollTop during
+      // that window. Without this guard, preserveScrollTo wins the race
+      // and parks the diff at the pre-jump position.
       preserveScrollTo(body, prevScroll)
     }
     renderInlineComments()
@@ -1925,14 +2051,90 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
       const cell = root.querySelector(
         `.diff-text[data-path="${cssEscape(file)}"][data-line="${line}"][data-side="${side || 'new'}"]`
       )
-      if (cell) {
-        cell.scrollIntoView({ behavior: 'auto', block: 'center' })
-        flashCell(cell)
-      } else {
+      if (!cell) {
         toast(`${file.split('/').pop()}:${line} not in this diff (anchor lost)`)
+        return
       }
+      // `content-visibility: auto` on `.diff-file` means off-screen file
+      // sections render as 800px placeholders (the `contain-intrinsic-size`
+      // hint). A single `scrollIntoView` computes a target against those
+      // placeholders; as the scroll progresses and intermediate sections
+      // come into view, they stamp their real heights and the cell jumps
+      // somewhere else. Re-converge: scroll, measure, scroll again, until
+      // the cell sits near viewport center (or the layout stabilizes).
+      // Bounded to 6 iterations so a pathological case can't spin.
+      convergeScrollToCenter(cell)
+      flashCell(cell)
     })
     scrollToAnchor = null
+  }
+
+  /**
+   * Drive `scrollTop` on the diff body until the cell's vertical position
+   * settles near viewport center. Uses an rAF-driven re-aim loop because
+   * `content-visibility: auto` on each `.diff-file` lets off-screen
+   * sections render as 800 px placeholders; as the user scrolls, those
+   * sections come into the rendering window and stamp their real heights,
+   * which shifts every cell below them. A one-shot `scrollIntoView` (or
+   * a synchronous loop) sees only the layout *at scroll-time*; the cell
+   * jumps to the wrong absolute position once heights settle a few
+   * frames later. Re-aiming each frame until the target stops moving
+   * makes the scroll converge on the final (real-height) layout.
+   * Bounded to 500 ms so a noisy content tree can't spin forever.
+   */
+  function convergeScrollToCenter(cell) {
+    // Tell the scroll-preservation paths in `renderBody` and `loadThreads`
+    // to stand down for the convergence window — those paths exist to keep
+    // the user's scroll position stable across re-renders, but during an
+    // intentional jump they fight the scroll (the modal's POST /read kicks
+    // off loadThreads which captures scrollTop and tries to restore it).
+    state.jumpInFlight = true
+    // Defeat `content-visibility: auto` on every `.diff-file` for the
+    // duration of the modal session — removed in `releaseJumpLayout`
+    // when the user closes the modal. Without this, sections that were
+    // 800 px placeholders during the scroll target computation re-stamp
+    // their real heights as they enter the rendering window, which shifts
+    // the target cell out of the viewport center. Keeping the override
+    // applied for the whole modal session means the layout is stable
+    // while the user navigates threads.
+    const sections = root.querySelectorAll('.diff-file')
+    sections.forEach((s) => s.classList.add('is-jumping'))
+    state.jumpLayoutApplied = true
+    // Force a synchronous reflow so the new heights stamp before
+    // scrollIntoView measures.
+    void cell.offsetHeight
+    cell.scrollIntoView({ behavior: 'auto', block: 'center' })
+    // Re-aim across a few frames to absorb any residual layout settle.
+    // After ~250 ms we drop jumpInFlight (preserveScrollTo can resume),
+    // but `is-jumping` stays on the sections so layout doesn't shift
+    // under the user as they step through threads.
+    const body = $('[data-body]')
+    if (!body) { state.jumpInFlight = false; return }
+    const aim = () => {
+      const cellRect = cell.getBoundingClientRect()
+      const bodyRect = body.getBoundingClientRect()
+      const target   = body.scrollTop + (cellRect.top - bodyRect.top) - (body.clientHeight - cellRect.height) / 2
+      const maxTop   = Math.max(0, body.scrollHeight - body.clientHeight)
+      body.scrollTop = Math.max(0, Math.min(target, maxTop))
+    }
+    const startedAt = performance.now()
+    const tick = () => {
+      if (isStale()) { state.jumpInFlight = false; return }
+      aim()
+      if (performance.now() - startedAt > 250) { state.jumpInFlight = false; return }
+      requestAnimationFrame(tick)
+    }
+    requestAnimationFrame(tick)
+  }
+
+  /**
+   * Released by the thread-modal's onClose so off-screen `.diff-file`
+   * sections can re-evict to placeholders once the user is done browsing.
+   */
+  function releaseJumpLayout() {
+    if (!state.jumpLayoutApplied) return
+    state.jumpLayoutApplied = false
+    root.querySelectorAll('.diff-file.is-jumping').forEach((s) => s.classList.remove('is-jumping'))
   }
 
   function cssEscape(s) { return String(s).replace(/(["\\])/g, '\\$1') }
@@ -1955,12 +2157,24 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
     const cells = [...body.querySelectorAll('[data-side][data-line][data-path]')]
 
     for (const t of state.threads) {
-      // Only render threads created in the current view to keep anchor
-      // semantics honest. Per-commit threads are anchored to a SHA and
-      // only render in that commit; full/local threads only in their view.
-      if ((t.view || 'full') !== view) continue
-      // For commit view, also require the SHA to match the current commit
+      // View-cross-render rules:
+      //   - Full / Local (aggregate views): render any thread whose anchor
+      //     cell exists in the current DOM, including ones created against
+      //     a per-commit view. Discoverability over strict isolation — the
+      //     counts-strip total and the "with threads" chip already promise
+      //     a global tally, so the inline rendering needs to match.
+      //     Caveat: a commit-view thread's `line` is in that commit's
+      //     line-number frame. If a later commit edited the same file,
+      //     line N at branch tip may be a different statement than line N
+      //     at the commit. The inline row still appears, just possibly
+      //     next to drifted content. The comment body carries the author's
+      //     intent regardless, so this is acceptable noise.
+      //   - Commit view: stay strict — same `view` AND same SHA. Showing
+      //     commit-A threads on commit-B lines would point comments at
+      //     code from a different history entirely (not just frame drift),
+      //     which is the fully misleading case.
       if (view === 'commit') {
+        if ((t.view || 'full') !== 'commit') continue
         const c = state.commits[state.index]
         if (t.sha !== c?.sha) continue
       }
@@ -2003,16 +2217,18 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
                      : 'state-read'
     // Highlight the inline thread the user just jumped from (URL carries
     // `?thread=…`, parsed into state.filter.threadId on file-kind filter).
-    // Visual treatment mirrors the threads-page is-recent breadcrumb so
-    // the cross-page "you came from here" cue is consistent.
+    // 4 px accent ribbon + accent wash so the focus thread is unambiguous
+    // when several threads sit in the same file.
     const jumpedFrom = state.filter?.kind === 'file' && state.filter.threadId === thread.id
       ? ' is-jumped-from'
       : ''
-    const statePill = thread.state === 'resolved'
-      ? '<span class="state-pill state-resolved" title="Thread resolved">✓ resolved</span>'
-      : thread.state === 'your_turn'
-      ? '<span class="state-pill state-your-turn" title="LLM replied — your turn">🟢 your turn</span>'
-      : ''
+
+    // No header row inside the inline thread display — the file:line is
+    // already obvious from the diff row right above, the view (full/commit/
+    // local) is implicit in the active diff variant, and the state cue lives
+    // on the `.diff-thread`'s coloured left ribbon plus the counts strip in
+    // the banner. Clicks on any comment body still open the modal via
+    // `data-show-thread` on `.diff-thread-body`.
 
     // Per-comment × delete button: applies to every comment regardless of
     // author (yours and LLM replies). Removing the last comment deletes the
@@ -2035,11 +2251,6 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
     tr.innerHTML =
       '<td colspan="4" class="diff-thread-cell">' +
         `<div class="diff-thread ${stateClass}${jumpedFrom}" data-thread-id="${escapeHtml(thread.id)}">` +
-          '<div class="diff-thread-header">' +
-            `<button type="button" class="diff-thread-anchor" data-show-thread="${escapeHtml(thread.id)}" title="Open thread">${escapeHtml(thread.file)}:${escapeHtml(formatLineRange(thread))} <span class="diff-thread-side">(${escapeHtml(thread.side || 'new')})</span></button>` +
-            statePill +
-            `<span class="card-local-pill view-${thread.view || 'full'}">${escapeHtml(thread.view || 'full')}</span>` +
-          '</div>' +
           `<div class="diff-thread-comments">${commentsHtml}</div>` +
         '</div>' +
       '</td>'
@@ -2052,7 +2263,8 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
   // restore raw markup on cancel. Re-rendering the whole diff via
   // `loadThreads()` would drop the inline thread row state (collapse,
   // intra-line highlight, scroll position), so we patch the single element
-  // and let SSE pick up the JSON write afterwards.
+  // and update `state.threads` locally — see the body update at the end of
+  // the Save handler.
   function beginEditInlineComment(btn) {
     const tid = btn.dataset.threadId
     const cid = btn.dataset.commentId
@@ -2110,7 +2322,8 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
         newBody.innerHTML = inlineCode(res?.comment?.body ?? text)
         form.replaceWith(newBody)
         // Keep local state.threads in sync so subsequent edits read the
-        // updated body without waiting for the SSE-triggered loadThreads.
+        // updated body. No re-fetch — the in-memory state IS the truth
+        // until the next loadThreads (modal close, comment add/delete, etc.).
         if (comment) comment.body = res?.comment?.body ?? text
         toast('Comment updated')
       } catch (err) {
@@ -2219,7 +2432,161 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
   }
 
   // ------------------------------------------------------------------
-  // Threads: initial fetch + SSE subscribe
+  // Thread modal — opens with prev/next nav across every thread on the
+  // branch (rendered ones in visual order, anchor-lost ones appended by
+  // file:line), jump-to-file (single-file filter), and auto-scroll-on-
+  // navigate. Anchor-lost targets just toast "anchor lost" instead of
+  // scrolling; the modal still shows their comments.
+  // ------------------------------------------------------------------
+
+  /**
+   * Order threads for the modal's prev/next nav by walking inline thread
+   * rows in document order. This guarantees the modal walk matches the
+   * visual top-to-bottom order in the diff body — including priority-
+   * based file ordering (the reference-graph sort `compareForReview`
+   * applies), intra-file line ordering, and any active filter. Threads
+   * whose anchor isn't rendered (anchor_lost, view mismatch, filtered
+   * out) are correctly excluded because they have no `.diff-row-thread`.
+   */
+  function computeThreadOrder() {
+    const body = $('[data-body]')
+    if (!body) return []
+    return [...body.querySelectorAll('.diff-row-thread[data-thread-id]')]
+      .map((el) => el.dataset.threadId)
+      .filter(Boolean)
+  }
+
+  /**
+   * Like `computeThreadOrder` but also includes threads whose anchor isn't
+   * in the current DOM (different view, anchored on a SHA the user isn't
+   * currently looking at). Rendered ones keep their visual document order
+   * up front; the rest get appended sorted by (file, line) so the user can
+   * still step through every thread from the modal — exactly what the
+   * counts-strip "N total" promises. Without the appended tail, prev/next
+   * and the "N of M" position label would silently disappear whenever the
+   * total was opened against an anchor-lost thread (or in the all-orphan
+   * case my recent fallback fix introduced).
+   */
+  function computeThreadOrderInclusive() {
+    const rendered = computeThreadOrder()
+    const seen = new Set(rendered)
+    const orphans = state.threads
+      .filter((t) => t.id && !seen.has(t.id))
+      .sort((a, b) => {
+        const fa = a.file || ''
+        const fb = b.file || ''
+        if (fa !== fb) return fa.localeCompare(fb)
+        return (Number(a.line) || 0) - (Number(b.line) || 0)
+      })
+      .map((t) => t.id)
+    return [...rendered, ...orphans]
+  }
+
+  /**
+   * Aim the diff at a thread's anchor cell. Reuses the existing one-shot
+   * `scrollToAnchor` + `maybeScrollToAnchor` machinery so reviewed-file
+   * uncollapse, defer-a-frame layout, scroll-to-center, and flash-cell
+   * all behave identically to the jump-from-URL path.
+   */
+  function jumpToThreadAnchor(t) {
+    if (!t?.file || !Number.isFinite(Number(t.line))) return
+    scrollToAnchor = { file: t.file, line: Number(t.line), side: t.side || 'new' }
+    // Set the flag *synchronously* — the rAF inside maybeScrollToAnchor +
+    // convergeScrollToCenter would otherwise leave a ~16 ms window where
+    // POST /read can resolve, fire onChanged, and trigger loadThreads →
+    // renderBody → preserveScrollTo before jumpInFlight blocks them.
+    state.jumpInFlight = true
+    maybeScrollToAnchor()
+  }
+
+  /**
+   * Open the thread modal with prev/next nav wired. Centralised because
+   * multiple call sites (inline thread click, ?thread= auto-reopen on
+   * mount, "← Back to thread" clear-filter path) need identical opts.
+   */
+  function openThread(tid) {
+    if (!tid) return
+    openThreadModal(tid, {
+      repoId: repo.id,
+      getThread: (id) => state.threads.find((t) => t.id === id),
+      // Inclusive order: rendered threads in visual order, then anchor-lost
+      // threads sorted by (file, line). Lets the modal's prev/next and the
+      // "N of M" position label stay populated even when the user opened
+      // the modal against a thread whose anchor isn't in the current view.
+      // For anchor-lost targets `jumpToThreadAnchor` will surface its own
+      // "anchor lost" toast (see maybeScrollToAnchor) instead of scrolling
+      // — acceptable: the user can still read the comments in the modal.
+      threadOrder: computeThreadOrderInclusive(),
+      // Cross-file prev/next: when the target thread sits in a file the
+      // current single-file filter excludes, clear the filter so the
+      // anchor becomes visible. Then jump to the new anchor.
+      onNavigate: (newId) => {
+        const t = state.threads.find((x) => x.id === newId)
+        if (!t) return
+        if (state.filter?.kind === 'file' && state.filter.path !== t.file) {
+          state.filter = null
+          stripFileQuery()
+          renderBody()
+        }
+        jumpToThreadAnchor(t)
+      },
+      onClose: () => { stripThreadQuery(); releaseJumpLayout() },
+      onChanged: () => { loadThreads() },
+      // /read is a soft mutation — only the single thread's state-pill
+      // changes. We bypass loadThreads (which would renderBody and risk
+      // drifting the diff-body scroll position) and instead just adopt
+      // the server's freshly-stamped thread snapshot in memory. The
+      // visible state pill in the inline thread row is repainted by
+      // renderInlineComments, which removes-and-re-adds .diff-row-thread
+      // rows without touching body.innerHTML — no preserveScrollTo
+      // dance needed, scroll stays put. The counts-strip pills (which
+      // live in the sticky banner) lag by one user action; that's the
+      // explicit trade and the user opted into it.
+      onRead: (res) => {
+        if (res?.threads) {
+          state.threads = res.threads
+          renderInlineComments()
+        }
+      },
+    })
+  }
+
+  // Drop `?thread=…` from the current hash without creating a new history
+  // entry. Used when the user closes the modal so a refresh doesn't pop
+  // it back open. Skipped when `?file=…` is also present — that pair
+  // marks the single-file filter view, and the threadId is load-bearing
+  // for the "← Back to thread" affordance there. The user clearing the
+  // filter via "Show all" drops the whole query separately.
+  function stripThreadQuery() {
+    const hash = location.hash
+    const qIdx = hash.indexOf('?')
+    if (qIdx < 0) return
+    const queryPart = hash.slice(qIdx + 1)
+    const parts = queryPart.split('&').filter(Boolean)
+    if (parts.some((p) => p.startsWith('file='))) return
+    const pathPart = hash.slice(0, qIdx)
+    const kept = parts.filter((p) => !p.startsWith('thread=')).join('&')
+    const next = kept ? `${pathPart}?${kept}` : pathPart
+    if (next === hash) return
+    history.replaceState(null, '', next)
+  }
+
+  // Drop `?file=…` from the current hash. Used by the "← Back to thread"
+  // path which clears the single-file filter same-page.
+  function stripFileQuery() {
+    const hash = location.hash
+    const qIdx = hash.indexOf('?')
+    if (qIdx < 0) return
+    const pathPart  = hash.slice(0, qIdx)
+    const queryPart = hash.slice(qIdx + 1)
+    const kept = queryPart.split('&').filter((p) => p && !p.startsWith('file=')).join('&')
+    const next = kept ? `${pathPart}?${kept}` : pathPart
+    if (next === hash) return
+    history.replaceState(null, '', next)
+  }
+
+  // ------------------------------------------------------------------
+  // Threads: initial fetch and post-mutation refresh
   // ------------------------------------------------------------------
   async function loadThreads() {
     if (isStale()) return
@@ -2231,36 +2598,33 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
       // briefly removes-then-re-adds inline thread rows, and renderBody
       // below replaces body.innerHTML wholesale — both can clamp scrollTop
       // due to `overflow-anchor: none` on .diff-body. Without this save,
-      // every SSE-triggered refresh (e.g. last_read_at stamp on modal
-      // open, new comment from an LLM, resolve toggle) yanked the diff
-      // view's scroll position to a different spot, leaving the user
-      // somewhere unexpected when they close the modal.
+      // every refresh (modal open stamping last_read_at, comment add/edit/
+      // delete, resolve toggle, modal prev/next) would yank the diff
+      // view's scroll position to a different spot.
       const bodyEl = $('[data-body]')
       const savedScroll = bodyEl?.scrollTop ?? 0
       renderInlineComments()
-      // Threads button only makes sense once at least one thread exists —
-      // otherwise it'd just bounce the router straight back here.
-      const link = root.querySelector('[data-threads-link]')
-      if (link) link.hidden = state.threads.length === 0
-      // Banner hosts the threads-filter chip — re-render so newly-arrived
-      // threads (e.g. via SSE) reveal the chip without a manual reload.
-      renderBody()
+      // Banner hosts the threads-filter chip + counts strip — re-render so
+      // newly-arrived threads reveal them without a manual reload.
+      // Skipped while a jump is converging — renderBody wipes body.innerHTML
+      // which would detach the cell reference the jump loop is holding and
+      // strip the `is-jumping` classes that defeat content-visibility for
+      // the duration of the scroll. Inline thread rows still get refreshed
+      // via renderInlineComments above.
+      if (!state.jumpInFlight) renderBody()
+      else                     refreshReviewBanner()
       // Belt-and-suspenders restore: renderBody's preservation already
       // handles the innerHTML swap inside that call (deferred via
       // ResizeObserver while the content settles), but if anything outside
       // renderBody has shifted scroll between our entry capture and now,
       // re-apply the saved value through the same deferred-restore helper.
-      if (bodyEl && savedScroll > 0 && bodyEl.scrollTop !== savedScroll) {
+      // Suppressed while a thread-jump is converging — the convergence
+      // loop owns scrollTop during that window (see convergeScrollToCenter).
+      if (bodyEl && savedScroll > 0 && bodyEl.scrollTop !== savedScroll && !state.jumpInFlight) {
         preserveScrollTo(bodyEl, savedScroll)
       }
     } catch {}
   }
-
-  unsubscribeSse = subscribeRepoEvents(repo.id, (payload) => {
-    if (isStale()) return
-    if (payload?.branch_id !== state.branchId) return
-    loadThreads()
-  })
 
   await loadThreads()
   if (isStale()) return
@@ -2282,5 +2646,31 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
     }
   }
 
+  // ?thread=<id> with no ?file= → bare modal-reopen on the diff page,
+  // e.g. a refresh while the modal was open. Two things need to happen:
+  // (1) the diff scrolls to the thread's anchor so the user lands at the
+  // referenced row (consumes scrollToAnchor inside the first renderBody
+  // via maybeScrollToAnchor); (2) the modal opens AFTER load() finishes
+  // so computeThreadOrder can walk the freshly-rendered .diff-row-thread
+  // elements and supply a populated threadOrder — without the deferral,
+  // the modal closure captured an empty array and the prev/next nav
+  // never appeared.
+  let pendingThreadOpen = null
+  if (state.filter?.kind !== 'file' && threadContextId) {
+    const t = state.threads.find((x) => x.id === threadContextId)
+    if (t) {
+      pendingThreadOpen = threadContextId
+      if (!scrollToAnchor && t.file && t.line) {
+        scrollToAnchor = { file: t.file, line: t.line, side: t.side || 'new' }
+      }
+    } else {
+      stripThreadQuery()
+    }
+  }
+
   await load()
+
+  if (pendingThreadOpen && !isStale()) {
+    openThread(pendingThreadOpen)
+  }
 }

@@ -1,22 +1,15 @@
-// Hash-route URL builders. Centralised so all link-construction sites use
-// the same shape — drift here would silently break navigation.
+// Hash-route URL builders. With the threads + overview pages folded into
+// the diff page, the only routes left address the three diff variants.
+// Threads are reopened on the diff page via `?thread=<id>`; the overview
+// is a modal triggered from the diff header, not a route.
 //
-// Lives in its own module (rather than router.js) to avoid a circular
-// import: pages/* and diff.js both need ROUTES, and router.js imports
-// pages/*. ES-module lazy bindings would handle the cycle correctly today,
-// but a future refactor that touches ROUTES at top-level in router.js
-// would tip into a TDZ crash. One tiny file removes that risk.
-//
-// Optional query objects on each builder support cross-page state that
-// should survive back/forward navigation:
-// - `{ thread }`     — auto-open this thread's modal on the threads page.
-// - `{ file, thread }` — focus the diff view on a single file with a
-//                        "← Back to thread" affordance routing back to the
-//                        threads page with the same thread id in the URL.
+// Optional query objects:
+// - `{ thread }`       — auto-open this thread's modal on the diff page.
+// - `{ file, thread }` — focus the diff on a single file with a
+//                        "← Back to thread" affordance that clears the
+//                        file filter and reopens the modal.
 
 export const ROUTES = {
-  threads:    (q)      => withQuery('#/', q),
-  overview:   ()       => '#/overview',
   diffFull:   (q)      => withQuery('#/diff', q),
   diffLocal:  (q)      => withQuery('#/diff/local', q),
   diffCommit: (sha, q) => withQuery(`#/diff/${sha.slice(0, 12)}`, q),
