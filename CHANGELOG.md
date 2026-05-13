@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.11.0](https://github.com/genkio/slop-review/compare/v0.10.0...v0.11.0) (2026-05-13)
+
+
+### Features
+
+* auto mark on last resolved ([80d565e](https://github.com/genkio/slop-review/commit/80d565eb68c5f19360e9f6fbeb3990e5cc4503ff))
+* per-comment editing ([90dbaa0](https://github.com/genkio/slop-review/commit/90dbaa0565271d490ac7f38b0d5375a19f9e5f39))
+* per-file blob keyed reviewed marks ([3765b71](https://github.com/genkio/slop-review/commit/3765b71d1854a391104ece7be4841255d4f6a95b))
+* persisted toast ([89d6c71](https://github.com/genkio/slop-review/commit/89d6c71376ab4daace257145ba936c8d73c741ec))
+* review on main/master without a feature branch ([1e887cd](https://github.com/genkio/slop-review/commit/1e887cdc6459bf61d2c532cd8d13cd01356bb3b7))
+
+
+### Bug Fixes
+
+* clear reviewed marks logic ([59990af](https://github.com/genkio/slop-review/commit/59990af4e0c370c07668a0cc94729050dd93cf8d))
+* restore multi-line comment selection ([e29bad1](https://github.com/genkio/slop-review/commit/e29bad14a7f8ada7c515132acc601b3d35652b77))
+* sticky file path head position ([d0e4450](https://github.com/genkio/slop-review/commit/d0e44504fba5b2c546aecbcdc58d5f023df6446b))
+
 ## [0.10.0](https://github.com/genkio/slop-review/compare/v0.9.0...v0.10.0) (2026-05-11)
 
 
