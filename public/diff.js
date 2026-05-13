@@ -1212,7 +1212,7 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
         clearCommentSelection()
         renderInlineComments()
         if (bodyEl && savedScroll > 0) preserveScrollTo(bodyEl, savedScroll)
-        toast('Comment added')
+        toast.ok('Comment added')
       } catch (e) {
         submitBtn.disabled = false
         submitBtn.textContent = 'Add comment'
@@ -1298,7 +1298,7 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
               { method: 'DELETE' }
             )
             await loadThreads()
-            toast(isLast ? 'Thread removed' : 'Comment removed')
+            toast.ok(isLast ? 'Thread removed' : 'Comment removed')
           } catch (err) {
             removeBtn.disabled = false
             toast('Remove failed: ' + (err.message || 'unknown'))
@@ -1643,7 +1643,7 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
       state.reviewed     = new Set()
       state.reviewedSha  = branchInfo?.head_sha || null
       renderBody()
-      toast('Reviewed marks cleared')
+      toast.ok('Reviewed marks cleared')
     } catch (e) {
       toast('Reset failed: ' + (e.message || 'unknown'))
     }
@@ -1829,7 +1829,7 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
       targets.push({ tid: t.id, cid: comments[comments.length - 1].id })
     }
     if (!targets.length) {
-      toast('No replies to delete')
+      toast.ok('No replies to delete')
       return
     }
     const count = targets.length
@@ -1855,7 +1855,7 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
       backdrop.remove()
       await loadThreads()
       if (failed === 0) {
-        toast(`Deleted ${succeeded} repl${succeeded === 1 ? 'y' : 'ies'}`)
+        toast.ok(`Deleted ${succeeded} repl${succeeded === 1 ? 'y' : 'ies'}`)
       } else if (succeeded === 0) {
         toast('All deletes failed')
       } else {
@@ -2373,7 +2373,7 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
         // updated body. No re-fetch — the in-memory state IS the truth
         // until the next loadThreads (modal close, comment add/delete, etc.).
         if (comment) comment.body = res?.comment?.body ?? text
-        toast('Comment updated')
+        toast.ok('Comment updated')
       } catch (err) {
         saveBtn.disabled = false; cancelBtn.disabled = false
         saveBtn.textContent = 'Save'

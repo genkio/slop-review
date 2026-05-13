@@ -29,13 +29,64 @@ export function relTime(iso) {
   return d.toISOString().slice(0, 10)
 }
 
-export function toast(msg) {
+/**
+ * Stack-bottom toast host. Created lazily on first toast and reused for
+ * all subsequent ones so multiple messages pile vertically instead of
+ * overlapping. The host owns the screen positioning (bottom-center) and
+ * the flex direction; each toast is a plain child that grows the stack
+ * upward via `column-reverse` — older toasts don't shift when a new one
+ * arrives, which matters now that they don't auto-dismiss.
+ */
+function ensureToastHost() {
+  let host = document.getElementById('toast-host')
+  if (host) return host
+  host = document.createElement('div')
+  host.id = 'toast-host'
+  host.className = 'toast-host'
+  document.body.appendChild(host)
+  return host
+}
+
+/**
+ * Show a toast. Default behavior is persistent — the user must click ×
+ * to dismiss — because the messages we surface this way (gate warnings,
+ * "X failed" errors, "anchor lost" hints) are exactly the ones a reviewer
+ * is likely to skim past at first paint.
+ *
+ * For *obvious success acknowledgments* — "Comment added", "Copied",
+ * "Thread resolved" — call `toast.ok(msg)` instead. Same visual, but it
+ * auto-dismisses after 2.5s so the screen doesn't accumulate "yes, you
+ * did the thing" confirmations the user already knows about.
+ */
+export function toast(msg, { autoDismiss = false } = {}) {
+  const host = ensureToastHost()
   const t = document.createElement('div')
   t.className = 'toast'
-  t.textContent = msg
-  document.body.appendChild(t)
-  setTimeout(() => t.remove(), 2500)
+
+  const text = document.createElement('span')
+  text.className = 'toast-text'
+  text.textContent = msg
+
+  let timer = null
+  const close = document.createElement('button')
+  close.type = 'button'
+  close.className = 'toast-close'
+  close.setAttribute('aria-label', 'Dismiss')
+  close.textContent = '×'
+  close.addEventListener('click', () => {
+    if (timer) clearTimeout(timer)
+    t.remove()
+  })
+
+  t.append(text, close)
+  host.appendChild(t)
+
+  if (autoDismiss) {
+    timer = setTimeout(() => t.remove(), 2500)
+  }
 }
+
+toast.ok = (msg) => toast(msg, { autoDismiss: true })
 
 /**
  * Copy text to the OS clipboard with a fallback for non-secure contexts.

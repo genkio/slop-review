@@ -427,7 +427,7 @@ export function openThreadModal(threadId, opts = {}) {
         if (list && res.comment) list.insertAdjacentHTML('beforeend', commentHtml(res.comment, true))
         ta.value = ''
         ta.focus()
-        toast('Reply added')
+        toast.ok('Reply added')
         onChanged?.(res)
       } catch (e) {
         toast('Reply failed: ' + (e.message || 'unknown'))
@@ -464,7 +464,7 @@ export function openThreadModal(threadId, opts = {}) {
       if (!name) return
       try {
         await copyToClipboard(name)
-        toast('Filename copied')
+        toast.ok('Filename copied')
         btn.classList.add('is-copied')
         setTimeout(() => btn.classList.remove('is-copied'), 1200)
       } catch (err) {
@@ -494,7 +494,7 @@ export function openThreadModal(threadId, opts = {}) {
           { method: 'POST' }
         )
         onChanged?.(res)
-        toast(toResolved ? 'Thread resolved' : 'Thread reopened')
+        toast.ok(toResolved ? 'Thread resolved' : 'Thread reopened')
         if (toResolved) {
           // User signalled "I'm done with this one" — auto-advance to the
           // next thread (or close if no neighbour). Skip the in-place
@@ -536,7 +536,7 @@ export function openThreadModal(threadId, opts = {}) {
           )
           confirmBackdrop.remove()
           onChanged?.(res)
-          toast('Thread deleted')
+          toast.ok('Thread deleted')
           // Auto-advance to the next thread instead of closing the modal.
           // `advanceAfterDone` closes the modal if no neighbour remains.
           advanceAfterDone()
@@ -578,10 +578,10 @@ export function openThreadModal(threadId, opts = {}) {
           )
           if (res.deleted === 'thread') {
             backdrop.remove()
-            toast('Thread removed')
+            toast.ok('Thread removed')
           } else {
             backdrop.querySelector(`.msg[data-comment-id="${commentId}"]`)?.remove()
-            toast('Comment removed')
+            toast.ok('Comment removed')
           }
           onChanged?.(res)
         } catch (err) {
@@ -649,7 +649,7 @@ export function openThreadModal(threadId, opts = {}) {
         newBody.dataset.body = ''
         newBody.innerHTML = inlineCode(res?.comment?.body ?? text)
         form.replaceWith(newBody)
-        toast('Comment updated')
+        toast.ok('Comment updated')
         onChanged?.(res)
       } catch (err) {
         saveBtn.disabled = false; cancelBtn.disabled = false

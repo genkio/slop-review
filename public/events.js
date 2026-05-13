@@ -15,7 +15,7 @@ export function attachEvents() {
     if (copy) {
       try {
         await copyToClipboard(copy.dataset.copy)
-        toast('Copied')
+        toast.ok('Copied')
       } catch (err) {
         toast('Copy failed: ' + (err.message || 'unknown'))
       }
