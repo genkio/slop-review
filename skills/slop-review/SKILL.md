@@ -46,7 +46,8 @@ Sidecars (not threads, ignore): `_reviewed.json`, `_overview.json`.
   "id":            "thread_a1b2c3d4",          // stable; matches the hex in the filename
   "view":          "full",                     // "commit" | "full" | "local"
   "file":          "packages/foo/src/bar.ts",  // the source file the comment anchors to
-  "line":          42,                         // line number in `file` at `sha`
+  "line":          42,                         // start line in `file` at `sha`
+  "line_end":      null,                       // end line (inclusive) for multi-line anchors; null/equal-to-line = single line
   "side":          "new",                      // "old" | "new" — pre/post the change
   "sha":           "abc123…",                  // commit SHA (commit view) or HEAD SHA at create time
   "anchor_text":   "  return result.empty ? null : result",  // line text snapshot at create time
@@ -75,6 +76,7 @@ Sidecars (not threads, ignore): `_reviewed.json`, `_overview.json`.
 - **Don't modify** `id`, `created_at`, `last_read_at`, `resolved_at`. They're either stable identifiers or developer-controlled state.
 - **Don't rename the file.** Resolution status (`_open_` ↔ `_resolved_`) is developer-controlled via the slop-review web UI; touching it from the agent breaks the user's mental model.
 - **`comments[]`** is append-only — never mutate or reorder existing entries.
+- **`line_end`**: `null` (or absent / equal to `line`) for a single-line anchor; set to the inclusive end line for a multi-line range. The server caps the range at 500 lines.
 - **`anchor_text`**: only modify when relocating an anchor onto a resolving commit (see the reviewee workflow below).
 
 ---
@@ -105,6 +107,7 @@ User prompt example: *"review this branch and leave inline comments on anything 
        "view": "full",
        "file": "packages/foo/src/bar.ts",
        "line": 42,
+       "line_end": null,             // or <end-line> for a multi-line range; omit / null for single line
        "side": "new",
        "sha": "<sha-from-above>",
        "anchor_text": "<line text>",
@@ -158,6 +161,7 @@ User prompt example: *"go through unresolved slop-review threads and address the
      - `sha` → the new commit's full SHA (`git rev-parse HEAD`)
      - `file` → path of the most semantically-relevant file in the new commit's diff (usually the file you edited)
      - `line` → line number of the most relevant line in that file at the new SHA
+     - `line_end` → end line if the resolving change spans a range; otherwise `null`. Don't carry over a stale multi-line range from the original anchor.
      - `anchor_text` → the literal text of that line at the new SHA
    - **Append exactly one new entry** to `comments[]`:
      ```jsonc
