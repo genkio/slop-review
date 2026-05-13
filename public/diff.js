@@ -239,6 +239,8 @@ function renderFileSection(file, mode, sha, opts = {}) {
     priorityEntry       = null,
     relationship        = null,
     anchorPath          = null,
+    threadCount         = 0,
+    openThreadCount     = 0,
   } = opts
   const status      = file.status || 'modified'
   const statusGlyph = STATUS_GLYPH[status] || '?'
@@ -315,6 +317,13 @@ function renderFileSection(file, mode, sha, opts = {}) {
       `<button type="button" class="diff-file-toggle" data-toggle-collapse aria-expanded="${isCollapsed ? 'false' : 'true'}" aria-label="${isCollapsed ? 'Expand file' : 'Collapse file'} ${escapeHtml(file.path)}"></button>` +
       `<span class="diff-file-status" data-status="${status}" title="${status}">${statusGlyph}</span>` +
       `<code class="diff-file-path">${pathShown}</code>` +
+      // Thread count chip: surfaces "this file has discussions" even when
+      // the file is collapsed (reviewed). Single muted number so the eye
+      // doesn't compete with the +N −M stats next to it; the tooltip
+      // breaks out open vs resolved if the user wants the detail.
+      (threadCount > 0
+        ? `<span class="diff-file-threads" title="${threadCount} thread${threadCount === 1 ? '' : 's'}${openThreadCount > 0 ? ` (${openThreadCount} open)` : ''}">${threadCount}</span>`
+        : '') +
       `<span class="diff-file-stats"><span class="diff-stat-add">+${file.additions ?? 0}</span> <span class="diff-stat-del">−${file.deletions ?? 0}</span></span>` +
       relChip +
       relateBtn +
@@ -1637,6 +1646,91 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
     existing.replaceWith(tmp.content.firstChild)
   }
 
+  /**
+   * Auto-mark files reviewed when the user resolves their last open
+   * thread, mirroring the manual click-the-header gesture. Runs against
+   * a freshly-arrived /resolve response so we can spot the open→resolved
+   * transition before state.threads gets clobbered by loadThreads.
+   *
+   * Gates (must match the manual flow in the click handler above):
+   *   - View: only Full + commit. Local view doesn't pin to a stable
+   *     blob, so the persisted mark would have no anchor.
+   *   - Existing: skip files already in state.reviewed (idempotent).
+   *   - In-view: file must be in state.diff.files for the current view.
+   *     A thread resolved on a Local-only file (or a file outside the
+   *     current commit's diff) gets no auto-mark from this view — the
+   *     user can navigate to a view where the file IS visible and the
+   *     gate is satisfiable, and mark it manually.
+   *   - Later-changes: in commit view, file.is_unchanged_since_commit
+   *     must be true. Same toast-on-block rule as the manual click —
+   *     except here we just silently skip, since the user didn't
+   *     directly request the mark (and a noisy toast on every resolve
+   *     would be the wrong default).
+   *
+   * Batched into a single PUT with mode=add so two concurrent resolves
+   * (e.g. rapid keyboard navigation) can't race two replace-writes
+   * against the sidecar and lose one of them.
+   */
+  function autoMarkOnLastResolve(res) {
+    if (!res?.threads) return
+    const isFull   = isFullIndex(state.index)
+    const isCommit = isCommitIndex(state.index)
+    if (!isFull && !isCommit) return
+    const sha = branchInfo?.head_sha
+    if (!sha) return
+
+    // Files where SOME thread just transitioned open → resolved. Filters
+    // out delete/reply mutations: a delete that empties a file's thread
+    // list isn't an "I'm done with this file" gesture in the same way
+    // resolving is, so we don't auto-mark on it.
+    const wasResolvedById = new Map((state.threads || []).map((t) => [t.id, !!t.resolved_at]))
+    const justResolvedFiles = new Set()
+    for (const t of res.threads) {
+      if (!t.file) continue
+      if (!wasResolvedById.get(t.id) && t.resolved_at) justResolvedFiles.add(t.file)
+    }
+    if (!justResolvedFiles.size) return
+
+    // Per-file open-thread count in the NEW state. Files still carrying
+    // an open thread aren't candidates — the user has more work left
+    // there before "reviewed" is honest.
+    const openByFile = new Map()
+    for (const t of res.threads) {
+      if (!t.file || t.resolved_at) continue
+      openByFile.set(t.file, (openByFile.get(t.file) || 0) + 1)
+    }
+
+    const toMark = []
+    for (const file of justResolvedFiles) {
+      if ((openByFile.get(file) || 0) > 0) continue
+      if (state.reviewed.has(file)) continue
+      const f = state.diff?.files?.find((x) => x.path === file)
+      if (!f) continue
+      if (isCommit && f.is_unchanged_since_commit === false) continue
+      toMark.push(file)
+    }
+    if (!toMark.length) return
+
+    // Optimistic local update first so the trailing loadThreads →
+    // renderBody picks up the new state.reviewed in its repaint — the
+    // green wash + auto-collapse appear without a second render cycle.
+    const prev = new Set(state.reviewed)
+    const next = new Set(state.reviewed)
+    for (const p of toMark) { next.add(p); state.collapsedPaths.add(p) }
+    state.reviewed    = next
+    state.reviewedSha = sha
+
+    api(`/api/repos/${encodeURIComponent(repo.id)}/reviewed`, {
+      method: 'PUT',
+      body: JSON.stringify({ head_sha: sha, paths: toMark, mode: 'add' }),
+    }).catch((e) => {
+      state.reviewed = prev
+      for (const p of toMark) state.collapsedPaths.delete(p)
+      toast('Auto-mark reviewed failed: ' + (e.message || 'unknown'))
+      renderBody()
+    })
+  }
+
   // Confirmation-gated wrapper around `resetReviewed`. The scope is
   // view-sensitive: in Full view the × clears every reviewed mark on the
   // branch, but in a per-commit view it should only clear marks for files
@@ -2053,6 +2147,16 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
       ? [...visibleFiles].sort((a, b) => compareForReview(a, b, priorities))
       : visibleFiles
     const showRelateBtn = isFull && !!priorities
+    // Per-file thread counts (total + still-open). Computed once before
+    // the map so renderFileSection doesn't re-walk state.threads per call
+    // — single O(threads) pass instead of O(files × threads).
+    const threadCountByFile = new Map()
+    const openCountByFile   = new Map()
+    for (const t of state.threads || []) {
+      if (!t.file) continue
+      threadCountByFile.set(t.file, (threadCountByFile.get(t.file) || 0) + 1)
+      if (!t.resolved_at) openCountByFile.set(t.file, (openCountByFile.get(t.file) || 0) + 1)
+    }
     const filesHtml = orderedFiles.map((f) => {
       // Per-file relationship to the filter anchor. Only meaningful in
       // filter mode AND when this file isn't the anchor itself.
@@ -2073,6 +2177,8 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
         priorityEntry: priorities?.[f.path] || null,
         relationship,
         anchorPath: filterAnchor,
+        threadCount: threadCountByFile.get(f.path) || 0,
+        openThreadCount: openCountByFile.get(f.path) || 0,
       })
     }).join('')
     // Preserve scroll across `innerHTML` swaps. `overflow-anchor: none`
@@ -2654,7 +2760,16 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
         jumpToThreadAnchor(t)
       },
       onClose: () => { stripThreadQuery(); releaseJumpLayout() },
-      onChanged: () => { loadThreads() },
+      onChanged: (res) => {
+        // Detect "user just resolved the last open thread on a file" and
+        // auto-mark that file reviewed (subject to the same view + later-
+        // changes gates the manual header click enforces). Must run BEFORE
+        // loadThreads — loadThreads overwrites state.threads with the new
+        // snapshot, which would erase the "what did this look like before
+        // the mutation?" signal the diff below depends on.
+        autoMarkOnLastResolve(res)
+        loadThreads()
+      },
       // /read is a soft mutation — only the single thread's state-pill
       // changes. We bypass loadThreads (which would renderBody and risk
       // drifting the diff-body scroll position) and instead just adopt

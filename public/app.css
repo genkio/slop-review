@@ -2104,6 +2104,17 @@ a.card-file:hover .card-file-mark {
 }
 .diff-stat-add { color: var(--lane-done); }
 .diff-stat-del { color: var(--accent); }
+/* Total-thread count for a file. Muted so it sits quietly next to the
+   diff-stat colors without competing for attention. Visible even when
+   the file is collapsed (reviewed) — that's the point: the marker
+   tells you "discussion happened here" at a glance, regardless of
+   whether the file's body is currently expanded. */
+.diff-file-threads {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--fg-muted);
+  flex: 0 0 auto;
+}
 
 /* —— Review-batch UI: top banner + per-file controls ——
    The banner stacks at the top of the diff body and surfaces filter /
