@@ -313,6 +313,15 @@ function renderFileSection(file, mode, sha, opts = {}) {
 
   const sectionClass = `diff-file${isReviewed ? ' is-reviewed' : ''}${isFilterAnchor ? ' is-filter-anchor' : ''}${isCollapsed ? ' is-collapsed' : ''}`
 
+  // Mirror of the mark-reviewed toast at the gate site: when a commit-view
+  // file has later changes, surface that *ambiently* under the head so the
+  // user sees the limitation before they try the gesture. Strict `=== false`
+  // because Full/Local diffs leave the flag undefined — only commit-diff
+  // payloads populate it (see `server/git.js` `getCommitDiff`).
+  const laterChangesWarn = file.is_unchanged_since_commit === false
+    ? `<div class="diff-file-warn" role="note">This file has later changes — mark it reviewed from its last-touched commit or from the Full diff.</div>`
+    : ''
+
   return `<section class="${sectionClass}" data-path="${escapeHtml(file.path)}" data-status="${status}">` +
     `<header class="diff-file-head" data-toggle-collapse>` +
       `<button type="button" class="diff-file-toggle" data-toggle-collapse aria-expanded="${isCollapsed ? 'false' : 'true'}" aria-label="${isCollapsed ? 'Expand file' : 'Collapse file'} ${escapeHtml(file.path)}"></button>` +
@@ -329,6 +338,7 @@ function renderFileSection(file, mode, sha, opts = {}) {
       relChip +
       relateBtn +
     `</header>` +
+    laterChangesWarn +
     `<div class="diff-file-body">${body}</div>` +
   `</section>`
 }

@@ -1955,6 +1955,37 @@ a.card-file:hover .card-file-mark {
   border-left: 2px solid var(--accent);
 }
 
+/* Per-file "later changes" banner — sits flush under .diff-file-head and
+   above .diff-file-body, sticky like the head so the reminder persists
+   while reading the file body. Pins immediately below the stuck head via
+   `top: head_height - body_padding_top`; the --diff-file-head-h variable
+   centralizes that math so the with-review-banner and mobile branches
+   stay in sync. Background mixes with var(--card), not transparent —
+   sticky overlays must be opaque or diff lines bleed through mid-scroll.
+   z-index sits below the head's so any sub-pixel overlap resolves in the
+   head's favor (file identity is more important than a known-state hint).
+   Hidden when the file is collapsed: if the user has marked the file
+   reviewed elsewhere and folded it away, repeating the warning between
+   every header is just noise. */
+.diff-file { --diff-file-head-h: 34px; }
+.diff-file-warn {
+  position: sticky;
+  top: calc(var(--diff-file-head-h) - 16px);
+  z-index: 1;
+  padding: 6px 14px;
+  font-family: var(--font-sans);
+  font-size: 12px;
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 6%, var(--card));
+  border-bottom: 1px solid var(--hairline);
+}
+.diff-body:has(> .diff-review-banner) .diff-file-warn {
+  top: calc(var(--diff-file-head-h) + 36px);
+}
+.diff-file.is-collapsed .diff-file-warn {
+  display: none;
+}
+
 /* —— File section ——
    Margin-bottom: 0 on every file (not just collapsed). The 18px breathing
    room created an inter-file gap that broke sticky-header handoff: file1's
@@ -2849,6 +2880,13 @@ a.card-file:hover .card-file-mark {
      desktop (≈46) minus the 10px padding, plus breathing room. */
   .diff-review-banner { top: -10px; }
   .diff-body:has(> .diff-review-banner) .diff-file-head { top: 40px; }
+  /* Match the file-head's mobile sticky offsets so the warning still
+     pins immediately below it: head's pinned bottom = head_top + head_h.
+     Default mobile: -10 + 34 = 24. With banner: 40 + 34 = 74. */
+  .diff-file-warn { top: calc(var(--diff-file-head-h) - 10px); }
+  .diff-body:has(> .diff-review-banner) .diff-file-warn {
+    top: calc(var(--diff-file-head-h) + 40px);
+  }
 }
 
 /* ——————————————————— Local ("fake") review threads ———————————————————
