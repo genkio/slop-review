@@ -246,8 +246,9 @@ export async function getBlobShasAt(repoPath, ref, paths) {
 }
 
 /**
- * Get the per-commit diff. Returns the same `files[]` shape as taiou's
- * diff endpoints so the frontend's diff modal can consume it uniformly.
+ * Get the per-commit diff. Returns the same `files[]` shape as the
+ * full/local diff endpoints so the frontend renderer can consume any
+ * variant uniformly.
  *
  * Root-commit caveat: `<sha>^!` is the standard "this commit's changes"
  * shorthand and expands to `<sha>^..<sha>` for normal commits. For root
@@ -493,8 +494,8 @@ function pathFromDiffHeader(chunk) {
 
 function mapStatus(s) {
   // git --raw status letters: A added, M modified, D deleted, R rename,
-  // C copy, T type-change, U unmerged. Map to descriptive names matching
-  // taiou's vocabulary so the frontend palette mapping carries over.
+  // C copy, T type-change, U unmerged. Map to the descriptive names the
+  // frontend palette + status-glyph table expect.
   const head = s[0] || ''
   switch (head) {
     case 'A': return 'added'

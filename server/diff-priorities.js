@@ -259,13 +259,14 @@ function readableFiles(files) {
 }
 
 /**
- * Compute priorities for a commit-anchored view (full PR diff or per-commit
- * diff). `repoRoot` can be the gtreea worktree or the configured root —
- * git's object store is shared, so either works as long as `sha` is fetched.
+ * Compute priorities for a commit-anchored view (full branch diff or
+ * per-commit diff). `repoRoot` is the worktree root — git's object store
+ * is shared with any linked worktree, so either works as long as `sha`
+ * is fetched.
  *
  * Returns null on hard failure (no repoRoot, no sha, or readPathsAtSha
  * threw). Callers treat null as "ship the diff without sort metadata" —
- * the modal falls back to GitHub's order, which is what users see today.
+ * the renderer then falls back to the server's existing file order.
  */
 export async function computePrioritiesAtSha(repoRoot, sha, files) {
   if (!repoRoot || !sha || !files?.length) return null

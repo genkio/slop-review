@@ -92,11 +92,12 @@ toast.ok = (msg) => toast(msg, { autoDismiss: true })
  * Copy text to the OS clipboard with a fallback for non-secure contexts.
  *
  * `navigator.clipboard` is only exposed on HTTPS or localhost — accessing
- * taiou over Tailscale (e.g. http://your-mac:4917) leaves it undefined,
- * which is why the modern path can throw "cannot read property writeText
- * of undefined" before it ever runs. The legacy `document.execCommand`
- * path is deprecated but works everywhere and isn't gated on secure
- * context, so it's the right fallback for this app's deployment shape.
+ * slop-review over a LAN/Tailscale URL (e.g. http://your-mac:4919) leaves
+ * it undefined, which is why the modern path can throw "cannot read
+ * property writeText of undefined" before it ever runs. The legacy
+ * `document.execCommand` path is deprecated but works everywhere and
+ * isn't gated on secure context, so it's the right fallback for this
+ * app's deployment shape.
  *
  * Must be called inside a real user-gesture click handler (Safari + the
  * legacy path both require it). The synchronous fallback runs before
@@ -155,10 +156,10 @@ export function homePath(absPath, home) {
 /**
  * Format a thread's anchor line range for display. Returns `42` for a
  * single-line thread (line_end null / equal to line) and `42–45` for a
- * multi-line one. Used by the threads page, the modal subtitle, and the
- * spliced inline thread row's anchor button. Threads created before the
- * multi-line feature shipped carry no `line_end` at all — `undefined`
- * collapses to the single-line case, so legacy data renders unchanged.
+ * multi-line one. Used by the thread modal's subtitle. Threads created
+ * before the multi-line feature shipped carry no `line_end` at all —
+ * `undefined` collapses to the single-line case, so legacy data renders
+ * unchanged.
  */
 export function formatLineRange(thread) {
   const start = thread?.line

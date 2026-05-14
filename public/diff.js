@@ -2212,8 +2212,9 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
       const baseRef = branchInfo?.base_branch || ''
       const headRef = state.branch || ''
       // When on the base branch, `current === base` so `main ← main` would
-      // be misleading — the actual diff base is HEAD~1 (the on-base review
-      // fallback). Surface the branch + a neutral 'review' label instead.
+      // be misleading — the actual diff base is the empty-tree SHA (the
+      // on-base review fallback in `getBranchInfo`). Surface the branch +
+      // a neutral 'review' label instead.
       const onBase = !!branchInfo?.on_base
       $('[data-headline]').textContent = onBase && headRef
         ? `${headRef} · review`
@@ -2386,11 +2387,12 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
     setTimeout(() => ro.disconnect(), 2000)
   }
 
-  // One-shot scroll: when the user clicked "Jump to diff" from the threads
-  // page, this fires after the first successful body render. Auto-uncollapses
-  // the file if needed, scrolls the matching cell into view, flashes briefly.
-  // After firing once it nulls out scrollToAnchor so subsequent renders
-  // (split↔inline toggle, etc.) don't keep scrolling.
+  // One-shot scroll: when the user lands on a `?file=…&thread=…` URL or
+  // navigates between threads in the modal, this fires after the first
+  // successful body render. Auto-uncollapses the file if needed, scrolls
+  // the matching cell into view, flashes briefly. After firing once it
+  // nulls out scrollToAnchor so subsequent renders (split↔inline toggle,
+  // etc.) don't keep scrolling.
   function maybeScrollToAnchor() {
     if (!scrollToAnchor) return
     const { file, line, side } = scrollToAnchor
@@ -2899,11 +2901,11 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
     // on its next click. Captured here (and again in onNavigate below)
     // so every transition into the modal updates the bookmark, including
     // auto-advance-after-resolve and auto-advance-after-delete (both
-    // route through onNavigate). setResumeCursor
-    // also persists to localStorage so the cursor survives a page
-    // reload — the user's flow is "close modal, refresh, click total
-    // to resume", which depends on the cursor outliving the in-memory
-    // state object.
+    // route through onNavigate). setResumeCursor persists the cursor to
+    // state.json (via patchRepoUiState → /api/repos/:id/ui-state) so the
+    // bookmark survives a page reload — the user's flow is "close modal,
+    // refresh, click total to resume", which depends on the cursor
+    // outliving the in-memory state object.
     setResumeCursor(tid)
     // The diff body stays in whatever view the user clicked from — no
     // on-open swap, no on-navigate swap. The modal is a read-and-walk

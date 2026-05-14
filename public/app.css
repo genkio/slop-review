@@ -20,8 +20,9 @@
   --accent-soft:    #8a96ff;
 
   /* Lane accents — semantic colors for diff statuses + state pills.
-     Tuned a touch more saturated than taiou's earth-toned palette so
-     the green / blue / amber / red read clearly against neutral grays. */
+     Tuned to read clearly against the neutral grays elsewhere: green /
+     blue / amber / red stay distinct in both dense diff bodies and the
+     thin chrome of the counts strip. */
   --lane-unstarted: #71717a;       /* zinc */
   --lane-explain:   #3b82f6;       /* blue */
   --lane-working:   #f59e0b;       /* amber */
@@ -1924,9 +1925,9 @@ a.card-file:hover .card-file-mark {
 
 /* Cap the per-row content width so each text column lands at a comfortable
    ~80-char code-review width on wide displays. Without this, on a 1900px
-   modal the two text cols each stretch to ~750px and short code lines
-   leave a wasteful gap mid-row. The cap turns the modal into a centered
-   editorial spread with bg gutters on the outside — fits taiou's aesthetic. */
+   viewport the two text cols each stretch to ~750px and short code lines
+   leave a wasteful gap mid-row. The cap turns the diff body into a
+   centered editorial spread with bg gutters on the outside. */
 .diff-body > * {
   max-width: 1400px;
   margin-left: auto;
@@ -2503,7 +2504,7 @@ a.card-file:hover .card-file-mark {
 .diff-blank   { background: var(--bg-deep); }    /* empty cell in split view (no del/add on this side) */
 
 /* —— Per-line syntax highlighting ——
-   Token classes emitted by public/syntax.js. Mapped to taiou's lane
+   Token classes emitted by public/syntax.js. Mapped onto the shared lane
    palette so light/dark mode comes free (lane-* vars flip per
    prefers-color-scheme). The deliberately narrow set of classes —
    keyword/string/number/comment/literal/builtin/class — is enough
@@ -2889,14 +2890,14 @@ a.card-file:hover .card-file-mark {
   }
 }
 
-/* ——————————————————— Local ("fake") review threads ———————————————————
-   Threads created by inline-commenting a Full-diff line in taiou. They
-   live in .reviews/ on disk and behave like GitHub-sourced cards on the
-   board (lanes, lane history, move modal) but never round-trip to GitHub.
-   Visual differentiation is carried entirely by the `local` pill in the
-   card head + the static (non-link) location chip — no extra border
-   styling, since the pill is signal enough and a left stripe added
-   visual noise without proportional clarity. */
+/* ——————————————————— Vestigial CSS ———————————————————
+   The following rules target classes that no current JS path emits.
+   They survived an earlier refactor that folded the threads + commits
+   pages into the diff page; kept here (rather than deleted) until the
+   surrounding chrome stabilises, so a reintroduction of the relevant
+   features doesn't have to re-derive these styles from scratch.
+   No DOM element currently selects them, so they have zero render
+   impact today. */
 .card-local-pill {
   flex: 0 0 auto;
   font-family: var(--font-mono);
@@ -2909,18 +2910,9 @@ a.card-file:hover .card-file-mark {
   border-radius: 999px;
   font-style: normal;
 }
-/* Static (non-link) variant of .card-file — same typography, no underline
-   or hover state, default cursor. Used when a thread has no GitHub anchor
-   to navigate to (local threads). */
 .card-file-static {
   cursor: default;
 }
-
-/* ——————————————————— Full-diff entry row (Commits list) ———————————————————
-   Same row shape as a real commit, but the SHA glyph reads "full" in the
-   accent color (hanko red) so the user immediately spots the synthetic
-   entry that opens the cumulative head←base diff (and supports inline
-   comments). Sits at the top of the commits list. */
 .pr-commit-full .pr-commit-sha {
   color: var(--accent);
   text-transform: lowercase;
@@ -3151,9 +3143,9 @@ a.card-file:hover .card-file-mark {
   line-height: 1.5;
   color: var(--fg);
   white-space: pre-wrap;
-  /* Body is clickable — opens the thread modal (mirrors the threads page,
-     where any row click opens the detail). Text selection is preserved
-     by a guard in the click handler. */
+  /* Body is clickable — opens the thread modal. Text selection is
+     preserved by a guard in the click handler so dragging to highlight
+     comment text doesn't trigger the modal. */
   cursor: pointer;
 }
 .diff-thread-body:hover {
@@ -3245,10 +3237,9 @@ a.card-file:hover .card-file-mark {
 .btn[hidden] { display: none; }
 
 /* State pills — used in the diff control banner's counts strip (and
-   inside the thread modal head). The threads page that used to host
-   these was folded into the diff page in 0.5; the pill rules survived
-   intact because both the counts strip and the inline diff thread state
-   wash share the same accent palette. */
+   inside the thread modal head). Pill rules share the same accent
+   palette as the inline diff thread state wash, so they read as one
+   visual family across the diff page. */
 .state-pill {
   display: inline-flex;
   align-items: center;
@@ -3338,15 +3329,14 @@ a.card-file:hover .card-file-mark {
 
 /* "You jumped from this thread" — painted on the inline thread row that
    matches the URL's `?thread=` param so the user can spot the
-   conversation they came from amid other threads in the same file. Same
-   visual idiom as the threads-page .thread-row.is-recent: 4 px accent
-   left-ribbon + accent wash. State takes precedence over the ribbon
-   color (so a resolved thread keeps its green/done ribbon), which means
-   the background wash + inset accent ring carry the "jumped-from"
-   signal alone when state ribbons stay. Both are tuned strong enough
-   to stay legible against any state wash — too faint and the cue
-   disappears when neighboring threads share a state (e.g. all
-   resolved). */
+   conversation they came from amid other threads in the same file. A
+   4 px accent left-ribbon + accent wash carry the signal. State takes
+   precedence over the ribbon color (so a resolved thread keeps its
+   green/done ribbon), which means the background wash + inset accent
+   ring carry the "jumped-from" signal alone when state ribbons stay.
+   Both are tuned strong enough to stay legible against any state wash —
+   too faint and the cue disappears when neighboring threads share a
+   state (e.g. all resolved). */
 .diff-thread.is-jumped-from {
   border-left: 4px solid var(--accent);
   background: color-mix(in srgb, var(--accent) 16%, transparent);

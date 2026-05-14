@@ -56,7 +56,9 @@ export function registerThreadRoutes(app) {
     const sha = String(body?.sha || info.head_sha || '')
     const text = String(body?.body || '').trim()
     // Optional snippet of the line being commented on. Captured at create
-    // time so the threads page can show context even after the line drifts.
+    // time so a future view that surfaces threads outside the original
+    // anchor (e.g. anchor-lost in another commit's diff) can still show
+    // the context the reviewer was looking at.
     const anchorText = body?.anchor_text != null ? String(body.anchor_text).slice(0, 500) : null
     if (!['commit', 'full', 'local'].includes(view)) return c.json({ error: 'invalid view' }, 400)
     if (!file) return c.json({ error: 'file required' }, 400)
@@ -185,8 +187,9 @@ export function registerThreadRoutes(app) {
   // (POST /unresolve) re-opens it. The state-derivation rule treats
   // `resolved_at != null` as the resolved pill, short-circuiting the
   // your_turn/awaiting/read derivation. Resolution is a pure human
-  // bookkeeping flag — the aggregate prompt filters resolved threads
-  // out client-side, so the agent never sees them.
+  // bookkeeping flag — the bundled Claude Code skill (skills/slop-review/
+  // SKILL.md) instructs agents to skip resolved threads when reviewing,
+  // so they're not addressed unless the user explicitly reopens them.
   app.post('/api/repos/:id/threads/:thread_id/resolve', async (c) => {
     const { repo, branchId, branch, error } = await withRepoAndBranch(c)
     if (error) return error

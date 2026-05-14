@@ -38,9 +38,10 @@ export function newThreadId() {
 }
 
 /**
- * Sanitize a branch name for use as a directory. Same rules as taiou's
- * tmux session naming: anything outside [A-Za-z0-9_-] collapses to `-`,
- * leading/trailing dashes trimmed, capped at 80 chars.
+ * Sanitize a branch name for use as a directory: anything outside
+ * [A-Za-z0-9_-] collapses to `-`, leading/trailing dashes trimmed,
+ * capped at 80 chars. Must stay in lockstep with the client's
+ * `sanitizeBranchId` in public/util.js.
  */
 export function sanitizeBranchId(branch) {
   if (!branch) return ''

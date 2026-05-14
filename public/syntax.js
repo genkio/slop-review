@@ -14,7 +14,7 @@ import { escapeHtml } from './util.js'
  *
  * Token classes (rendered as `<span class="hl-<name>">`):
  *   keyword | string | number | comment | literal | builtin | class | regex
- * CSS theme in app.css maps these to taiou's lane palette.
+ * CSS theme in app.css maps these to the diff lane palette.
  */
 
 // Most common-language sets the same `c-style` tokenizer with different

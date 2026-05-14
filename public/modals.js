@@ -6,7 +6,8 @@ export function makeModal(innerHtml, opts = {}) {
   const backdrop = document.createElement('div')
   backdrop.className = 'modal-backdrop'
   // Dynamic z-stack: layer above any modal already on screen so confirms
-  // and aggregate-prompt modals don't render behind their launchers.
+  // (Delete thread, Delete comment, Clear reviewed marks) don't render
+  // behind the thread or overview modal that launched them.
   const existing = [...document.querySelectorAll('.modal-backdrop')]
   if (existing.length) {
     const maxZ = Math.max(
@@ -113,7 +114,8 @@ export function confirmRemoveComment({ isLast, onConfirm }) {
 /**
  * Open the thread modal for one slop-review thread. The thread is fetched
  * from the freshest snapshot via the supplied `getThread` callback so a
- * thread that just got an LLM reply via SSE shows the latest content.
+ * thread that just got an LLM reply (visible after the host calls
+ * `loadThreads`) shows the latest content on the next mount/update.
  *
  * `onChanged` fires after a real mutation (reply / resolve / delete-thread
  * / delete-comment / edit-comment) so the host page can re-render its
@@ -372,14 +374,14 @@ export function openThreadModal(threadId, opts = {}) {
       // retains one safe dismissal path that won't surprise them.
       backdrop = makeModal(html, { onClose: wrappedOnClose, noCloseButton: true })
       // Capture-phase registration is load-bearing: the diff page's
-      // onKey listener (at diff.js:500-501) was registered earlier
-      // during the diff page mount, also on `document`, in the default
-      // bubble phase. Same-element bubble listeners fire in
-      // registration order, so without `capture: true` the diff page's
-      // onKey would run FIRST and call `goto()` before this handler
-      // could stop it. Registering for capture phase guarantees we run
-      // first regardless of registration order, which lets the
-      // stopImmediatePropagation above actually pre-empt onKey.
+      // `onKey` listener (registered in `renderDiffView`) was attached
+      // earlier on `document` in the default bubble phase. Same-element
+      // bubble listeners fire in registration order, so without
+      // `capture: true` the diff page's onKey would run FIRST and call
+      // `goto()` before this handler could stop it. Registering for the
+      // capture phase guarantees we run first regardless of registration
+      // order, which lets the `stopImmediatePropagation` above actually
+      // pre-empt onKey.
       document.addEventListener('keydown', onArrowNav, true)
     } else {
       // Replace `.modal`'s innerHTML in place. The backdrop's MutationObserver
@@ -666,10 +668,10 @@ export function openThreadModal(threadId, opts = {}) {
 
 /**
  * Rewrite `?thread=…` in the current hash to the given id, preserving any
- * other query params (e.g. `?file=…` on the diff page, though the thread
- * modal only ever opens on `#/` today). Uses replaceState — silent URL
- * update, no hashchange event, no router re-entry. Closing the modal
- * still strips this param via threads.js's `stripThreadQuery()`.
+ * other query params (e.g. `?file=…` from the single-file thread-context
+ * view). Uses replaceState — silent URL update, no hashchange event, no
+ * router re-entry. Closing the modal strips this param via the diff
+ * page's `stripThreadQuery()` (see public/diff.js).
  */
 function syncThreadInUrl(threadId) {
   const hash = location.hash || '#/'

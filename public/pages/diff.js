@@ -14,8 +14,8 @@ export function disposeDiffPage() {
 /**
  * Diff page. Owns the empty states (detached HEAD, on-base, no origin/HEAD)
  * and delegates the actual diff rendering to renderDiffView. Always calls
- * disposeDiffView at the top so a previous mount's listeners + SSE are
- * cleaned up before this mount takes over.
+ * disposeDiffView at the top so a previous mount's keyboard listeners +
+ * overview-nav polling are torn down before this mount takes over.
  *
  * `parsed` is the router's parsed-hash record:
  *   { kind: 'diff', variant: 'full' }
@@ -23,9 +23,10 @@ export function disposeDiffPage() {
  *   { kind: 'diff', variant: 'commit', sha: '<sha-prefix>' }
  */
 export async function renderDiffPage(parsed = { variant: 'full' }, isCurrent = () => true) {
-  // Always tear down a previous diff view's listeners + SSE before deciding
-  // what to render here. Running this even on empty-state branches is safe
-  // — the function no-ops when nothing is mounted.
+  // Always tear down a previous diff view's listeners + overview-nav
+  // polling before deciding what to render here. Running this even on
+  // empty-state branches is safe — the function no-ops when nothing is
+  // mounted.
   disposeDiffPage()
 
   const repo = store.state.repos[0]
@@ -47,9 +48,10 @@ export async function renderDiffPage(parsed = { variant: 'full' }, isCurrent = (
 
   // Empty-state branches: render an explanatory card and stop.
   // The on-base case only counts as empty when there's literally nothing
-  // to diff — no local changes AND no commits to review against either
-  // origin or HEAD~1 (the on-base review fallback in `getBranchInfo`
-  // flips `has_commits_ahead` to true when HEAD has a parent).
+  // to diff — no local changes AND no commits to review. The on-base
+  // review fallback in `getBranchInfo` synthesises a merge-base from the
+  // empty-tree SHA so `has_commits_ahead` flips to true whenever HEAD
+  // resolves at all; if it stays false here, the branch is truly empty.
   if (branchInfo.detached || !branchInfo.has_origin_head ||
       (branchInfo.on_base && !branchInfo.has_local_changes && !branchInfo.has_commits_ahead)) {
     main.innerHTML = `
