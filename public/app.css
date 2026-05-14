@@ -1995,17 +1995,11 @@ a.card-file:hover .card-file-mark {
 }
 /* When a review banner is sitting at the visual top, file heads stack
    below it instead of fighting for the same y. The math: banner border
-   + padding + content height ≈ 46px for controls-only, ≈ 85px once the
-   counts strip is added; subtract the body's 16px padding-top and add
-   a few px of breathing room so the path reads as visibly *under* the
-   banner rather than barely-touching it. Previously the offsets were
-   undershooting the banner height (28 / 60) and the path's top stroke
-   was getting clipped. */
+   + padding + content height ≈ 46px; subtract the body's 16px
+   padding-top and leave a few px of breathing room so the path reads
+   as visibly *under* the banner rather than barely-touching it. */
 .diff-body:has(> .diff-review-banner) .diff-file-head {
   top: 36px;
-}
-.diff-body:has(> .diff-review-banner .diff-review-counts) .diff-file-head {
-  top: 74px;
 }
 .diff-file.is-collapsed .diff-file-head {
   border-bottom-color: transparent;  /* nothing under the head — drop the divider */
@@ -2147,10 +2141,10 @@ a.card-file:hover .card-file-mark {
   z-index: 3;
   box-sizing: border-box;
 }
-/* Inner controls row — was the banner's flex content before the counts
-   strip pushed it down a level. Same shape (view toggle on the left,
-   right-cluster on the right) so the resting/filter/related/threads
-   variants all read identically below the counts row above. */
+/* Single controls row — view toggle on the left, right-cluster on the
+   right (pills always, plus any active-filter affordances). Pills used
+   to live on their own row above this one; merging them down keeps the
+   banner to a single visual line. */
 .diff-review-controls {
   display: flex;
   align-items: center;
@@ -2159,71 +2153,45 @@ a.card-file:hover .card-file-mark {
   flex-wrap: wrap;
   min-height: 28px;
 }
-/* Thread counts strip — top row of the banner when the current branch
-   has at least one thread. Separated by a hairline so the counts read
-   as informational/glanceable, distinct from the actionable controls
-   row beneath. */
-.diff-review-counts {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 10px;
-  padding-bottom: 8px;
-  border-bottom: 1px solid var(--hairline);
-}
-.diff-review-counts .state-pill {
-  font-size: 11px;
-  padding: 2px 8px;
-}
-.diff-review-counts-total {
-  margin-left: auto;
-  color: var(--fg-muted);
-  font-size: 11px;
-  font-family: var(--font-mono);
-  background: transparent;
-  border: 0;
-  padding: 0;
-  cursor: pointer;
-  letter-spacing: 0.02em;
-  transition: color .15s var(--ease);
-}
-button.diff-review-counts-total {
-  /* Dotted underline cues this is an action, not a static label. The
-     `data-show-thread` attribute opens the first thread's modal. */
-  border-bottom: 1px dotted color-mix(in srgb, currentColor 50%, transparent);
-  padding-bottom: 1px;
-}
-button.diff-review-counts-total:hover {
-  color: var(--accent);
-  border-bottom-color: var(--accent);
-}
-button.diff-review-counts-total:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 3px;
-  border-radius: 2px;
-}
 .diff-review-banner.is-filter {
   border-left: 3px solid var(--lane-explain);
   background: color-mix(in srgb, var(--lane-explain) 5%, var(--card));
 }
 /* Resting (default) banner state — neutral surface. The colored
-   left-ribbon variants (is-filter / is-filter-threads) signal "filter
-   engaged"; the resting state stays quiet so the view toggle and
-   chip read as ambient controls, not as alerts. */
+   left-ribbon `.is-filter` variant signals "filter engaged"; the resting
+   state stays quiet so the view toggle reads as an ambient control,
+   not as an alert. */
 .diff-review-banner.is-summary {
   border-left: 1px solid var(--hairline);
   background: var(--card);
 }
 
-/* Right-side cluster: holds the optional reviewed summary, the threads
-   filter chip, and any active-filter affordances. Lays out as an inline
-   row with the .diff-review-sep dot between elements so multi-part
-   right-sides read as one connected phrase. */
+/* Right-side cluster: holds the counts pills plus any active-filter
+   affordances (Show all × / Back to thread). Inline row, flex-wrap on
+   so the strip degrades gracefully at narrow widths; 8px gap keeps
+   pills and filter content visibly separated.
+   `flex: 0 1 auto` + `min-width: 0` + `max-width: 100%` is the two-stage
+   wrap contract: the parent controls row wraps the cluster to its own
+   line first; if four pills still overflow the viewport on that line
+   (mobile, narrow desktop), the cluster shrinks to the available width
+   and its internal flex-wrap breaks the pills across rows. Without the
+   shrink-allowing flex basis the cluster would size to content and
+   clip past the right edge — see [Image #4] reproduction. */
 .diff-review-right {
   display: inline-flex;
   align-items: center;
-  flex: 0 0 auto;
+  flex: 0 1 auto;
   flex-wrap: wrap;
+  gap: 8px;
+  min-width: 0;
+  max-width: 100%;
+}
+/* Compact pill sizing inside the controls row — one step down from the
+   default state-pill so four chips + filter content fit on one line at
+   normal viewport widths. */
+.diff-review-right .state-pill {
+  font-size: 11px;
+  padding: 2px 8px;
 }
 .diff-review-label {
   display: inline-flex;
@@ -2233,25 +2201,6 @@ button.diff-review-counts-total:focus-visible {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
-}
-/* Reviewed-count summary text. Picks up the same softer fg the threads
-   filter chip uses (`.diff-filter-chip` → var(--fg-soft)) so the two
-   right-side phrases read as visually paired sentence fragments rather
-   than competing labels at different colour weights. Drops a step in
-   font size from the banner's 12px → 11px to read as quiet status copy
-   rather than a primary control. */
-.diff-review-summary {
-  color: var(--fg-soft);
-  font-size: 11px;
-}
-/* Tight wrapper around the summary text + its × reset affordance. The
-   outer .diff-review-right's 8px gap separates this group from the
-   threads-filter chip; inside the group we use a much smaller gap so the
-   × hugs the count it acts on, reading as one unit. */
-.diff-review-summary-group {
-  display: inline-flex;
-  align-items: center;
-  gap: 2px;
 }
 .diff-review-label code {
   font-family: var(--font-mono);
@@ -2268,10 +2217,10 @@ button.diff-review-counts-total:focus-visible {
 }
 /* Compact override for buttons living in the right-side cluster of the
    review banner — defaults are 13px/7-12 which would tower over the
-   chip and the surrounding 12px text. Targets both the legacy
-   .diff-review-actions wrapper and the newer .diff-review-right wrapper.
-   The icon-only × buttons (.diff-filter-close, .diff-review-reset) get
-   their own square-icon style below and override this back to 18px. */
+   surrounding 12px text. Targets both the legacy .diff-review-actions
+   wrapper and the newer .diff-review-right wrapper. The icon-only ×
+   (.diff-filter-close) gets its own square-icon style below and
+   overrides this back to 18px. */
 .diff-review-actions button,
 .diff-review-right > button,
 .diff-review-right .diff-filter-clear {
@@ -2279,15 +2228,13 @@ button.diff-review-counts-total:focus-visible {
   padding: 4px 10px;
 }
 
-/* Icon × affordances in the right-side cluster: the filter dismiss and
-   the reviewed-marks reset. Both read as quiet square icons rather than
-   labeled buttons — context to their left (filter label / "N of T files
-   remaining") already explains what's being cleared, so the button only
-   needs to convey "tap to clear." Selectors are qualified by
-   `.diff-review-right` so they win specificity over the compact-button
-   override above (which would otherwise squash the icon into a pill). */
-.diff-review-right .diff-filter-close,
-.diff-review-right .diff-review-reset {
+/* Icon × affordance for the file/related filter dismiss. Quiet square
+   icon — context to its left (filter label) already explains what's
+   being cleared, so the button only needs to convey "tap to clear."
+   Qualified by `.diff-review-right` to win specificity over the
+   compact-button override above (which would otherwise squash the icon
+   into a pill). */
+.diff-review-right .diff-filter-close {
   width: 22px;
   height: 22px;
   padding: 0;
@@ -2306,14 +2253,12 @@ button.diff-review-counts-total:focus-visible {
   transition: color .15s var(--ease), border-color .15s var(--ease),
               background .15s var(--ease);
 }
-.diff-review-right .diff-filter-close:hover:not(:disabled),
-.diff-review-right .diff-review-reset:hover:not(:disabled) {
+.diff-review-right .diff-filter-close:hover:not(:disabled) {
   color: var(--accent);
   border-color: color-mix(in srgb, var(--accent) 35%, transparent);
   background: color-mix(in srgb, var(--accent) 7%, transparent);
 }
-.diff-review-right .diff-filter-close:focus-visible,
-.diff-review-right .diff-review-reset:focus-visible {
+.diff-review-right .diff-filter-close:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
@@ -2347,100 +2292,6 @@ button.diff-review-counts-total:focus-visible {
   color: var(--lane-explain);
   border-color: var(--lane-explain);
   background: color-mix(in srgb, var(--lane-explain) 12%, transparent);
-}
-
-/* Filter chip inside the review banner. Renders inline next to the
-   file-count summary as a quiet, link-like affordance — *not* a chrome
-   button. The filter is a body control, so its toggle should sit with
-   the count it modifies (banner left-side), not in the page-navigation
-   chrome above. Visual treatment: leading colored dot + text-link
-   underline-on-hover. Editorial-paper aesthetic — no border, no fill;
-   colour-as-affordance only. The active state isn't shown on the chip
-   itself: when engaged, the entire banner transforms into the focused
-   `.is-filter` shape and the chip is replaced by the filter label. */
-.diff-filter-chip {
-  appearance: none;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 0;
-  margin: 0;
-  border: 0;
-  background: transparent;
-  font: inherit;
-  font-family: var(--font-sans);
-  font-size: inherit;
-  color: var(--fg-soft);
-  cursor: pointer;
-  white-space: nowrap;
-  flex: 0 0 auto;
-  transition: color .15s var(--ease);
-}
-.diff-filter-chip-dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--lane-done);
-  opacity: 0.65;
-  flex: 0 0 auto;
-  transition: opacity .15s var(--ease);
-}
-.diff-filter-chip-text {
-  text-underline-offset: 3px;
-  text-decoration-thickness: 1px;
-  text-decoration-color: color-mix(in srgb, var(--lane-done) 60%, transparent);
-}
-.diff-filter-chip:hover {
-  color: var(--lane-done);
-}
-.diff-filter-chip:hover .diff-filter-chip-dot {
-  opacity: 1;
-}
-.diff-filter-chip:hover .diff-filter-chip-text {
-  text-decoration: underline;
-}
-.diff-filter-chip:focus-visible {
-  outline: 2px solid var(--lane-done);
-  outline-offset: 3px;
-  border-radius: 2px;
-}
-
-/* Indented "·" separator between the file-count summary and the filter
-   chip. Quieter than a comma, lighter than a vertical rule — keeps the
-   left-side label reading as one connected phrase. */
-.diff-review-sep {
-  margin: 0 8px;
-  color: var(--fg-muted);
-  opacity: 0.6;
-}
-
-/* Active-filter banner: a small lane-done dot leads the label so the
-   active accent reads from the same colour the chip carried in resting
-   state. The dot is rendered via a child span (not ::before) so the
-   markup parallels the resting chip and the colour transition feels
-   continuous when the filter activates. */
-.diff-filter-dot {
-  display: inline-block;
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--lane-done);
-  margin-right: 8px;
-  vertical-align: 1px;
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--lane-done) 25%, transparent);
-}
-
-/* Threads-filter banner variant — same shape as the related-filter
-   banner (.diff-review-banner.is-filter) but with the green accent so
-   the active filter colour matches the toggle pill in the actions row.
-   The shared .is-filter class handles layout; this overrides only the
-   accent line + tint to keep the banner family visually coherent. */
-.diff-review-banner.is-filter-threads {
-  border-left-color: var(--lane-done);
-  background: color-mix(in srgb, var(--lane-done) 7%, var(--card));
-}
-.diff-review-banner.is-filter-threads .diff-review-label code {
-  color: var(--lane-done);
 }
 
 /* Reviewed-file mark on the file header — a tiny ✓ that stays visible
@@ -2995,11 +2846,9 @@ button.diff-review-counts-total:focus-visible {
   .diff-file-head { top: -10px; }
   /* Mobile: smaller body padding (10), so the banner sticks at -10 and
      the file-head offset shifts accordingly. Same banner-height math as
-     desktop (≈46 / ≈85) minus the 10px padding, plus a few px of
-     breathing room so the path clears the banner cleanly. */
+     desktop (≈46) minus the 10px padding, plus breathing room. */
   .diff-review-banner { top: -10px; }
   .diff-body:has(> .diff-review-banner) .diff-file-head { top: 40px; }
-  .diff-body:has(> .diff-review-banner .diff-review-counts) .diff-file-head { top: 80px; }
 }
 
 /* ——————————————————— Local ("fake") review threads ———————————————————
@@ -3381,14 +3230,18 @@ button.diff-review-counts-total:focus-visible {
   color: var(--fg-muted);
   border-color: var(--hairline);
 }
-/* Small inline × on the reviewee-replies pill. Triggers a bulk-delete of
-   the last reply from every multi-comment thread (see
-   confirmBulkDeleteLastReplies). Resting state is fully muted so it
-   reads as a subtle affordance; hover flips to `--lane-removed` red as
-   a "this is destructive" cue before the click commits. The qualified
-   selector (`.state-pill .state-pill-x`) wins specificity over both the
-   base `button` rule and `button:hover:not(:disabled)`. */
-.state-pill .state-pill-x {
+/* Small inline icon buttons on state pills. Two variants share the same
+   muted-resting shape (16px round-rect, fg-muted) and only diverge on
+   hover/focus tone:
+     .state-pill-x    — destructive (red, --lane-removed). Used by the
+                        replies pill (bulk-delete last reply) and the
+                        reviewed pill (clear reviewed marks in view).
+     .state-pill-link — open/navigate (accent). Used by the threads
+                        pill to open the resume-cursor thread modal.
+   The qualified selectors (`.state-pill .state-pill-*`) win specificity
+   over both the base `button` rule and `button:hover:not(:disabled)`. */
+.state-pill .state-pill-x,
+.state-pill .state-pill-link {
   margin-left: 2px;
   width: 16px;
   height: 16px;
@@ -3414,6 +3267,15 @@ button.diff-review-counts-total:focus-visible {
 }
 .state-pill .state-pill-x:focus-visible {
   outline: 2px solid var(--lane-removed);
+  outline-offset: 1px;
+}
+.state-pill .state-pill-link:hover:not(:disabled) {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  border-color: transparent;
+}
+.state-pill .state-pill-link:focus-visible {
+  outline: 2px solid var(--accent);
   outline-offset: 1px;
 }
 /* In-diff thread display: state-aware emphasis on `your turn` rows */

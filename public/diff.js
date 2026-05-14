@@ -413,31 +413,6 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
     // pins layout for the modal session; cleared by `releaseJumpLayout`
     // from the modal's onClose so off-screen sections can re-evict.
     jumpLayoutApplied: false,
-    // Resume cursor for the counts-strip total. Updated on every open and
-    // every prev/next nav so closing the modal mid-walk and re-clicking
-    // the total drops the user back where they left off — the workflow
-    // is "open modal, close to read code in context, reopen", and forcing
-    // them to walk from thread #1 every time is hostile to that loop.
-    // Read-side validated against `state.threads`, so a deleted thread
-    // silently falls back to "first" without write-side bookkeeping.
-    // Seeded from the per-repo UI-state bucket loaded once from
-    // server-side state.json at app boot (see router.js → /api/state).
-    // Server-side persistence (not localStorage) is the right home
-    // because slop-review picks a free port each launch — localStorage
-    // is origin-scoped, so a new port = empty namespace, which defeats
-    // the whole "resume across restarts" intent.
-    //
-    // Key is namespaced per branch (`thread_cursor:<branchId>`) so
-    // bouncing between feature branches in the same checkout doesn't
-    // overwrite each branch's progress. `repo.id` alone is path-based
-    // and shared across branches — without the branch suffix, walking
-    // threads on branch B would stomp the cursor we set on branch A.
-    // sanitizeBranchId emits only [A-Za-z0-9_-], so the `:` separator
-    // is safe (no collision with any character that could appear in
-    // branchId). Threads themselves are already branch-isolated on
-    // disk under `<repo>/.reviews/<branch_id>/`, so the UI cursor
-    // matches that scoping.
-    lastOpenedThreadId: store.state?.config?.repo_ui_state?.[repo.id]?.[`thread_cursor:${branchId}`] || null,
     // Host / PR metadata for the "GitHub" deep-link button in the comment
     // CTA. Fetched once per renderDiffView mount (see below). Null until
     // the fetch lands — the CTA renderer reads state.prInfo at click-time
@@ -489,21 +464,63 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
   }
 
   /**
+   * Storage key for the resume cursor of the *currently displayed* view.
+   * Shape: `thread_cursor:<branchId>:<viewTag>` where viewTag is `full`,
+   * `local`, or `commit:<sha>`.
+   *
+   * Why per-view (not per-branch): each view has its own thread walk
+   * (see threadsInCurrentView / computeThreadOrderInCurrentView). A
+   * cursor stamped while walking Full's 12 threads is meaningless when
+   * the user later sits on commit-A's 3 threads — the thread id might
+   * not even be in that view's order. Per-view keys keep each walk's
+   * resume point isolated, matching the way the counts strip and modal
+   * navigation are scoped.
+   *
+   * Why server-side persistence (not localStorage): slop-review picks a
+   * free port each launch, and localStorage is origin-scoped — a new
+   * port = empty namespace, which defeats the "resume across restarts"
+   * intent. State lives in `~/.config/slop-review/state.json` via
+   * router.js → /api/state.
+   *
+   * sanitizeBranchId emits only [A-Za-z0-9_-] and commit shas are hex,
+   * so `:` is a safe separator (no collision with characters that can
+   * appear in branchId or sha). Threads on disk are already branch-
+   * isolated under `<repo>/.reviews/<branch_id>/`, so the UI cursor
+   * matches that scoping at the outer layer and refines per view inside.
+   */
+  const currentCursorKey = () => {
+    let viewTag
+    if (isLocalIndex(state.index))     viewTag = 'local'
+    else if (isFullIndex(state.index)) viewTag = 'full'
+    else                               viewTag = `commit:${state.commits[state.index].sha}`
+    return `thread_cursor:${branchId}:${viewTag}`
+  }
+
+  /**
+   * Computed read — no in-memory mirror. Each call resolves the cursor
+   * against the live store snapshot for whatever view the user is on
+   * right now, so a view switch (commit ↔ Full ↔ Local) automatically
+   * surfaces that view's cursor without any re-seed step. Returns null
+   * when the bucket is empty or the snapshot hasn't loaded yet — read
+   * sites already treat null as "no resume, walk from first".
+   */
+  const getResumeCursor = () =>
+    store.state?.config?.repo_ui_state?.[repo.id]?.[currentCursorKey()] || null
+
+  /**
    * Single write site for the resume cursor. Routes through the generic
    * UI-state PATCH so adding more bookmarks later (e.g., default view
    * mode, filter prefs) doesn't require new plumbing — just call
-   * patchRepoUiState({ new_key: value }). Per-branch namespacing: the
-   * field name carries `:<branchId>` so writes from branch A and
-   * branch B never overwrite each other. Also refreshes the review
-   * banner in place so the counts-strip total label ("open N out of M
-   * threads") tracks the cursor — the user sees where they'll land
-   * before they click. refreshReviewBanner is a banner-only DOM swap,
-   * so this runs cheap even on every prev/next nav click.
+   * patchRepoUiState({ new_key: value }). The key is per-view (see
+   * currentCursorKey), so writes from Full and commit-A never overwrite
+   * each other. Also refreshes the review banner in place so the counts-
+   * strip total label ("open N out of M threads") tracks the cursor —
+   * the user sees where they'll land before they click. refreshReviewBanner
+   * is a banner-only DOM swap, so this runs cheap even on every prev/next
+   * nav click.
    */
   const setResumeCursor = (tid) => {
-    const next = tid || null
-    state.lastOpenedThreadId = next
-    patchRepoUiState({ [`thread_cursor:${branchId}`]: next })
+    patchRepoUiState({ [currentCursorKey()]: tid || null })
     refreshReviewBanner()
   }
 
@@ -1354,30 +1371,28 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
       return
     }
 
-    // Counts-strip total → resume the last-opened thread, or fall back to
-    // the first thread in visual document order. Resolved at click-time
-    // (not render-time) because the inline thread rows aren't in the DOM
-    // yet when renderReviewBanner runs — see the comment on
-    // `data-show-first-thread` in renderThreadCounts.
+    // Counts-strip total → resume the last-opened thread when it lives in
+    // the current view, or fall back to the first thread in that view's
+    // document order. Resolved at click-time (not render-time) because
+    // the inline thread rows aren't in the DOM yet when renderReviewBanner
+    // runs — see the comment on `data-show-first-thread` in
+    // renderCountsPills.
     if (e.target.closest('[data-show-first-thread]')) {
       if (window.getSelection?.()?.toString().trim()) return
       e.preventDefault(); e.stopPropagation()
-      // Resume cursor wins when the remembered thread still exists. We
-      // validate against state.threads (the source of truth) rather than
-      // the inclusive order list because a thread can be present-but-
-      // anchor-lost — openThread still wants to open it; the cursor
-      // matters, not whether its inline row is rendered. If the thread
-      // was deleted between sessions, fall through to first.
-      const resumeId = state.lastOpenedThreadId &&
-        state.threads.some((t) => t.id === state.lastOpenedThreadId)
-        ? state.lastOpenedThreadId
-        : null
-      // `*Inclusive` includes anchor-lost threads (different view, or all
-      // threads anchored to a SHA the user isn't currently on) appended
-      // after the rendered ones in (file, line) order, so the click still
-      // resolves to a real thread id and the modal that opens has a
-      // populated `threadOrder` for prev/next + "N of M".
-      const target = resumeId || computeThreadOrderInclusive()[0]
+      // Scope the candidate ids to the current view so resume + fallback
+      // match the "open N out of M threads" label the user just clicked.
+      // Resuming an out-of-view cursor would teleport the diff into a
+      // different view and contradict that label — and the modal that
+      // opens would walk a different thread set than the count promised.
+      // When the cursor is out-of-view we fall through to "first thread
+      // in this view"; the click handler still updates the cursor via
+      // openThread → setResumeCursor, so subsequent clicks resume from
+      // there if the user stays put.
+      const order = computeThreadOrderInCurrentView()
+      const cursor = getResumeCursor()
+      const resumeId = cursor && order.includes(cursor) ? cursor : null
+      const target = resumeId || order[0]
       if (target) openThread(target)
       return
     }
@@ -1437,14 +1452,6 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
       // active threads filter — only one filter can be active at a time).
       const isSameAnchor = state.filter?.kind === 'related' && state.filter.anchor === anchor
       state.filter = isSameAnchor ? null : { kind: 'related', anchor }
-      renderBody()
-      return
-    }
-    if (e.target.closest('[data-thread-filter]')) {
-      e.preventDefault(); e.stopPropagation()
-      // Toggle the global threads filter. Switches off any active related
-      // filter — they're mutually exclusive on the single state.filter slot.
-      state.filter = state.filter?.kind === 'threads' ? null : { kind: 'threads' }
       renderBody()
       return
     }
@@ -1558,24 +1565,6 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
   // ------------------------------------------------------------------
   // Reviewed-batches (Full diff only)
   // ------------------------------------------------------------------
-  // Files containing at least one thread, regardless of which view the
-  // thread was anchored in. View-agnostic on purpose: a thread left on a
-  // per-commit anchor still represents real feedback on the file, so the
-  // "with threads" chip count and the threads-filter file set must surface
-  // it even when the user is on a different view than where the thread
-  // was created. This matches the precedent set by `unresolvedThreadCountFor`
-  // (which already scans every view) and by the counts-strip total. The
-  // earlier "current-view only" semantic produced a confusing UI where the
-  // chip would silently vanish in one view but reappear in another even
-  // though the same threads existed.
-  function threadFiles() {
-    const set = new Set()
-    for (const t of state.threads) {
-      if (t.file) set.add(t.file)
-    }
-    return set
-  }
-
   // Count of unresolved threads anchored on `path`. Scans every view —
   // a thread left on a per-commit anchor still represents unaddressed
   // feedback on the file, so the gate for "can this file be marked
@@ -1600,10 +1589,6 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
     // thread's anchor is view-independent at the path level.
     if (filter?.kind === 'file' && filter.path) {
       return all.filter((f) => f.path === filter.path)
-    }
-    if (filter?.kind === 'threads') {
-      const set = threadFiles()
-      return all.filter((f) => set.has(f.path))
     }
     if (!isFullIndex(state.index)) return all
     const priorities = state.diff?.priorities
@@ -1927,16 +1912,9 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
     const filterKind  = state.filter?.kind
     const isFull      = isFullIndex(state.index)
     const totalFiles  = state.diff?.files?.length || 0
-    const threadCount = threadFiles().size
     const hasFiles    = totalFiles > 0
     const hasFilter   = !!filterKind
     if (!hasFiles && !hasFilter) return ''
-
-    // Thread counts strip — only when the current branch has at least one
-    // thread. Relocated from the (now-removed) threads page; rendered as
-    // a row inside the same banner so the counts read as "controls scoped
-    // to this diff" rather than as a separate header chrome strip.
-    const countsStrip = renderThreadCounts()
 
     // View-toggle markup — always rendered, anchors the left side. The
     // active class is baked at render time; clicks trigger renderBody()
@@ -1947,11 +1925,18 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
         `<button type="button" data-view="inline" class="${state.mode === 'inline' ? 'active' : ''}" role="tab" aria-selected="${state.mode === 'inline'}">Inline</button>` +
       '</div>'
 
-    // Each filter / resting branch produces { variant, rightHtml }. The
-    // outer wrap (below) composes the counts strip + controls row in a
-    // single banner element so layout is consistent across branches.
+    // Pills live in the right cluster of the controls row, in front of
+    // any filter-state content. They render in resting AND filter states
+    // so the count surface stays visible regardless of which filter is
+    // active — same behaviour as when they had their own row above,
+    // just visually merged into the single controls strip.
+    const pillsHtml = renderCountsPills()
+
+    // Filter-state content (label + dismiss) trails the pills in the
+    // right cluster. `variant` carries the banner-shell class so the
+    // active filter colour ribbon paints the left border.
     let variant = 'is-summary'
-    let rightHtml = ''
+    let filterHtml = ''
 
     if (filterKind === 'file') {
       // Thread-context single-file view. "← Back to thread" clears the
@@ -1960,153 +1945,169 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
       // displayed in big mono at the top of the file section right below.
       // If the URL didn't carry a thread id, fall back to plain "Show all".
       const threadId = state.filter.threadId || ''
-      const action = threadId
+      filterHtml = threadId
         ? `<button type="button" class="diff-filter-clear" data-back-to-thread data-thread-id="${escapeHtml(threadId)}">← Back to thread</button>`
         : '<button type="button" class="diff-filter-close" data-clear-filter aria-label="Show all" title="Show all">×</button>'
       variant = 'is-filter is-filter-file'
-      rightHtml = `<div class="diff-review-right">${action}</div>`
-    } else if (filterKind === 'threads') {
-      variant = 'is-filter is-filter-threads'
-      rightHtml = '<div class="diff-review-right">' +
-        `<span class="diff-review-label"><span class="diff-filter-dot"></span>filtered ${visibleCount} file${visibleCount === 1 ? '' : 's'} with threads</span>` +
-        '<button type="button" class="diff-filter-close" data-clear-filter aria-label="Show all" title="Show all">×</button>' +
-        '</div>'
     } else if (filterKind === 'related' && isFull) {
       const filterAnchor = state.filter.anchor
       variant = 'is-filter'
-      rightHtml = '<div class="diff-review-right">' +
+      filterHtml =
         `<span class="diff-review-label">Filter: related to <code>${escapeHtml(filterAnchor)}</code> · ${visibleCount} file${visibleCount === 1 ? '' : 's'}</span>` +
-        '<button type="button" class="diff-filter-close" data-clear-filter aria-label="Show all" title="Show all">×</button>' +
-        '</div>'
-    } else {
-      // Resting state — right side hosts (in order) reviewed summary +
-      // Reset action when any files in this view are marked, then the
-      // threads-filter chip when threads exist. Order is "info first,
-      // action last" so the right side reads left-to-right as a sentence.
-      // Counts are scoped to files in THIS view, not the global reviewed
-      // set: in Full view that's equivalent (every reviewed file is in
-      // scope), but in commit view it's what the user means by "X of T
-      // remaining" — anything else would compare the commit's file count
-      // against marks made elsewhere on the branch and read as gibberish.
-      const isCommit = isCommitIndex(state.index)
-      const supportsReviewed = isFull || isCommit
-      const reviewedInView = supportsReviewed
-        ? (state.diff?.files || []).filter((f) => state.reviewed.has(f.path)).length
-        : 0
-      const hasReviewed = reviewedInView > 0
-      const rightParts  = []
-      if (hasReviewed) {
-        const remaining = Math.max(0, totalFiles - reviewedInView)
-        // The × is view-sensitive: in Full view it clears every mark on
-        // the branch; in a per-commit view it only clears the marks
-        // visible right here. Tooltip + aria-label tell the truth either
-        // way so the gesture isn't a surprise.
-        const resetAria  = isFull ? 'Clear all reviewed marks' : 'Clear reviewed marks in this commit'
-        const resetTitle = isFull
-          ? 'Clear all reviewed marks across the branch'
-          : `Clear ${reviewedInView} reviewed mark${reviewedInView === 1 ? '' : 's'} in this commit`
-        // Group the summary text with its × so the pair reads as one unit
-        // — the wrapper's tight gap pulls the affordance up against the
-        // count it acts on, while the outer .diff-review-right gap keeps
-        // the threads-filter chip a normal step away.
-        rightParts.push(
-          '<span class="diff-review-summary-group">' +
-            `<span class="diff-review-summary">${remaining} of ${totalFiles} files remaining</span>` +
-            `<button type="button" class="diff-review-reset" data-reset-reviewed aria-label="${escapeHtml(resetAria)}" title="${escapeHtml(resetTitle)}">×</button>` +
-          '</span>'
-        )
-      }
-      if (threadCount > 0) {
-        rightParts.push(
-          `<button type="button" class="diff-filter-chip" data-thread-filter title="Show only files with comment threads (${threadCount} file${threadCount === 1 ? '' : 's'})">` +
-            '<span class="diff-filter-chip-dot" aria-hidden="true"></span>' +
-            `<span class="diff-filter-chip-text">filter ${threadCount} file${threadCount === 1 ? '' : 's'} with threads</span>` +
-          '</button>'
-        )
-      }
-      rightHtml = rightParts.length
-        ? `<div class="diff-review-right">${rightParts.join('<span class="diff-review-sep" aria-hidden="true">·</span>')}</div>`
-        : ''
+        '<button type="button" class="diff-filter-close" data-clear-filter aria-label="Show all" title="Show all">×</button>'
     }
+
+    const rightInner = pillsHtml + filterHtml
+    const rightHtml = rightInner
+      ? `<div class="diff-review-right">${rightInner}</div>`
+      : ''
 
     const controlsRow = '<div class="diff-review-controls">' + viewToggle + rightHtml + '</div>'
-    return `<div class="diff-review-banner ${variant}">${countsStrip}${controlsRow}</div>`
+    return `<div class="diff-review-banner ${variant}">${controlsRow}</div>`
   }
 
   /**
-   * Counts strip rendered as the top row of the diff control banner when
-   * the current branch has at least one thread. Two pills, both per-comment
-   * (not per-thread — the trailing "open N out of M threads" link is the
-   * thread-count surface, and mixing units in adjacent pills was confusing):
-   *   - comments: total comments whose author is the local human reviewer
-   *     (server stamps these with `user: 'reviewer'`; see
-   *     server/routes/threads.js DEVELOPER_USER)
-   *   - replies:  total comments by anyone else (LLM agent replies, etc.)
-   * Resolved-thread count is intentionally omitted here; the inline thread
-   * row's left ribbon (see makeThreadDisplayRow) still surfaces per-thread
-   * state, and the `re-open N out of M threads` link covers the headline.
+   * Threads belonging to the current view, using the same rule as the
+   * inline painter (paintInlineThreads): in commit view, only threads
+   * anchored against THIS commit (`view === 'commit'` AND matching sha);
+   * in Full or Local, every thread (those views render any thread whose
+   * anchor cell exists in the DOM, so the count surface mirrors them).
+   * Centralised so the counts-strip display and the bulk-delete action
+   * driven by its × button can't disagree about what "the current view"
+   * means — a single change to the rule lands in one place.
    */
-  function renderThreadCounts() {
-    const threads = state.threads || []
-    if (!threads.length) return ''
-    let reviewerMsgs = 0
-    let revieweeMsgs = 0
-    for (const t of threads) {
-      for (const c of (t.comments || [])) {
-        if (c.user === 'reviewer') reviewerMsgs++
-        else revieweeMsgs++
-      }
-    }
-    // The total link opens whichever thread the click handler resolves to:
-    // the resume cursor when one's stored, else the first thread by
-    // (file, line). The leading number reflects *that* resolution — when
-    // the cursor points at the 3rd thread in (file, line) order, the
-    // label reads "open 3 out of 5 threads" so the user can see at a
-    // glance where they'll resume. Falls back to position 1 when the
-    // cursor is missing or points at a deleted thread.
-    //
-    // Resolution is deferred to click-time via the `data-show-first-thread`
-    // sentinel (handled in the delegated click handler) — eager id stamping
-    // here would go stale if state.threads mutates between render and
-    // click. The position number IS computed eagerly because it's a
-    // display value (no harm if it briefly lags by one render).
-    const order = computeThreadOrderInclusive()
-    const cursorPos = state.lastOpenedThreadId
-      ? order.indexOf(state.lastOpenedThreadId) + 1     // 0 → 1 fallback if cursor was deleted
-      : 0
-    const isResuming = cursorPos > 0
-    const resumePos = isResuming ? cursorPos : 1
-    // Verb signals intent: "open" for a fresh walk (cursor missing or
-    // pointing at a deleted thread), "re-open" when the user has a real
-    // bookmark to resume from. Same conditional drives the tooltip so
-    // the two surfaces stay consistent — one source of truth (cursorPos)
-    // determines both copy choices.
-    const verb = isResuming ? 're-open' : 'open'
-    const totalLabel = `${verb} ${resumePos} out of ${threads.length} thread${threads.length === 1 ? '' : 's'}`
-    const totalTitle = isResuming
-      ? `Resume thread ${resumePos} of ${threads.length}`
-      : `Open the first thread`
-    const total = `<button type="button" class="diff-review-counts-total" data-show-first-thread title="${totalTitle}">${totalLabel}</button>`
-    // The × inside the reviewee-replies pill triggers a bulk delete of the
-    // *last reply* of every thread that has more than one comment. Only
-    // shown when there are replies to delete — otherwise an empty
-    // affordance is just confusing.
-    const repliesClearBtn = revieweeMsgs > 0
-      ? '<button type="button" class="state-pill-x" data-clear-replies aria-label="Delete the last reply from every thread" title="Delete the last reply from every thread">×</button>'
-      : ''
-    return '<div class="diff-review-counts">' +
-      `<span class="state-pill is-count">${reviewerMsgs} comment${reviewerMsgs === 1 ? '' : 's'}</span>` +
-      `<span class="state-pill is-count">${revieweeMsgs} repl${revieweeMsgs === 1 ? 'y' : 'ies'}${repliesClearBtn}</span>` +
-      total +
-      '</div>'
+  function threadsInCurrentView() {
+    const all = state.threads || []
+    if (!isCommitIndex(state.index)) return all
+    const sha = state.commits[state.index]?.sha
+    return all.filter((t) => (t.view || 'full') === 'commit' && t.sha === sha)
   }
 
   /**
-   * Bulk-delete the latest reply from every thread that has more than one
-   * comment. Threads with a single comment (the initial reviewer message
-   * with no follow-up) are left untouched. Drops one comment per thread —
-   * never deletes a whole thread, since by definition the targets all have
-   * at least 2 comments remaining after the delete.
+   * Pills cluster injected into the controls row's right side. Four
+   * `state-pill is-count` chips, ordered left-to-right:
+   *
+   *   "N threads →"   (when this view has threads)
+   *     → opens the resume cursor (or first thread when the cursor is
+   *     missing / out-of-view). Position indicator lives in the icon's
+   *     tooltip, not the label, to keep the pill visually parallel.
+   *
+   *   "N comments"    (when this view has threads)
+   *     Total comments by the local human reviewer. Server stamps these
+   *     with `user: 'reviewer'` (server/routes/threads.js DEVELOPER_USER).
+   *
+   *   "N replies ×"   (when this view has threads)
+   *     Total comments by anyone else (LLM agent replies, etc.); ×
+   *     bulk-deletes the last reply of every multi-comment thread in
+   *     scope. The × only renders when there's at least one reply.
+   *
+   *   "Y/T reviewed ×" (Full / per-commit only, when ≥1 file marked)
+   *     Y = files marked in this view, T = view's total file count. ×
+   *     triggers confirmResetReviewed scoped to this view (Full → all
+   *     marks branch-wide; commit → marks for files visible here).
+   *
+   * Thread-group scope mirrors the inline painter (paintInlineThreads):
+   * in commit view we count only threads anchored against THIS commit.
+   * Returns '' when both groups are empty so the caller can decide
+   * whether to render the right-cluster wrapper at all. Resolved-thread
+   * count is intentionally omitted (the inline thread row's left ribbon
+   * surfaces per-thread state, and the threads pill's → covers the
+   * headline open).
+   */
+  function renderCountsPills() {
+    const allThreads = state.threads || []
+    const threads = allThreads.length ? threadsInCurrentView() : []
+    const hasThreads = threads.length > 0
+
+    const isFull   = isFullIndex(state.index)
+    const isCommit = isCommitIndex(state.index)
+    const totalFiles = state.diff?.files?.length || 0
+    const reviewedInView = (isFull || isCommit) && totalFiles
+      ? (state.diff?.files || []).filter((f) => state.reviewed.has(f.path)).length
+      : 0
+    const hasReviewedPill = reviewedInView > 0
+
+    if (!hasThreads && !hasReviewedPill) return ''
+
+    let threadsPill = ''
+    let commentsPill = ''
+    let repliesPill = ''
+    if (hasThreads) {
+      let reviewerMsgs = 0
+      let revieweeMsgs = 0
+      for (const t of threads) {
+        for (const c of (t.comments || [])) {
+          if (c.user === 'reviewer') reviewerMsgs++
+          else revieweeMsgs++
+        }
+      }
+      // Threads pill (leading): visible label is just the count; the
+      // trailing → link icon opens the modal. Resume position lives in
+      // the icon's tooltip only — keeps the pill visually parallel with
+      // the others. The click handler (data-show-first-thread) resumes
+      // the cursor when one points into this view, else falls back to
+      // the first thread by (file, line). Position is computed within
+      // the *scoped* order so the tooltip can never read "Resume thread
+      // 5 of 3"; when the bookmark sits in a different view, indexOf
+      // returns -1, +1 lands at 0, and the title degrades to "Open the
+      // first thread". Resolution is deferred to click-time via the
+      // data-show-first-thread sentinel — eager id stamping here would
+      // go stale if state.threads mutates between render and click.
+      const order = computeThreadOrderInCurrentView()
+      const cursor = getResumeCursor()
+      const resumePos = cursor ? order.indexOf(cursor) + 1 : 0
+      const totalTitle = resumePos > 0
+        ? `Resume thread ${resumePos} of ${threads.length}`
+        : 'Open the first thread'
+      const totalLinkBtn =
+        `<button type="button" class="state-pill-link" data-show-first-thread ` +
+        `aria-label="${escapeHtml(totalTitle)}" title="${escapeHtml(totalTitle)}">→</button>`
+      threadsPill = `<span class="state-pill is-count">${threads.length} thread${threads.length === 1 ? '' : 's'}${totalLinkBtn}</span>`
+
+      commentsPill = `<span class="state-pill is-count">${reviewerMsgs} comment${reviewerMsgs === 1 ? '' : 's'}</span>`
+
+      // × inside the reviewee-replies pill triggers a bulk-delete of the
+      // *last reply* of every multi-comment thread, scoped to the current
+      // view (see confirmBulkDeleteLastReplies). Only shown when there
+      // are replies to delete.
+      const repliesScopeText = isCommit
+        ? 'Delete the last reply from every thread in this commit'
+        : 'Delete the last reply from every thread'
+      const repliesClearBtn = revieweeMsgs > 0
+        ? `<button type="button" class="state-pill-x" data-clear-replies aria-label="${escapeHtml(repliesScopeText)}" title="${escapeHtml(repliesScopeText)}">×</button>`
+        : ''
+      repliesPill = `<span class="state-pill is-count">${revieweeMsgs} repl${revieweeMsgs === 1 ? 'y' : 'ies'}${repliesClearBtn}</span>`
+    }
+
+    let reviewedPill = ''
+    if (hasReviewedPill) {
+      // × is view-sensitive: in Full it clears every mark on the branch;
+      // in commit view it only clears marks on files visible right here.
+      // Tooltip + aria-label tell the truth either way so the gesture
+      // isn't a surprise.
+      const resetAria  = isFull ? 'Clear all reviewed marks' : 'Clear reviewed marks in this commit'
+      const resetTitle = isFull
+        ? 'Clear all reviewed marks across the branch'
+        : `Clear ${reviewedInView} reviewed mark${reviewedInView === 1 ? '' : 's'} in this commit`
+      const resetBtn = `<button type="button" class="state-pill-x" data-reset-reviewed aria-label="${escapeHtml(resetAria)}" title="${escapeHtml(resetTitle)}">×</button>`
+      reviewedPill = `<span class="state-pill is-count">${reviewedInView}/${totalFiles} reviewed${resetBtn}</span>`
+    }
+
+    // Order: threads (resume action) → comments → replies → reviewed.
+    // Threads leads because → is the most actionable affordance in the
+    // strip; reviewed trails because it's the progress indicator that
+    // the user glances at last.
+    return threadsPill + commentsPill + repliesPill + reviewedPill
+  }
+
+  /**
+   * Bulk-delete the latest reply from every thread *in the current view*
+   * that has more than one comment. Scope follows threadsInCurrentView
+   * so the count next to the × pill and the action triggered by it can't
+   * drift apart. Threads with a single comment (the initial reviewer
+   * message with no follow-up) are left untouched. Drops one comment per
+   * thread — never deletes a whole thread, since by definition the
+   * targets all have at least 2 comments remaining after the delete.
    *
    * Each DELETE is issued in parallel via Promise.allSettled — thread
    * files are independent on disk (separate JSON files per thread), so
@@ -2116,8 +2117,12 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
    * user exactly what happened.
    */
   function confirmBulkDeleteLastReplies() {
+    // Scope must match the count + × button copy rendered by
+    // renderCountsPills — both surfaces flow through threadsInCurrentView
+    // so a "2 replies ×" pill in commit view deletes exactly those 2.
+    const inView = threadsInCurrentView()
     const targets = []
-    for (const t of state.threads) {
+    for (const t of inView) {
       const comments = t.comments || []
       if (comments.length <= 1) continue
       targets.push({ tid: t.id, cid: comments[comments.length - 1].id })
@@ -2127,7 +2132,8 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
       return
     }
     const count = targets.length
-    const detail = `Removes the most recent reply from ${count} thread${count === 1 ? '' : 's'}. Threads with no replies are unaffected. This can't be undone.`
+    const scope = isCommitIndex(state.index) ? ' in this commit' : ''
+    const detail = `Removes the most recent reply from ${count} thread${count === 1 ? '' : 's'}${scope}. Threads with no replies are unaffected. This can't be undone.`
     const backdrop = makeModal(`
       <h2>Delete ${count} last repl${count === 1 ? 'y' : 'ies'}?</h2>
       <p class="modal-text">${escapeHtml(detail)}</p>
@@ -2256,9 +2262,7 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
 
     if (!visibleFiles.length) {
       let emptyMsg
-      if (state.filter?.kind === 'threads') {
-        emptyMsg = '<div class="diff-empty">No files with threads in this view.</div>'
-      } else if (isLocal && untracked.length) {
+      if (isLocal && untracked.length) {
         emptyMsg = '<div class="diff-empty">No tracked changes vs HEAD.</div>'
       } else if (isFull && filterAnchor) {
         emptyMsg = '<div class="diff-empty">No related files found for this anchor.</div>'
@@ -2844,38 +2848,17 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
   }
 
   /**
-   * Resolve a thread's natural diff index (the view it was created in).
-   * Returns null when the view can't be reproduced on this branch — e.g.
-   * a `commit` thread whose `sha` is no longer in `state.commits` (rebased
-   * away), or a `local` thread when there are no working-copy edits this
-   * session. Callers treat null as "stay where you are" so the modal still
-   * opens and the user can read the comments even when the anchor's
-   * original view is gone.
+   * Same order as Inclusive, restricted to threads belonging to the
+   * current view (see threadsInCurrentView). Drives the thread modal's
+   * prev/next walk and the counts-strip resume-position label so both
+   * surfaces agree on "the N threads in this view" — without this, the
+   * modal opens claiming "1 of 7" while the counts strip said "1 of 5".
+   * In Full / Local this collapses back to Inclusive (no scope), so the
+   * pre-existing branch-wide walk in those views is preserved.
    */
-  function indexForThread(t) {
-    if (!t) return null
-    const v = t.view || 'full'
-    if (v === 'local') return state.hasLocal ? state.commits.length + 1 : null
-    if (v === 'full')  return state.commits.length
-    if (v === 'commit') {
-      const idx = state.commits.findIndex((c) => c.sha === t.sha)
-      return idx >= 0 ? idx : null
-    }
-    return null
-  }
-
-  /**
-   * Swap the diff into the view the thread was originally anchored against,
-   * so the modal user sees their inline anchor row beneath the modal (and
-   * so `jumpToThreadAnchor` has a cell to find). No-op when the thread is
-   * already in the current view, or when its natural view can't be located
-   * (see `indexForThread`). Awaits `goto` so the diff is fully loaded and
-   * inline threads re-rendered before callers attempt to scroll.
-   */
-  async function switchToThreadView(t) {
-    const target = indexForThread(t)
-    if (target == null || target === state.index) return
-    await goto(target)
+  function computeThreadOrderInCurrentView() {
+    const inView = new Set(threadsInCurrentView().map((t) => t.id))
+    return computeThreadOrderInclusive().filter((id) => inView.has(id))
   }
 
   /**
@@ -2900,52 +2883,51 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
    * multiple call sites (inline thread click, ?thread= auto-reopen on
    * mount, "← Back to thread" clear-filter path) need identical opts.
    */
-  async function openThread(tid) {
+  function openThread(tid) {
     if (!tid) return
-    // Stamp the resume cursor before any awaits — the counts-strip total
-    // reads this on its next click. Captured here (and again in
-    // onNavigate below) so every transition into the modal updates the
-    // bookmark, including auto-advance-after-resolve and auto-advance-
-    // after-delete (both route through onNavigate). setResumeCursor
+    // Stamp the resume cursor first — the counts-strip total reads this
+    // on its next click. Captured here (and again in onNavigate below)
+    // so every transition into the modal updates the bookmark, including
+    // auto-advance-after-resolve and auto-advance-after-delete (both
+    // route through onNavigate). setResumeCursor
     // also persists to localStorage so the cursor survives a page
     // reload — the user's flow is "close modal, refresh, click total
     // to resume", which depends on the cursor outliving the in-memory
     // state object.
     setResumeCursor(tid)
-    // Snap the diff to the thread's natural view BEFORE the modal opens.
-    // The counts-strip total and inline-anchor clicks can both surface a
-    // thread that was created in a different view than the user is
-    // currently looking at; without this hop the modal would float above
-    // unrelated rows and the prev/next jumps would land on anchor-lost
-    // toasts. computeThreadOrderInclusive() runs AFTER the view switch
-    // (it's evaluated when openThreadModal is invoked below) so the
-    // captured order reflects the new view's DOM — the modal then walks
-    // threads in document order within the view it just opened against.
-    const t0 = state.threads.find((x) => x.id === tid)
-    if (t0) await switchToThreadView(t0)
+    // The diff body stays in whatever view the user clicked from — no
+    // on-open swap, no on-navigate swap. The modal is a read-and-walk
+    // overlay; it never rewrites the URL or reloads the diff. Threads
+    // in the captured order whose anchor cell isn't rendered in the
+    // current view still open in the modal (comments are readable);
+    // jumpToThreadAnchor surfaces the existing "anchor lost" toast in
+    // that case instead of teleporting the user across views.
     openThreadModal(tid, {
       repoId: repo.id,
       getThread: (id) => state.threads.find((t) => t.id === id),
-      // Inclusive order: rendered threads in visual order, then anchor-lost
-      // threads sorted by (file, line). Lets the modal's prev/next and the
-      // "N of M" position label stay populated even when the user opened
-      // the modal against a thread whose anchor isn't in the current view.
-      // For anchor-lost targets `jumpToThreadAnchor` will surface its own
-      // "anchor lost" toast (see maybeScrollToAnchor) instead of scrolling
-      // — acceptable: the user can still read the comments in the modal.
-      threadOrder: computeThreadOrderInclusive(),
-      // Cross-view prev/next: when the next thread was created in a
-      // different diff view (commit ↔ full ↔ local), swap the underlying
-      // diff to match before scrolling. Awaited so jumpToThreadAnchor
-      // runs against the freshly-rendered DOM, not the prior view's.
+      // View-scoped order: threads belonging to the current view (no
+      // on-open swap any more — see above), in (file, line, id) document
+      // order. The modal's prev/next and "N of M" position label stay
+      // bounded to that view, matching the counts-strip total the user
+      // just clicked. In Full / Local this is every thread (those views
+      // aggregate), so the prior branch-wide walk is preserved there;
+      // only commit view tightens to a per-commit walk.
+      threadOrder: computeThreadOrderInCurrentView(),
+      // Prev/next stays in the current diff view — no swap, no URL rewrite.
+      // The modal was opened against a specific view (Full, Local, or a
+      // commit), and the user's expectation is that walking threads from
+      // that modal keeps them in that view. If the destination thread was
+      // anchored in a different view and its row isn't rendered in the
+      // current diff's DOM, jumpToThreadAnchor → maybeScrollToAnchor will
+      // surface the existing "anchor lost" toast — the comments stay
+      // readable in the modal regardless of where the anchor lives.
       // Cross-file prev/next: when the target thread sits in a file the
       // current single-file filter excludes, clear the filter so the
       // anchor becomes visible. Then jump to the new anchor.
-      onNavigate: async (newId) => {
+      onNavigate: (newId) => {
         const t = state.threads.find((x) => x.id === newId)
         if (!t) return
         setResumeCursor(newId)
-        await switchToThreadView(t)
         if (state.filter?.kind === 'file' && state.filter.path !== t.file) {
           state.filter = null
           stripFileQuery()
