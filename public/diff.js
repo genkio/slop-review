@@ -426,7 +426,18 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
     // because slop-review picks a free port each launch — localStorage
     // is origin-scoped, so a new port = empty namespace, which defeats
     // the whole "resume across restarts" intent.
-    lastOpenedThreadId: store.state?.config?.repo_ui_state?.[repo.id]?.thread_cursor || null,
+    //
+    // Key is namespaced per branch (`thread_cursor:<branchId>`) so
+    // bouncing between feature branches in the same checkout doesn't
+    // overwrite each branch's progress. `repo.id` alone is path-based
+    // and shared across branches — without the branch suffix, walking
+    // threads on branch B would stomp the cursor we set on branch A.
+    // sanitizeBranchId emits only [A-Za-z0-9_-], so the `:` separator
+    // is safe (no collision with any character that could appear in
+    // branchId). Threads themselves are already branch-isolated on
+    // disk under `<repo>/.reviews/<branch_id>/`, so the UI cursor
+    // matches that scoping.
+    lastOpenedThreadId: store.state?.config?.repo_ui_state?.[repo.id]?.[`thread_cursor:${branchId}`] || null,
   }
 
   /**
@@ -461,12 +472,14 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
    * Single write site for the resume cursor. Routes through the generic
    * UI-state PATCH so adding more bookmarks later (e.g., default view
    * mode, filter prefs) doesn't require new plumbing — just call
-   * patchRepoUiState({ new_key: value }).
+   * patchRepoUiState({ new_key: value }). Per-branch namespacing: the
+   * field name carries `:<branchId>` so writes from branch A and
+   * branch B never overwrite each other.
    */
   const setResumeCursor = (tid) => {
     const next = tid || null
     state.lastOpenedThreadId = next
-    patchRepoUiState({ thread_cursor: next })
+    patchRepoUiState({ [`thread_cursor:${branchId}`]: next })
   }
 
   const main = document.getElementById('main')
