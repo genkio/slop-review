@@ -25,6 +25,19 @@ export async function isGitRepo(repoPath) {
 }
 
 /**
+ * Read the URL of the `origin` remote, or null if not configured.
+ * Used by the host module to derive forge identity (github / gitlab / …).
+ */
+export async function getOriginUrl(repoPath) {
+  try {
+    const { stdout } = await git(repoPath, ['remote', 'get-url', 'origin'])
+    return stdout.trim() || null
+  } catch {
+    return null
+  }
+}
+
+/**
  * Returns the canonical branch state for a repo. Single source of truth
  * for which view the UI should render — empty state, local-only, full,
  * or per-commit are all derivable from this object's fields.

@@ -182,3 +182,47 @@ export function sanitizeBranchId(branch) {
   return s
 }
 
+/**
+ * SHA-256 hex digest of a UTF-8 string. Used by the forge deep-link
+ * builder — GitHub anchors files in PR diffs as `#diff-<sha256(path)>`,
+ * so we replicate that hash on the client. SubtleCrypto is available on
+ * any context the slop-review UI runs in (loopback localhost counts as
+ * a secure context).
+ */
+export async function sha256Hex(text) {
+  const data = new TextEncoder().encode(String(text ?? ''))
+  const buf = await crypto.subtle.digest('SHA-256', data)
+  return [...new Uint8Array(buf)]
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('')
+}
+
+/**
+ * Build the forge-specific deep link for a (file, lineStart, lineEnd, side)
+ * pointer inside a PR/MR. Returns null when the host isn't supported yet
+ * (GitLab/Bitbucket adapters can be added by extending the switch). Caller
+ * decides whether to show the button based on null/non-null.
+ *
+ * GitHub format: `<prUrl>/files#diff-<sha256(path)>R3-R10` (R = right/new,
+ * L = left/old). Multi-line ranges use the `R3-R5` syntax, which GitHub
+ * highlights as a span. The `(file, side)` anchor invariant on slop-review
+ * selections (no straddling the seam) maps 1:1 to GitHub's prefix.
+ */
+export async function buildForgeDeepLink({ host, prUrl, path, lineStart, lineEnd, side }) {
+  if (!host || !prUrl || !path) return null
+  switch (host) {
+    case 'github': {
+      const hash = await sha256Hex(path)
+      const prefix = side === 'old' ? 'L' : 'R'
+      const lineSpec = lineStart === lineEnd
+        ? `${prefix}${lineStart}`
+        : `${prefix}${lineStart}-${prefix}${lineEnd}`
+      return `${prUrl}/files#diff-${hash}${lineSpec}`
+    }
+    // GitLab / Bitbucket: not yet implemented. Returning null hides the
+    // button rather than producing a guess that 404s on the user.
+    default:
+      return null
+  }
+}
+

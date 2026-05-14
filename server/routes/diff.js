@@ -5,8 +5,10 @@ import {
   getCommitDiff,
   getFullDiff,
   getLocalDiff,
+  getOriginUrl,
   isValidSha,
 } from '../git.js'
+import { parseRemoteUrl, getPullRequestUrl } from '../host.js'
 import {
   computePrioritiesAtSha,
   computePrioritiesForWorktree,
@@ -29,6 +31,31 @@ export function registerDiffRoutes(app) {
     if (error) return error
     const info = await getBranchInfo(repo.path)
     return c.json(info)
+  })
+
+  // Host / PR metadata for the "GitHub" deep-link button. Returns enough
+  // for the client to construct the `pull/N/files#diff-<hash>R<line>` URL:
+  // forge identity (host/owner/repo) plus the PR url itself. All fields
+  // are null when unavailable (no remote, unknown host, no PR yet, `gh`
+  // not installed) — the client treats null as "hide the button", so a
+  // single endpoint covers every degraded state without bespoke 4xx codes.
+  app.get('/api/repos/:id/pr-info', async (c) => {
+    const { repo, error } = await withRepo(c)
+    if (error) return error
+    const info = await getBranchInfo(repo.path)
+    const branch = info.current_branch
+    const originUrl = await getOriginUrl(repo.path)
+    const parsed = parseRemoteUrl(originUrl)
+    if (!parsed || !parsed.host) {
+      return c.json({ host: null, owner: null, repo: null, pr_url: null })
+    }
+    const pr_url = branch ? await getPullRequestUrl(repo.path, branch, parsed.host) : null
+    return c.json({
+      host: parsed.host,
+      owner: parsed.owner,
+      repo: parsed.repo,
+      pr_url,
+    })
   })
 
   app.get('/api/repos/:id/commits', async (c) => {

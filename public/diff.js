@@ -1,5 +1,5 @@
 import { api } from './api.js'
-import { escapeHtml, inlineCode, relTime, copyToClipboard, toast } from './util.js'
+import { escapeHtml, inlineCode, relTime, copyToClipboard, toast, buildForgeDeepLink } from './util.js'
 import { openThreadModal, confirmRemoveComment, makeModal } from './modals.js'
 import { languageForPath, highlightLine } from './syntax.js'
 import { intraLineSegments } from './intra-line-diff.js'
@@ -438,7 +438,27 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
     // disk under `<repo>/.reviews/<branch_id>/`, so the UI cursor
     // matches that scoping.
     lastOpenedThreadId: store.state?.config?.repo_ui_state?.[repo.id]?.[`thread_cursor:${branchId}`] || null,
+    // Host / PR metadata for the "GitHub" deep-link button in the comment
+    // CTA. Fetched once per renderDiffView mount (see below). Null until
+    // the fetch lands — the CTA renderer reads state.prInfo at click-time
+    // and simply hides the button when fields are missing, so the slow-
+    // first-load case degrades gracefully without a loading spinner.
+    prInfo: null,
   }
+
+  // Fire-and-forget PR/host lookup. The server caches per (repo, branch),
+  // so this is a fast subsequent call; first call shells out to `gh` and
+  // can take a few hundred ms. We don't await — the diff renders without
+  // it, and by the time the user has clicked a gutter to start a comment
+  // selection (several seconds of reading minimum), the fetch has landed.
+  // Failure (no `gh`, no PR, unsupported host) leaves prInfo null forever,
+  // which is exactly the right signal for "hide the button".
+  api(`/api/repos/${encodeURIComponent(repo.id)}/pr-info`)
+    .then((info) => {
+      if (!isCurrent()) return
+      state.prInfo = info
+    })
+    .catch(() => {})
 
   /**
    * Patch one field of this repo's UI-state bucket. Keeps the in-memory
@@ -685,12 +705,26 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
     const rangeLabel = sel.lineStart === sel.lineEnd
       ? `L${sel.lineStart}`
       : `L${sel.lineStart}–${sel.lineEnd}`
+    // Forge deep-link button: only when the server resolved a host we
+    // know how to format URLs for (currently GitHub) AND a PR exists for
+    // the current branch. Both conditions degrade to "hide button" — no
+    // disabled state, no tooltip — because either case is permanent for
+    // the duration of the page load and a non-clickable button is noise.
+    const HOST_LABELS = { github: 'GitHub', gitlab: 'GitLab', bitbucket: 'Bitbucket' }
+    const prInfo = state.prInfo
+    const forgeLabel = prInfo?.host === 'github' && prInfo?.pr_url
+      ? HOST_LABELS[prInfo.host]
+      : null
+    const forgeBtn = forgeLabel
+      ? `<button type="button" data-cta-forge>${escapeHtml(forgeLabel)}</button>`
+      : ''
     cta.innerHTML =
       '<td colspan="4" class="diff-comment-cta-cell">' +
         '<div class="diff-comment-cta">' +
           `<span class="diff-comment-cta-label">Comment on ${escapeHtml(rangeLabel)} (${escapeHtml(sel.side)})</span>` +
           '<div class="diff-comment-cta-actions">' +
             '<button type="button" data-cta-cancel>Cancel</button>' +
+            forgeBtn +
             '<button type="button" data-cta-copy>Copy lines</button>' +
             '<button type="button" class="primary" data-cta-add>Add comment</button>' +
           '</div>' +
@@ -721,6 +755,45 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
     cta.querySelector('[data-cta-add]').addEventListener('click', (ev) => {
       ev.preventDefault(); ev.stopPropagation()
       openEditorForSelection()
+    })
+    // GitHub deep-link: synthesize the `pull/N/files#diff-<sha>R<line>` URL
+    // and open in a new tab. Pre-opening the tab BEFORE the async hash
+    // computation is deliberate — Safari/Chrome only allow `window.open`
+    // inside a user gesture, so awaiting first and opening after would
+    // get popup-blocked. We open about:blank synchronously and keep a
+    // handle so we can redirect it once the URL is ready.
+    //
+    // Don't pass `noopener,noreferrer` to window.open: that flag makes
+    // the call return `null` *by spec*, even on success. Without a
+    // handle we can't redirect the new tab. Instead, after assigning
+    // `tab.location.href`, we set `tab.opener = null` to manually sever
+    // the reverse-tabnabbing channel — same security posture, working
+    // reference.
+    cta.querySelector('[data-cta-forge]')?.addEventListener('click', async (ev) => {
+      ev.preventDefault(); ev.stopPropagation()
+      const info = state.prInfo
+      if (!info?.host || !info?.pr_url) return
+      const tab = window.open('about:blank', '_blank')
+      if (!tab) {
+        toast('Popup blocked — allow popups for slop-review to open forge links')
+        return
+      }
+      try {
+        const url = await buildForgeDeepLink({
+          host: info.host,
+          prUrl: info.pr_url,
+          path: sel.path,
+          lineStart: sel.lineStart,
+          lineEnd: sel.lineEnd,
+          side: sel.side,
+        })
+        if (!url) { tab.close(); return }
+        tab.opener = null
+        tab.location.href = url
+      } catch (e) {
+        tab.close()
+        toast('Failed to build forge URL: ' + (e.message || 'unknown'))
+      }
     })
   }
 
