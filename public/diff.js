@@ -474,12 +474,17 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
    * mode, filter prefs) doesn't require new plumbing — just call
    * patchRepoUiState({ new_key: value }). Per-branch namespacing: the
    * field name carries `:<branchId>` so writes from branch A and
-   * branch B never overwrite each other.
+   * branch B never overwrite each other. Also refreshes the review
+   * banner in place so the counts-strip total label ("open N out of M
+   * threads") tracks the cursor — the user sees where they'll land
+   * before they click. refreshReviewBanner is a banner-only DOM swap,
+   * so this runs cheap even on every prev/next nav click.
    */
   const setResumeCursor = (tid) => {
     const next = tid || null
     state.lastOpenedThreadId = next
     patchRepoUiState({ [`thread_cursor:${branchId}`]: next })
+    refreshReviewBanner()
   }
 
   const main = document.getElementById('main')
@@ -1288,6 +1293,11 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
         if (res.threads) state.threads = res.threads
         clearCommentSelection()
         renderInlineComments()
+        // New thread bumps the counts-strip "N total" + the reviewer-
+        // messages pill — refresh the banner in place so the user sees
+        // those numbers tick without waiting for the next loadThreads
+        // (which only fires on modal-driven mutations).
+        refreshReviewBanner()
         if (bodyEl && savedScroll > 0) preserveScrollTo(bodyEl, savedScroll)
         toast.ok('Comment added')
       } catch (e) {
@@ -2028,18 +2038,36 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
         else revieweeMsgs++
       }
     }
-    // The total link opens the first thread in visual order. Resolution is
-    // deferred to click-time via the `data-show-first-thread` sentinel
-    // (resolved by the delegated click handler below): at render-time the
-    // inline thread rows don't exist yet (renderInlineComments runs after
-    // renderBody), so `computeThreadOrder()` can't be called here. The
-    // server returns threads in readdir order (alphabetical hex), which is
-    // *not* visual order — baking `threads[0].id` in would land the user
-    // on a random thread. Resolving lazily uses the DOM walk that already
-    // drives the modal's prev/next nav, guaranteeing the click matches the
-    // topmost rendered thread row.
-    const totalLabel = `open 1 out of ${threads.length} thread${threads.length === 1 ? '' : 's'}`
-    const total = `<button type="button" class="diff-review-counts-total" data-show-first-thread title="Open the first thread">${totalLabel}</button>`
+    // The total link opens whichever thread the click handler resolves to:
+    // the resume cursor when one's stored, else the first thread by
+    // (file, line). The leading number reflects *that* resolution — when
+    // the cursor points at the 3rd thread in (file, line) order, the
+    // label reads "open 3 out of 5 threads" so the user can see at a
+    // glance where they'll resume. Falls back to position 1 when the
+    // cursor is missing or points at a deleted thread.
+    //
+    // Resolution is deferred to click-time via the `data-show-first-thread`
+    // sentinel (handled in the delegated click handler) — eager id stamping
+    // here would go stale if state.threads mutates between render and
+    // click. The position number IS computed eagerly because it's a
+    // display value (no harm if it briefly lags by one render).
+    const order = computeThreadOrderInclusive()
+    const cursorPos = state.lastOpenedThreadId
+      ? order.indexOf(state.lastOpenedThreadId) + 1     // 0 → 1 fallback if cursor was deleted
+      : 0
+    const isResuming = cursorPos > 0
+    const resumePos = isResuming ? cursorPos : 1
+    // Verb signals intent: "open" for a fresh walk (cursor missing or
+    // pointing at a deleted thread), "re-open" when the user has a real
+    // bookmark to resume from. Same conditional drives the tooltip so
+    // the two surfaces stay consistent — one source of truth (cursorPos)
+    // determines both copy choices.
+    const verb = isResuming ? 're-open' : 'open'
+    const totalLabel = `${verb} ${resumePos} out of ${threads.length} thread${threads.length === 1 ? '' : 's'}`
+    const totalTitle = isResuming
+      ? `Resume thread ${resumePos} of ${threads.length}`
+      : `Open the first thread`
+    const total = `<button type="button" class="diff-review-counts-total" data-show-first-thread title="${totalTitle}">${totalLabel}</button>`
     // The × inside the reviewee-replies pill triggers a bulk delete of the
     // *last reply* of every thread that has more than one comment. Only
     // shown when there are replies to delete — otherwise an empty
@@ -2748,46 +2776,40 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
   // ------------------------------------------------------------------
 
   /**
-   * Order threads for the modal's prev/next nav by walking inline thread
-   * rows in document order. This guarantees the modal walk matches the
-   * visual top-to-bottom order in the diff body — including priority-
-   * based file ordering (the reference-graph sort `compareForReview`
-   * applies), intra-file line ordering, and any active filter. Threads
-   * whose anchor isn't rendered (anchor_lost, view mismatch, filtered
-   * out) are correctly excluded because they have no `.diff-row-thread`.
-   */
-  function computeThreadOrder() {
-    const body = $('[data-body]')
-    if (!body) return []
-    return [...body.querySelectorAll('.diff-row-thread[data-thread-id]')]
-      .map((el) => el.dataset.threadId)
-      .filter(Boolean)
-  }
-
-  /**
-   * Like `computeThreadOrder` but also includes threads whose anchor isn't
-   * in the current DOM (different view, anchored on a SHA the user isn't
-   * currently looking at). Rendered ones keep their visual document order
-   * up front; the rest get appended sorted by (file, line) so the user can
-   * still step through every thread from the modal — exactly what the
-   * counts-strip "N total" promises. Without the appended tail, prev/next
-   * and the "N of M" position label would silently disappear whenever the
-   * total was opened against an anchor-lost thread (or in the all-orphan
-   * case my recent fallback fix introduced).
+   * Order ALL threads on the branch by (file, line, id) — view-agnostic
+   * and DOM-independent. Used both for the counts-strip total fallback
+   * ("which thread is 'first' when there's no cursor") and as the
+   * modal's prev/next walk order. The earlier rendered-DOM-walk
+   * implementation put threads visible in the current view at the
+   * front, which made "click total" land on the topmost rendered
+   * thread — usually NOT what the user expects after a cold launch,
+   * because the default per-commit view typically only renders a
+   * subset of the branch's threads, leaving the rest in the orphan
+   * tail. Now that auto-view-switching (in openThread) jumps the diff
+   * to each thread's natural view on navigate, the visual-congruence
+   * argument for rendered-first ordering no longer holds — threads
+   * have a stable position across views (their anchor coordinate),
+   * and walking by that anchor is the most predictable reader order.
+   * File priority sorting (compareForReview) still drives the diff
+   * view's file rendering, but is intentionally NOT applied here:
+   * priorities are a "what to focus my eye on" signal, while thread
+   * order is a "what order to visit comments in" signal. The `id`
+   * tiebreaker keeps the sort fully deterministic when two threads
+   * share an exact (file, line) anchor.
    */
   function computeThreadOrderInclusive() {
-    const rendered = computeThreadOrder()
-    const seen = new Set(rendered)
-    const orphans = state.threads
-      .filter((t) => t.id && !seen.has(t.id))
+    return [...state.threads]
+      .filter((t) => t.id)
       .sort((a, b) => {
         const fa = a.file || ''
         const fb = b.file || ''
         if (fa !== fb) return fa.localeCompare(fb)
-        return (Number(a.line) || 0) - (Number(b.line) || 0)
+        const la = Number(a.line) || 0
+        const lb = Number(b.line) || 0
+        if (la !== lb) return la - lb
+        return (a.id || '').localeCompare(b.id || '')
       })
       .map((t) => t.id)
-    return [...rendered, ...orphans]
   }
 
   /**
@@ -3030,10 +3052,10 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
   // (1) the diff scrolls to the thread's anchor so the user lands at the
   // referenced row (consumes scrollToAnchor inside the first renderBody
   // via maybeScrollToAnchor); (2) the modal opens AFTER load() finishes
-  // so computeThreadOrder can walk the freshly-rendered .diff-row-thread
-  // elements and supply a populated threadOrder — without the deferral,
-  // the modal closure captured an empty array and the prev/next nav
-  // never appeared.
+  // so state.threads is populated and computeThreadOrderInclusive can
+  // hand back a non-empty threadOrder — without the deferral, the modal
+  // closure would capture an empty array and the prev/next nav would
+  // silently disappear.
   let pendingThreadOpen = null
   if (state.filter?.kind !== 'file' && threadContextId) {
     const t = state.threads.find((x) => x.id === threadContextId)
