@@ -548,7 +548,7 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
         </div>
         <div class="diff-meta-block">
           <div class="diff-meta-line">
-            <code class="diff-sha" data-sha title="Click to copy"></code>
+            <code class="diff-sha" data-sha title="Click to copy diff"></code>
             <span class="diff-headline" data-headline></span>
           </div>
           <div class="diff-meta-line diff-meta-sub">
@@ -1358,9 +1358,23 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
     })
   }
 
-  $('[data-sha]').addEventListener('click', async (e) => {
-    const sha = e.currentTarget.dataset.shaFull || e.currentTarget.textContent
-    try { await copyToClipboard(sha) } catch {}
+  $('[data-sha]').addEventListener('click', async () => {
+    // Reconstruct the unified diff from the already-fetched files: each
+    // `f.patch` is the file's own `diff --git ...` chunk (see
+    // getDiffFiles in server/git.js), so joining them mirrors what
+    // `git diff <range>` or `git show <sha>` would print. No server
+    // round trip needed — the data is in hand the moment the head
+    // renders. Works the same for commit / Full / Local views.
+    const files = state.diff?.files || []
+    if (!files.length) { toast('Diff not loaded yet'); return }
+    const text = files.map((f) => f.patch).filter(Boolean).join('\n')
+    if (!text) { toast('No patch text to copy'); return }
+    try {
+      await copyToClipboard(text)
+      toast.ok(`Copied diff (${files.length} file${files.length === 1 ? '' : 's'})`)
+    } catch (e) {
+      toast('Copy failed: ' + (e.message || 'unknown'))
+    }
   })
 
   // Click delegation: relate-filter buttons, reviewed banner, collapse toggle.
