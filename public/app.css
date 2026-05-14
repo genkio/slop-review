@@ -1256,6 +1256,14 @@ a.card-file:hover .card-file-mark {
   word-break: break-all;
   min-width: 0;
 }
+/* `(old)` tag appended to the subtitle when a thread anchors to a deleted
+   line. Same lane-explain palette as `.diff-editor-side` and
+   `.diff-thread-side` so the affordance reads as one consistent cue
+   across editor / modal / inline thread. */
+.thread-modal-side {
+  color: var(--lane-explain);
+  font-style: normal;
+}
 /* Thread hex filename pill — pushed to the right edge of the .sub row
    so file:line and the bookkeeping id share one line instead of stacking. */
 .modal .sub .thread-filename {
@@ -3158,6 +3166,19 @@ button.diff-review-counts-total:focus-visible {
      `.state-awaiting`, `.state-read`, `.state-resolved`). Universal so
      switching between states doesn't shift the text horizontally. */
   padding-left: 10px;
+}
+/* `(old)` badge slotted into the first comment's meta row when a thread
+   anchors to a deleted line. Matches `.diff-editor-side` (and the modal
+   subtitle's `.thread-modal-side`) so all three surfaces share one
+   visual language for the old-side cue. Sits between the timestamp and
+   the edit/remove cluster — the cluster's `margin-left: auto` keeps the
+   buttons pinned right, so this just tucks next to `.diff-thread-when`
+   without disturbing the layout. */
+.diff-thread-side {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--lane-explain);
+  letter-spacing: 0;
 }
 .diff-thread-comments {
   display: flex;

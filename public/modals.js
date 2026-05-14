@@ -178,6 +178,10 @@ export function openThreadModal(threadId, opts = {}) {
 
   const buildInnerHtml = (thread) => {
     const subLabel = thread.file ? `${thread.file}:${formatLineRange(thread)}` : 'Thread'
+    // Mark old-side anchors so the user knows the comment is on a deleted
+    // line — same affordance as the inline-thread badge and editor anchor.
+    // New-side is the default; labelling it would be visual noise.
+    const sideTagHtml = thread.side === 'old' ? ' <span class="thread-modal-side">(old)</span>' : ''
 
     // Filename for copy-to-clipboard. Server always sends `file_name`; we
     // construct the same `thread_<status>_<hex>.json` formula client-side
@@ -239,7 +243,7 @@ export function openThreadModal(threadId, opts = {}) {
     // edge. One row instead of three (was: head + filename + sub) so the
     // meta block doesn't waste vertical space.
     const subHtml = `<div class="sub">
-      <span class="thread-modal-sub-label">${escapeHtml(subLabel)}</span>
+      <span class="thread-modal-sub-label">${escapeHtml(subLabel)}${sideTagHtml}</span>
       ${filenameBtn}
       ${positionHtml}
     </div>`

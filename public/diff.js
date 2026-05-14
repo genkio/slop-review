@@ -699,9 +699,14 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
     lastTextRow.parentNode.insertBefore(cta, lastTextRow.nextSibling)
     cta.querySelector('[data-cta-copy]').addEventListener('click', async (ev) => {
       ev.preventDefault(); ev.stopPropagation()
-      const ref = sel.lineStart === sel.lineEnd
+      // `(old)` suffix on the old side disambiguates pre-image references
+      // from HEAD ones — and intentionally breaks the `path:line` editor-
+      // jump format so a paste won't silently land on the wrong line in
+      // the current checkout. New side is the default; no suffix.
+      const range = sel.lineStart === sel.lineEnd
         ? `${sel.path}:${sel.lineStart}`
         : `${sel.path}:${sel.lineStart}-${sel.lineEnd}`
+      const ref = sel.side === 'old' ? `${range} (old)` : range
       try {
         await copyToClipboard(ref)
         toast.ok(`Copied ${ref}`)
@@ -2509,18 +2514,31 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
     // Per-comment × delete button: applies to every comment regardless of
     // author (yours and LLM replies). Removing the last comment deletes the
     // whole thread + JSON file (server enforces; client confirms).
+    //
+    // `(old)` side badge: `thread.side` is per-thread, but the inline block
+    // has no thread-level header — so it rides in the FIRST comment's meta
+    // row only (idx === 0). Slots before the auto-margin edit/remove
+    // cluster, so the buttons stay flush right and the badge tucks next
+    // to the timestamp without adding a new row. New-side is the default,
+    // so we don't label it.
     const commentsHtml = (thread.comments || [])
       .map(
-        (c) => `
+        (c, idx) => {
+          const sideTag = idx === 0 && thread.side === 'old'
+            ? '<span class="diff-thread-side">(old)</span>'
+            : ''
+          return `
         <div class="diff-thread-comment" data-comment-id="${escapeHtml(c.id)}">
           <div class="diff-thread-meta">
             <span class="diff-thread-user">@${escapeHtml(c.user)}</span>
             <span class="diff-thread-when">${escapeHtml(relTime(c.posted_at || c.created_at))}</span>
+            ${sideTag}
             <button type="button" class="diff-thread-edit" data-edit-comment data-comment-id="${escapeHtml(c.id)}" data-thread-id="${escapeHtml(thread.id)}" aria-label="Edit comment" title="Edit comment">✎</button>
             <button type="button" class="diff-thread-remove" data-remove-comment data-comment-id="${escapeHtml(c.id)}" data-thread-id="${escapeHtml(thread.id)}" aria-label="Remove comment" title="Remove comment">×</button>
           </div>
           <div class="diff-thread-body" data-body data-show-thread="${escapeHtml(thread.id)}" role="button">${inlineCode(c.body)}</div>
         </div>`
+        }
       )
       .join('')
 

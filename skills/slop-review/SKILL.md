@@ -46,9 +46,9 @@ Sidecars (not threads, ignore): `_reviewed.json`, `_overview.json`.
   "id":            "thread_a1b2c3d4",          // stable; matches the hex in the filename
   "view":          "full",                     // "commit" | "full" | "local"
   "file":          "packages/foo/src/bar.ts",  // the source file the comment anchors to
-  "line":          42,                         // start line in `file` at `sha`
+  "line":          42,                         // for side:"new", line in `file` at `sha`; for side:"old", line in `file` at the base revision (pre-image)
   "line_end":      null,                       // end line (inclusive) for multi-line anchors; null/equal-to-line = single line
-  "side":          "new",                      // "old" | "new" — pre/post the change
+  "side":          "new",                      // "old" = pre-image (deleted/base-revision lines), "new" = post-image (added/HEAD lines). Per-thread, not per-comment.
   "sha":           "abc123…",                  // commit SHA (commit view) or HEAD SHA at create time
   "anchor_text":   "  return result.empty ? null : result",  // line text snapshot at create time
   "created_at":    "2026-05-09T10:00:00Z",
@@ -95,7 +95,7 @@ User prompt example: *"review this branch and leave inline comments on anything 
 2. **For each comment-worthy spot, write a thread JSON file**:
 
    - Generate a thread id: `thread_<8 random hex chars>`. Use a fresh hex each time; don't reuse.
-   - Capture `anchor_text` from the source file at the line you're commenting on (the literal line text, no leading `+` / `-` from the diff).
+   - Capture `anchor_text` from the source file at the line you're commenting on (the literal line text, no leading `+` / `-` from the diff). For `side: "old"`, the line won't exist in the working tree — read it from the diff's `-` half, or via `git show "$BASE:$file" | sed -n '<line>p'`.
    - Capture `sha`:
      - `view: "full"` → `git rev-parse HEAD` (current head)
      - `view: "commit"` → the full commit SHA you're reviewing
