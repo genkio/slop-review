@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.13.1](https://github.com/genkio/slop-review/compare/v0.13.0...v0.13.1) (2026-05-14)
+
+
+### Bug Fixes
+
+* minor open thread issues ([fbcadc3](https://github.com/genkio/slop-review/commit/fbcadc35d223f1e6d04f6f973329f0549eec93cc))
+* use per-branch namespacing to persist cursor position ([9f448e2](https://github.com/genkio/slop-review/commit/9f448e2f66407d203020f1d39a5adf475321c362))
+
 ## [0.13.0](https://github.com/genkio/slop-review/compare/v0.12.0...v0.13.0) (2026-05-14)
 
 
