@@ -154,7 +154,11 @@ User prompt example: *"go through unresolved slop-review threads and address the
 
 2. **For each open thread, in turn**:
    - **Read** the JSON. Index 0 of `comments[]` is the original note anchored at `Source:` (`file`:`line`); later entries are prior replies.
-   - **Open the source file** at `file`:`line` and decide whether a code change is warranted.
+   - **Resolve the anchor against HEAD first.** The thread's `file` / `line` / `anchor_text` describe what the reviewer saw at `sha` — not necessarily what's at HEAD now. For `view: "commit"` (and to a lesser degree `view: "full"`), later commits may have shifted, rewritten, or already fixed that line. Before editing, locate the current equivalent at HEAD:
+     - `grep -n "<anchor_text>" "<file>"` — find where the line lives now (line numbers drift; literal text is the more durable anchor).
+     - `git log -L <line>,<line>:<file> <sha>..HEAD` — see what happened to that exact line between the thread's `sha` and HEAD.
+     - If `anchor_text` no longer exists at HEAD and a later commit appears to have addressed the concern, **reply with that observation instead of re-fixing it** — don't restate work the developer already did.
+   - **Open the source file at HEAD** (using the resolved line from the step above) and decide whether a code change is still warranted.
    - **If yes — edit the source code**, then `git commit` with a conventional-commits subject (`fix:`, `feat:`, `refactor:`, `docs:`, `test:`, `chore:`, etc.) describing the resolution. **One commit per thread** by default; only fold multiple threads into one commit if they're truly the same edit.
    - **Relocate the thread's anchor onto the resolving commit** by editing these fields IN PLACE in the JSON:
      - `view` → `"commit"`
