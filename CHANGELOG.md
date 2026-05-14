@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.14.0](https://github.com/genkio/slop-review/compare/v0.13.1...v0.14.0) (2026-05-14)
+
+
+### Features
+
+* copy lines ([192cf0d](https://github.com/genkio/slop-review/commit/192cf0d5fb7586c3e344adc0c05ae7b82f8ddc08))
+
 ## [0.13.1](https://github.com/genkio/slop-review/compare/v0.13.0...v0.13.1) (2026-05-14)
 
 
