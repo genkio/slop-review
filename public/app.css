@@ -2204,7 +2204,7 @@ a.card-file:hover .card-file-mark {
    pills and filter content visibly separated.
    `flex: 0 1 auto` + `min-width: 0` + `max-width: 100%` is the two-stage
    wrap contract: the parent controls row wraps the cluster to its own
-   line first; if four pills still overflow the viewport on that line
+   line first; if three pills still overflow the viewport on that line
    (mobile, narrow desktop), the cluster shrinks to the available width
    and its internal flex-wrap breaks the pills across rows. Without the
    shrink-allowing flex basis the cluster would size to content and
@@ -2219,7 +2219,7 @@ a.card-file:hover .card-file-mark {
   max-width: 100%;
 }
 /* Compact pill sizing inside the controls row — one step down from the
-   default state-pill so four chips + filter content fit on one line at
+   default state-pill so three chips + filter content fit on one line at
    normal viewport widths. */
 .diff-review-right .state-pill {
   font-size: 11px;
@@ -3258,6 +3258,21 @@ a.card-file:hover .card-file-mark {
 .state-pill.is-count {
   color: var(--fg-muted);
   border-color: var(--hairline);
+}
+/* Threads pill turns green when every thread in the current view is
+   resolved — done-lane accent (mirrors button.thread-resolve and the
+   .diff-thread.state-resolved ribbon, so the whole "resolved" idiom
+   reads as one family across the page). The nested → link icon also
+   adopts the done tint at rest so it doesn't look orphaned inside the
+   green pill; hover still falls through to the .state-pill-link rule
+   below and flashes the accent color. */
+.state-pill.is-count.is-all-resolved {
+  color: var(--lane-done);
+  border-color: var(--lane-done);
+  background: color-mix(in srgb, var(--lane-done) 6%, transparent);
+}
+.state-pill.is-count.is-all-resolved .state-pill-link {
+  color: var(--lane-done);
 }
 /* Small inline icon buttons on state pills. Two variants share the same
    muted-resting shape (16px round-rect, fg-muted) and only diverge on

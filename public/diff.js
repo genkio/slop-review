@@ -1994,17 +1994,13 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
   }
 
   /**
-   * Pills cluster injected into the controls row's right side. Four
+   * Pills cluster injected into the controls row's right side. Three
    * `state-pill is-count` chips, ordered left-to-right:
    *
    *   "N threads →"   (when this view has threads)
    *     → opens the resume cursor (or first thread when the cursor is
    *     missing / out-of-view). Position indicator lives in the icon's
    *     tooltip, not the label, to keep the pill visually parallel.
-   *
-   *   "N comments"    (when this view has threads)
-   *     Total comments by the local human reviewer. Server stamps these
-   *     with `user: 'reviewer'` (server/routes/threads.js DEVELOPER_USER).
    *
    *   "N replies ×"   (when this view has threads)
    *     Total comments by anyone else (LLM agent replies, etc.); ×
@@ -2040,15 +2036,12 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
     if (!hasThreads && !hasReviewedPill) return ''
 
     let threadsPill = ''
-    let commentsPill = ''
     let repliesPill = ''
     if (hasThreads) {
-      let reviewerMsgs = 0
       let revieweeMsgs = 0
       for (const t of threads) {
         for (const c of (t.comments || [])) {
-          if (c.user === 'reviewer') reviewerMsgs++
-          else revieweeMsgs++
+          if (c.user !== 'reviewer') revieweeMsgs++
         }
       }
       // Threads pill (leading): visible label is just the count; the
@@ -2072,9 +2065,12 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
       const totalLinkBtn =
         `<button type="button" class="state-pill-link" data-show-first-thread ` +
         `aria-label="${escapeHtml(totalTitle)}" title="${escapeHtml(totalTitle)}">→</button>`
-      threadsPill = `<span class="state-pill is-count">${threads.length} thread${threads.length === 1 ? '' : 's'}${totalLinkBtn}</span>`
-
-      commentsPill = `<span class="state-pill is-count">${reviewerMsgs} comment${reviewerMsgs === 1 ? '' : 's'}</span>`
+      // Green-tint the threads pill when every thread in this view is
+      // closed — same resolved-predicate as unresolvedThreadCountFor so
+      // the visual signal can't disagree with the reviewed-gate logic.
+      const allResolved = threads.every((t) => (t.state || 'awaiting') === 'resolved')
+      const threadsPillClass = `state-pill is-count${allResolved ? ' is-all-resolved' : ''}`
+      threadsPill = `<span class="${threadsPillClass}">${threads.length} thread${threads.length === 1 ? '' : 's'}${totalLinkBtn}</span>`
 
       // × inside the reviewee-replies pill triggers a bulk-delete of the
       // *last reply* of every multi-comment thread, scoped to the current
@@ -2103,11 +2099,11 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
       reviewedPill = `<span class="state-pill is-count">${reviewedInView}/${totalFiles} reviewed${resetBtn}</span>`
     }
 
-    // Order: threads (resume action) → comments → replies → reviewed.
+    // Order: threads (resume action) → replies → reviewed.
     // Threads leads because → is the most actionable affordance in the
     // strip; reviewed trails because it's the progress indicator that
     // the user glances at last.
-    return threadsPill + commentsPill + repliesPill + reviewedPill
+    return threadsPill + repliesPill + reviewedPill
   }
 
   /**
