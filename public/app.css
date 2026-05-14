@@ -3035,40 +3035,6 @@ button.diff-review-counts-total:focus-visible {
   border-bottom: 1px solid var(--hairline);
 }
 
-/* ——————————————————— Diff modal — inline comment affordance ———————————————————
-   Floating `+` button anchored to the hovered diff text cell (Full diff
-   view only). Position is computed in JS via getBoundingClientRect — we
-   deliberately don't render one button per row (would inflate DOM on big
-   diffs). The button stays visible after the cell is left so the cursor
-   can travel to it; scroll and navigation hide it. */
-.diff-add-comment {
-  position: fixed;
-  z-index: 70;
-  width: 22px; height: 22px;
-  padding: 0;
-  border: 1px solid var(--accent);
-  border-radius: 6px;
-  background: var(--accent);
-  color: var(--bg);
-  font-family: var(--font-sans);
-  font-size: 16px;
-  line-height: 1;
-  font-weight: 500;
-  letter-spacing: 0;
-  text-transform: none;
-  cursor: pointer;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  box-shadow: 0 2px 6px color-mix(in srgb, var(--accent) 28%, transparent);
-  transition: transform .12s var(--ease-out), box-shadow .12s var(--ease-out);
-}
-.diff-add-comment:hover {
-  transform: scale(1.08);
-  box-shadow: 0 3px 10px color-mix(in srgb, var(--accent) 35%, transparent);
-}
-.diff-add-comment[hidden] { display: none; }
-
 /* —— Gutter selection (multi-line comment) ——
    The line-number gutter is an alternative entry point to commenting: a
    plain click on a `<td class="diff-no">` with a `data-line` starts a

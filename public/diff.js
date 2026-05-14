@@ -562,9 +562,6 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
     document.removeEventListener('keydown', onKey)
     if (disposeOverviewNav) { try { disposeOverviewNav() } catch {}; disposeOverviewNav = null }
     if (flashTimer) { clearTimeout(flashTimer); flashTimer = null }
-    // Floating button lives on document.body — its parent isn't the
-    // page root, so #main.replaceChildren() won't sweep it up.
-    try { commentBtn?.remove() } catch {}
   }
   activeDispose = dispose
 
@@ -600,68 +597,6 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
 
   $('[data-prev]').addEventListener('click', () => goto(state.index - 1))
   $('[data-next]').addEventListener('click', () => goto(state.index + 1))
-
-  // ------------------------------------------------------------------
-  // Inline `+ comment` floating button.
-  // Per spec, comments are allowed in ALL three views (commit/full/local).
-  // ------------------------------------------------------------------
-  const commentBtn = document.createElement('button')
-  commentBtn.type = 'button'
-  commentBtn.className = 'diff-add-comment'
-  commentBtn.title = 'Add inline comment'
-  commentBtn.textContent = '+'
-  commentBtn.hidden = true
-  // Floating button is position:fixed against the viewport, so it lives
-  // on document.body and gets cleaned up on dispose.
-  document.body.appendChild(commentBtn)
-
-  let hoveredCell = null
-  let pendingCell = null
-  let rafScheduled = false
-  const hideHoverButtons = () => {
-    commentBtn.hidden = true
-    hoveredCell = null
-    pendingCell = null
-  }
-
-  // rAF-coalesced mouseover handler. Trackpad inertia generates 50+ mouseover
-  // events per second as the cursor crosses cells; doing a synchronous
-  // getBoundingClientRect + style write per event triggers a forced reflow
-  // each time, which against a 9k-cell DOM is ~80ms. Coalescing means at
-  // most one positioning pass per frame, and the read+writes happen back-to-
-  // back so the second forced reflow is cheap (layout already current).
-  const positionHoverButtons = () => {
-    rafScheduled = false
-    const cell = pendingCell
-    pendingCell = null
-    if (!cell || !cell.isConnected) return
-    const r = cell.getBoundingClientRect()
-    commentBtn.style.top  = `${r.top + r.height / 2 - 11}px`
-    commentBtn.style.left = `${r.left - 24}px`
-    commentBtn.hidden = false
-  }
-  $('[data-body]').addEventListener('mouseover', (e) => {
-    // While a multi-line selection is in flight, the inline CTA row is the
-    // canonical "go" affordance. The floating hover-+ would visually
-    // compete and might mislead the user into a single-line comment, so
-    // suppress it until selection clears.
-    if (state.commentSelection) return
-    const cell = e.target.closest?.('.diff-text[data-side]')
-    if (!cell || cell === hoveredCell) return
-    hoveredCell = cell
-    pendingCell = cell
-    if (!rafScheduled) {
-      rafScheduled = true
-      requestAnimationFrame(positionHoverButtons)
-    }
-  }, { passive: true })
-  $('[data-body]').addEventListener('scroll', hideHoverButtons, { passive: true })
-
-  commentBtn.addEventListener('click', () => {
-    if (!hoveredCell) return
-    openEditorBelow(hoveredCell)
-    hideHoverButtons()
-  })
 
   // ------------------------------------------------------------------
   // Multi-line comment selection — click any gutter line number to begin,
@@ -703,9 +638,6 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
         anchor: line,
       }
     }
-    // Hover-+ is suppressed while a selection is active so the two
-    // affordances don't fight for position next to the same cell.
-    hideHoverButtons()
     applyCommentSelection()
   })
 
@@ -759,11 +691,24 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
           `<span class="diff-comment-cta-label">Comment on ${escapeHtml(rangeLabel)} (${escapeHtml(sel.side)})</span>` +
           '<div class="diff-comment-cta-actions">' +
             '<button type="button" data-cta-cancel>Cancel</button>' +
+            '<button type="button" data-cta-copy>Copy lines</button>' +
             '<button type="button" class="primary" data-cta-add>Add comment</button>' +
           '</div>' +
         '</div>' +
       '</td>'
     lastTextRow.parentNode.insertBefore(cta, lastTextRow.nextSibling)
+    cta.querySelector('[data-cta-copy]').addEventListener('click', async (ev) => {
+      ev.preventDefault(); ev.stopPropagation()
+      const ref = sel.lineStart === sel.lineEnd
+        ? `${sel.path}:${sel.lineStart}`
+        : `${sel.path}:${sel.lineStart}-${sel.lineEnd}`
+      try {
+        await copyToClipboard(ref)
+        toast.ok(`Copied ${ref}`)
+      } catch (e) {
+        toast('Copy failed: ' + (e.message || 'unknown'))
+      }
+    })
     cta.querySelector('[data-cta-cancel]').addEventListener('click', (ev) => {
       ev.preventDefault(); ev.stopPropagation()
       clearCommentSelection()
@@ -1527,7 +1472,6 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
     state.diff  = null
     state.shouldResetScroll = true   // navigated to a different diff — start at the top
     state.commentSelection = null    // selection is per-diff; nav clears it
-    hideHoverButtons()
     closeSymbolPanel()
     syncUrl()
     await load()
