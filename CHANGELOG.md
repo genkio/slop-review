@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.16.0](https://github.com/genkio/slop-review/compare/v0.15.0...v0.16.0) (2026-05-14)
+
+
+### Features
+
+* 'later changes' sticky file head ([36ad321](https://github.com/genkio/slop-review/commit/36ad321846f40fee7090a4af2267f0d69707f2a4))
+* all threads resolved indicator ([cd36ab7](https://github.com/genkio/slop-review/commit/cd36ab7548c1ed0111eb333d355d9ecd4e68f269))
+* copy diff ([875436f](https://github.com/genkio/slop-review/commit/875436fad4ea2c24914c839c045009355f5b96c6))
+
 ## [0.15.0](https://github.com/genkio/slop-review/compare/v0.14.0...v0.15.0) (2026-05-14)
 
 
