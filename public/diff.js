@@ -2712,6 +2712,41 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
   }
 
   /**
+   * Resolve a thread's natural diff index (the view it was created in).
+   * Returns null when the view can't be reproduced on this branch — e.g.
+   * a `commit` thread whose `sha` is no longer in `state.commits` (rebased
+   * away), or a `local` thread when there are no working-copy edits this
+   * session. Callers treat null as "stay where you are" so the modal still
+   * opens and the user can read the comments even when the anchor's
+   * original view is gone.
+   */
+  function indexForThread(t) {
+    if (!t) return null
+    const v = t.view || 'full'
+    if (v === 'local') return state.hasLocal ? state.commits.length + 1 : null
+    if (v === 'full')  return state.commits.length
+    if (v === 'commit') {
+      const idx = state.commits.findIndex((c) => c.sha === t.sha)
+      return idx >= 0 ? idx : null
+    }
+    return null
+  }
+
+  /**
+   * Swap the diff into the view the thread was originally anchored against,
+   * so the modal user sees their inline anchor row beneath the modal (and
+   * so `jumpToThreadAnchor` has a cell to find). No-op when the thread is
+   * already in the current view, or when its natural view can't be located
+   * (see `indexForThread`). Awaits `goto` so the diff is fully loaded and
+   * inline threads re-rendered before callers attempt to scroll.
+   */
+  async function switchToThreadView(t) {
+    const target = indexForThread(t)
+    if (target == null || target === state.index) return
+    await goto(target)
+  }
+
+  /**
    * Aim the diff at a thread's anchor cell. Reuses the existing one-shot
    * `scrollToAnchor` + `maybeScrollToAnchor` machinery so reviewed-file
    * uncollapse, defer-a-frame layout, scroll-to-center, and flash-cell
@@ -2733,8 +2768,19 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
    * multiple call sites (inline thread click, ?thread= auto-reopen on
    * mount, "← Back to thread" clear-filter path) need identical opts.
    */
-  function openThread(tid) {
+  async function openThread(tid) {
     if (!tid) return
+    // Snap the diff to the thread's natural view BEFORE the modal opens.
+    // The counts-strip total and inline-anchor clicks can both surface a
+    // thread that was created in a different view than the user is
+    // currently looking at; without this hop the modal would float above
+    // unrelated rows and the prev/next jumps would land on anchor-lost
+    // toasts. computeThreadOrderInclusive() runs AFTER the view switch
+    // (it's evaluated when openThreadModal is invoked below) so the
+    // captured order reflects the new view's DOM — the modal then walks
+    // threads in document order within the view it just opened against.
+    const t0 = state.threads.find((x) => x.id === tid)
+    if (t0) await switchToThreadView(t0)
     openThreadModal(tid, {
       repoId: repo.id,
       getThread: (id) => state.threads.find((t) => t.id === id),
@@ -2746,12 +2792,17 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
       // "anchor lost" toast (see maybeScrollToAnchor) instead of scrolling
       // — acceptable: the user can still read the comments in the modal.
       threadOrder: computeThreadOrderInclusive(),
+      // Cross-view prev/next: when the next thread was created in a
+      // different diff view (commit ↔ full ↔ local), swap the underlying
+      // diff to match before scrolling. Awaited so jumpToThreadAnchor
+      // runs against the freshly-rendered DOM, not the prior view's.
       // Cross-file prev/next: when the target thread sits in a file the
       // current single-file filter excludes, clear the filter so the
       // anchor becomes visible. Then jump to the new anchor.
-      onNavigate: (newId) => {
+      onNavigate: async (newId) => {
         const t = state.threads.find((x) => x.id === newId)
         if (!t) return
+        await switchToThreadView(t)
         if (state.filter?.kind === 'file' && state.filter.path !== t.file) {
           state.filter = null
           stripFileQuery()
