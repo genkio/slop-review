@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.13.0](https://github.com/genkio/slop-review/compare/v0.12.0...v0.13.0) (2026-05-14)
+
+
+### Features
+
+* auto switch view ([5f68a5d](https://github.com/genkio/slop-review/commit/5f68a5d1096805052bbc5d59bd3a588bb79d1fcb))
+* persist ui state ([6cd5a49](https://github.com/genkio/slop-review/commit/6cd5a49a9008e7a879f50f97040e7117819851e6))
+
 ## [0.12.0](https://github.com/genkio/slop-review/compare/v0.11.0...v0.12.0) (2026-05-13)
 
 
