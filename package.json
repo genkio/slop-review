@@ -1,6 +1,6 @@
 {
   "name": "slop-review",
-  "version": "0.14.0",
+  "version": "0.15.0",
   "type": "module",
   "description": "Local PR-review loop for human ↔ LLM. Run inside any git repo.",
   "repository": {

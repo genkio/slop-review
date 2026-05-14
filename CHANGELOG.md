@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.15.0](https://github.com/genkio/slop-review/compare/v0.14.0...v0.15.0) (2026-05-14)
+
+
+### Features
+
+* deeplink to github ([f3f7e48](https://github.com/genkio/slop-review/commit/f3f7e4820c81a3ef3279d07333b3b6b592c434e0))
+
 ## [0.14.0](https://github.com/genkio/slop-review/compare/v0.13.1...v0.14.0) (2026-05-14)
 
 
