@@ -1,7 +1,7 @@
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { dirname, join, relative } from 'node:path'
 import { createApp, serve, serveStatic } from './http.js'
-import { loadState } from './state.js'
+import { loadState, saveState, findRepo } from './state.js'
 import { registerDiffRoutes } from './routes/diff.js'
 import { registerThreadRoutes } from './routes/threads.js'
 import { registerOverviewRoutes } from './routes/overview.js'
@@ -39,6 +39,38 @@ export async function start({ port = DEFAULT_PORT, hostname = '0.0.0.0' } = {}) 
   app.get('/api/state', async (c) => {
     const state = await loadState()
     return c.json(state)
+  })
+
+  // Per-repo UI-state bucket — a partial-update sink for transient
+  // bookkeeping the frontend wants to survive across restarts (port
+  // changes). Today's only user is the thread-cursor resume bookmark
+  // for the counts-strip total, but the endpoint is intentionally
+  // generic: every field in the request body merges into
+  // `state.config.repo_ui_state[repoId]`, with `null` values deleting
+  // that field. New UI state additions (default view mode, filter
+  // prefs, etc.) ride the same wire format — no new endpoint per field.
+  // localStorage was the obvious first choice client-side but is
+  // origin-scoped: slop-review picks a free port each launch, so each
+  // session gets a fresh storage namespace and the cursor would vanish.
+  // state.json lives under ~/.config/slop-review and is port-independent.
+  app.patch('/api/repos/:id/ui-state', async (c) => {
+    const state = await loadState()
+    const repo = findRepo(state, c.req.param('id'))
+    if (!repo) return c.json({ error: 'repo not found' }, 404)
+    const body = await c.req.json().catch(() => ({}))
+    if (!body || typeof body !== 'object' || Array.isArray(body)) {
+      return c.json({ error: 'body must be a JSON object' }, 400)
+    }
+    state.config = state.config || {}
+    state.config.repo_ui_state = state.config.repo_ui_state || {}
+    const bucket = state.config.repo_ui_state[repo.id] || {}
+    for (const [k, v] of Object.entries(body)) {
+      if (v === null || v === undefined) delete bucket[k]
+      else bucket[k] = v
+    }
+    state.config.repo_ui_state[repo.id] = bucket
+    await saveState(state)
+    return c.json({ ok: true, ui_state: bucket })
   })
 
   registerDiffRoutes(app)

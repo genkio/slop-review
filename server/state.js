@@ -37,10 +37,6 @@ export async function loadState() {
       state = structuredClone(SEED)
       await writeBaseState(state)
     }
-    // Existing state files may carry an orphaned `prompt_templates` key
-    // from older versions (the Aggregate Prompt clipboard handoff that
-    // moved to the slop-review skill). It's harmless on disk; we leave it
-    // alone rather than bump STATE_VERSION just to strip it.
   }
 
   state.config ??= {}
@@ -87,13 +83,18 @@ async function writeBaseState(state) {
     await mkdir(dirname(STATE_FILE), { recursive: true })
     // Strip runtime-only fields so they don't leak into the persisted file —
     // they're recomputed on every load. `repos` is also runtime-only now;
-    // the persisted shape is { version, config: {} } (plus any orphaned
-    // `prompt_templates` key from older state files, preserved as-is).
+    // the persisted shape is { version, config: {} }. `prompt_templates`
+    // is an orphan from the pre-skill era (the Aggregate Prompt clipboard
+    // handoff that moved to the slop-review skill) — stripping it here
+    // (rather than via a STATE_VERSION bump + reseed) avoids wiping out
+    // legitimate user-facing config like `config.repo_ui_state`. Next
+    // persist after this change clears the orphan from existing files.
     const persisted = { ...state, config: { ...(state.config || {}) } }
     delete persisted.config.home
     delete persisted.config.bootstrap_repo_id
     delete persisted.config.bootstrap_repo_path
     delete persisted.repos
+    delete persisted.prompt_templates
     // Unique tmp suffix per write defends against callers that bypass the
     // chain (e.g. parallel tests) — fixed `.tmp` collides on rename.
     const tmp = `${STATE_FILE}.tmp.${process.pid}.${randomBytes(6).toString('hex')}`

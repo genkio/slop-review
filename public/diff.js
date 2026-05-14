@@ -5,6 +5,7 @@ import { languageForPath, highlightLine } from './syntax.js'
 import { intraLineSegments } from './intra-line-diff.js'
 import { ROUTES } from './routes.js'
 import { setupOverviewNav } from './overview-nav.js'
+import { store } from './store.js'
 
 // v2: commit-diff files now include `is_unchanged_since_commit`, which
 // drives the per-commit reviewed gate. Older cached payloads don't have
@@ -412,6 +413,60 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
     // pins layout for the modal session; cleared by `releaseJumpLayout`
     // from the modal's onClose so off-screen sections can re-evict.
     jumpLayoutApplied: false,
+    // Resume cursor for the counts-strip total. Updated on every open and
+    // every prev/next nav so closing the modal mid-walk and re-clicking
+    // the total drops the user back where they left off — the workflow
+    // is "open modal, close to read code in context, reopen", and forcing
+    // them to walk from thread #1 every time is hostile to that loop.
+    // Read-side validated against `state.threads`, so a deleted thread
+    // silently falls back to "first" without write-side bookkeeping.
+    // Seeded from the per-repo UI-state bucket loaded once from
+    // server-side state.json at app boot (see router.js → /api/state).
+    // Server-side persistence (not localStorage) is the right home
+    // because slop-review picks a free port each launch — localStorage
+    // is origin-scoped, so a new port = empty namespace, which defeats
+    // the whole "resume across restarts" intent.
+    lastOpenedThreadId: store.state?.config?.repo_ui_state?.[repo.id]?.thread_cursor || null,
+  }
+
+  /**
+   * Patch one field of this repo's UI-state bucket. Keeps the in-memory
+   * store snapshot in lockstep with the persisted state.json so a future
+   * renderDiffView re-mount (hashchange to a different diff variant)
+   * picks up the live value without re-fetching /api/state. The PATCH
+   * is fire-and-forget; failure leaves the prior value on disk and the
+   * in-memory store still reflects the user's latest intent. Null
+   * values delete the field on the server side (see endpoint docs).
+   * Generic on purpose — future UI prefs (view mode default, filter
+   * stickiness, etc.) ride this same setter with a different `key`.
+   */
+  const patchRepoUiState = (patch) => {
+    if (store.state) {
+      store.state.config = store.state.config || {}
+      store.state.config.repo_ui_state = store.state.config.repo_ui_state || {}
+      const bucket = store.state.config.repo_ui_state[repo.id] || {}
+      for (const [k, v] of Object.entries(patch)) {
+        if (v === null || v === undefined) delete bucket[k]
+        else bucket[k] = v
+      }
+      store.state.config.repo_ui_state[repo.id] = bucket
+    }
+    api(`/api/repos/${encodeURIComponent(repo.id)}/ui-state`, {
+      method: 'PATCH',
+      body: JSON.stringify(patch),
+    }).catch(() => {})
+  }
+
+  /**
+   * Single write site for the resume cursor. Routes through the generic
+   * UI-state PATCH so adding more bookmarks later (e.g., default view
+   * mode, filter prefs) doesn't require new plumbing — just call
+   * patchRepoUiState({ new_key: value }).
+   */
+  const setResumeCursor = (tid) => {
+    const next = tid || null
+    state.lastOpenedThreadId = next
+    patchRepoUiState({ thread_cursor: next })
   }
 
   const main = document.getElementById('main')
@@ -1253,20 +1308,31 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
       return
     }
 
-    // Counts-strip total → open the first thread in visual document order.
-    // Resolved at click-time (not render-time) because the inline thread
-    // rows aren't in the DOM yet when renderReviewBanner runs — see the
-    // comment on `data-show-first-thread` in renderThreadCounts.
+    // Counts-strip total → resume the last-opened thread, or fall back to
+    // the first thread in visual document order. Resolved at click-time
+    // (not render-time) because the inline thread rows aren't in the DOM
+    // yet when renderReviewBanner runs — see the comment on
+    // `data-show-first-thread` in renderThreadCounts.
     if (e.target.closest('[data-show-first-thread]')) {
       if (window.getSelection?.()?.toString().trim()) return
       e.preventDefault(); e.stopPropagation()
+      // Resume cursor wins when the remembered thread still exists. We
+      // validate against state.threads (the source of truth) rather than
+      // the inclusive order list because a thread can be present-but-
+      // anchor-lost — openThread still wants to open it; the cursor
+      // matters, not whether its inline row is rendered. If the thread
+      // was deleted between sessions, fall through to first.
+      const resumeId = state.lastOpenedThreadId &&
+        state.threads.some((t) => t.id === state.lastOpenedThreadId)
+        ? state.lastOpenedThreadId
+        : null
       // `*Inclusive` includes anchor-lost threads (different view, or all
       // threads anchored to a SHA the user isn't currently on) appended
       // after the rendered ones in (file, line) order, so the click still
       // resolves to a real thread id and the modal that opens has a
       // populated `threadOrder` for prev/next + "N of M".
-      const firstId = computeThreadOrderInclusive()[0]
-      if (firstId) openThread(firstId)
+      const target = resumeId || computeThreadOrderInclusive()[0]
+      if (target) openThread(target)
       return
     }
 
@@ -2770,6 +2836,16 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
    */
   async function openThread(tid) {
     if (!tid) return
+    // Stamp the resume cursor before any awaits — the counts-strip total
+    // reads this on its next click. Captured here (and again in
+    // onNavigate below) so every transition into the modal updates the
+    // bookmark, including auto-advance-after-resolve and auto-advance-
+    // after-delete (both route through onNavigate). setResumeCursor
+    // also persists to localStorage so the cursor survives a page
+    // reload — the user's flow is "close modal, refresh, click total
+    // to resume", which depends on the cursor outliving the in-memory
+    // state object.
+    setResumeCursor(tid)
     // Snap the diff to the thread's natural view BEFORE the modal opens.
     // The counts-strip total and inline-anchor clicks can both surface a
     // thread that was created in a different view than the user is
@@ -2802,6 +2878,7 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
       onNavigate: async (newId) => {
         const t = state.threads.find((x) => x.id === newId)
         if (!t) return
+        setResumeCursor(newId)
         await switchToThreadView(t)
         if (state.filter?.kind === 'file' && state.filter.path !== t.file) {
           state.filter = null

@@ -11,9 +11,9 @@ import { join } from 'node:path'
 // surfaced as 500s on the first /api/* burst from the browser.
 //
 // The race surface is narrower since the multi-repo removal — the bootstrap
-// no longer mutates persisted state — but the SEED-write on first load and
-// the prompt-template back-fill still go through writeBaseState, so parallel
-// loadState() callers can still race the temp+rename pair.
+// no longer mutates persisted state — but the SEED-write on first load
+// still goes through writeBaseState, so parallel loadState() callers can
+// still race the temp+rename pair.
 //
 // The test fixes the env BEFORE importing state.js because STATE_FILE is
 // computed at module-load time. Setting SLOP_REVIEW_REPO exercises the
@@ -39,16 +39,17 @@ test('parallel loadState() does not race on temp+rename', async () => {
       assert.equal(s.config?.bootstrap_repo_id, s.repos[0].id, 'config.bootstrap_repo_id mirrors repo id')
     }
 
-    // On-disk state is { version, config: {}, prompt_templates } only.
-    // Runtime-only fields (repos, config.home, config.bootstrap_*) are
-    // stripped before persist.
+    // On-disk state is { version, config: {} } only. Runtime-only fields
+    // (repos, config.home, config.bootstrap_*) are stripped before persist,
+    // as is the orphaned `prompt_templates` key from the pre-skill era —
+    // see writeBaseState in server/state.js.
     const onDisk = JSON.parse(readFileSync(stateFile, 'utf8'))
     assert.equal(onDisk.repos, undefined, 'repos is not persisted (multi-repo mode removed)')
     assert.equal(onDisk.config?.home, undefined, 'runtime-only config.home stripped before persist')
     assert.equal(onDisk.config?.bootstrap_repo_id, undefined, 'runtime-only bootstrap_repo_id stripped')
     assert.equal(onDisk.config?.bootstrap_repo_path, undefined, 'runtime-only bootstrap_repo_path stripped')
     assert.equal(typeof onDisk.version, 'number', 'schema version is persisted')
-    assert.ok(onDisk.prompt_templates?.copy_local, 'copy_local template is persisted')
+    assert.equal(onDisk.prompt_templates, undefined, 'orphaned prompt_templates is stripped on persist')
 
     // No leftover unique-tmp files lying around — every writer's rename
     // either consumed its tmp or the unique-suffix layer kept them isolated.
