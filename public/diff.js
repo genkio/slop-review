@@ -2013,26 +2013,23 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
 
   /**
    * Counts strip rendered as the top row of the diff control banner when
-   * the current branch has at least one thread. Three pills:
-   *   - reviewer: total comments authored by the local human reviewer
+   * the current branch has at least one thread. Two pills, both per-comment
+   * (not per-thread — the trailing "open N out of M threads" link is the
+   * thread-count surface, and mixing units in adjacent pills was confusing):
+   *   - comments: total comments whose author is the local human reviewer
    *     (server stamps these with `user: 'reviewer'`; see
    *     server/routes/threads.js DEVELOPER_USER)
-   *   - reviewee: total comments authored by anyone else (LLM agent
-   *     replies, etc. — anything that isn't the 'reviewer' marker)
-   *   - resolved: count of threads whose state is 'resolved'
-   * No more your_turn / awaiting / read pills — the reviewer/reviewee
-   * split is a more direct answer to "who's said what so far?" than the
-   * state machine ever was, and the underlying `t.state` field still
-   * drives the inline thread row's left ribbon (see makeThreadDisplayRow).
+   *   - replies:  total comments by anyone else (LLM agent replies, etc.)
+   * Resolved-thread count is intentionally omitted here; the inline thread
+   * row's left ribbon (see makeThreadDisplayRow) still surfaces per-thread
+   * state, and the `re-open N out of M threads` link covers the headline.
    */
   function renderThreadCounts() {
     const threads = state.threads || []
     if (!threads.length) return ''
     let reviewerMsgs = 0
     let revieweeMsgs = 0
-    let resolvedCount = 0
     for (const t of threads) {
-      if ((t.state || 'awaiting') === 'resolved') resolvedCount++
       for (const c of (t.comments || [])) {
         if (c.user === 'reviewer') reviewerMsgs++
         else revieweeMsgs++
@@ -2076,9 +2073,8 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
       ? '<button type="button" class="state-pill-x" data-clear-replies aria-label="Delete the last reply from every thread" title="Delete the last reply from every thread">×</button>'
       : ''
     return '<div class="diff-review-counts">' +
-      `<span class="state-pill is-count">${reviewerMsgs} reviewer comment${reviewerMsgs === 1 ? '' : 's'}</span>` +
-      `<span class="state-pill is-count">${revieweeMsgs} reviewee repl${revieweeMsgs === 1 ? 'y' : 'ies'}${repliesClearBtn}</span>` +
-      `<span class="state-pill state-resolved">✓ ${resolvedCount} resolved</span>` +
+      `<span class="state-pill is-count">${reviewerMsgs} comment${reviewerMsgs === 1 ? '' : 's'}</span>` +
+      `<span class="state-pill is-count">${revieweeMsgs} repl${revieweeMsgs === 1 ? 'y' : 'ies'}${repliesClearBtn}</span>` +
       total +
       '</div>'
   }

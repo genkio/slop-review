@@ -3429,16 +3429,6 @@ button.diff-review-counts-total:focus-visible {
   outline: 2px solid var(--lane-removed);
   outline-offset: 1px;
 }
-/* Resolved is the human bookkeeping flag — pill is green like done-lane
-   with a soft fill, so the ✓ reads as "closed" against the otherwise
-   muted reviewer/reviewee siblings on either side. */
-.state-pill.state-resolved {
-  color: var(--lane-done);
-  border-color: var(--lane-done);
-  background: color-mix(in srgb, var(--lane-done) 14%, transparent);
-  font-weight: 600;
-}
-
 /* In-diff thread display: state-aware emphasis on `your turn` rows */
 .diff-thread.state-your-turn {
   border-left: 3px solid var(--lane-done);
