@@ -2997,6 +2997,15 @@ a.card-file:hover .card-file-mark {
   border-top: 1px solid color-mix(in srgb, var(--accent) 28%, transparent);
   border-bottom: 1px solid color-mix(in srgb, var(--accent) 28%, transparent);
 }
+/* Keyboard-started selections (vim `c` key) get a CTA in the DOM so the
+   y/o key handlers can dispatch `.click()` on its buttons for multi-line
+   range formatting (see diff.js: y/o handlers) — display:none doesn't
+   block .click(). The button strip itself is mouse-only UX: vim users
+   already have Enter/Esc/y/o on the hint bar. Selection ribbons on each
+   cell stay visible either way, so the range remains obvious. */
+.diff-row-comment-cta.is-keyboard-only {
+  display: none;
+}
 .diff-comment-cta {
   display: flex;
   align-items: center;

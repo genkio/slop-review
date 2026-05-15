@@ -667,13 +667,13 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
       ]
     }
     if (state.commentSelection) {
-      // CTA-only bindings — y/o stay live (they route through the CTA
-      // buttons for the multi-line range) but are intentionally absent
-      // from this hint because they're already advertised as top-level
-      // bindings in default mode. Surfacing them again here would just
-      // crowd the bar without teaching the user anything new.
+      // Visual-line mode (entered via V, or via mouse gutter click). `c`
+      // and Enter both commit — surface `c` because it's the vim-canonical
+      // verb. Enter stays wired but un-advertised: showing both would
+      // crowd the bar without teaching anything new (Enter is universally
+      // intuitive). y/o stay live too but advertised at top-level only.
       return [
-        { keys: ['↵'],     label: 'add comment' },
+        { keys: ['c'],     label: 'add comment' },
         { keys: ['Esc'],   label: 'cancel' },
         { keys: ['j','k'], label: 'extend ↕' },
       ]
@@ -683,22 +683,34 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
     // surfaced only when the cursor row actually has an old side —
     // newly-created files, pure-add rows, and inline-view add rows have
     // no old side, so advertising those keys would be misleading.
-    const hasOld = cursorHasOldSide()
+    // Old-side variants (C, V, Y, O) are intentionally absent from the
+    // hint bar — they take too much horizontal space relative to how
+    // often they're used. The bindings themselves stay live (the onKey
+    // handler reads e.key directly), they're just unadvertised — same
+    // pattern as J/K's 5-line jump.
     const items = [
       { keys: ['j','k'], label: 'move' },
       { keys: ['c'],     label: 'comment' },
+      { keys: ['v'],     label: 'multi-line' },
+      { keys: ['y'],     label: 'copy' },
     ]
-    if (hasOld) items.push({ keys: ['C'], label: 'comment (old)' })
-    items.push({ keys: ['y'], label: 'copy' })
-    if (hasOld) items.push({ keys: ['Y'], label: 'copy (old)' })
+    // `r` toggles the cursor row's file between reviewed and unreviewed.
+    // Local view has no stable blob to pin the mark against (see the
+    // click handler at diff.js:1922), so the binding — and its hint —
+    // are scoped to Full and Commit views. Always shown in those views
+    // (no cursor-presence gate) because the action is file-level, not
+    // line-level; pressing `r` with no cursor is a documented no-op.
+    if (isFullIndex(state.index) || isCommitIndex(state.index)) {
+      items.push({ keys: ['r'], label: 'toggle reviewed' })
+    }
     // Forge bindings — only surface when `state.prInfo` has resolved a
     // host we can build URLs for. Same gate as the CTA forge button
     // (diff.js:1001) so the two hint surfaces agree on "forge available
-    // right now?" — when prInfo is null, neither shows it.
+    // right now?" — when prInfo is null, neither shows it. Old-side `O`
+    // is live but un-hinted (see comment above the items array).
     const prInfo = state.prInfo
     if (prInfo?.host === 'github' && prInfo?.pr_url) {
       items.push({ keys: ['o'], label: 'open GitHub' })
-      if (hasOld) items.push({ keys: ['O'], label: 'open GitHub (old)' })
     }
     // Cursor-dependent: only surface `d` when there's actually a thread
     // to delete on the current line, so the hint bar never advertises a
@@ -777,16 +789,6 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
     const next = cursor?.nextElementSibling
     if (next?.classList?.contains('diff-row-thread')) return next.dataset.threadId || null
     return null
-  }
-
-  // Does the cursor row have an old-side gutter with a real line number?
-  // False for pure-additions, rows in newly-created files, and (in inline
-  // view) any non-removal row — i.e. anywhere `Y`/`O` would be a no-op.
-  // Drives the conditional hint items so the bar never advertises a key
-  // that would do nothing.
-  function cursorHasOldSide () {
-    const cursor = $('[data-body] tr.diff-row.is-cursor')
-    return !!cursor?.querySelector('.diff-no[data-side="old"][data-line]')
   }
 
   // Single-line forge deep-link used by bare `o`/`O` (no comment selection
@@ -873,7 +875,32 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
       nextIdx = delta > 0 ? 0 : rows.length - 1
     } else {
       const idx = rows.indexOf(current)
-      if (idx === -1) nextIdx = delta > 0 ? 0 : rows.length - 1
+      if (idx === -1) {
+        // The cursor row dropped out of the navigable set — typically
+        // because `r` (or a mouse click on the header) just folded its
+        // file. Jumping to absolute index 0 / last would teleport the
+        // user away from where they were reading, so instead walk by
+        // document order in the direction of travel: j → first row
+        // *after* the lost cursor (next file's first line), k → last
+        // row *before* it (previous file's last line). Falls back to
+        // clamping at the edge when there's nothing further that way,
+        // matching the normal "press j at the last row" behavior.
+        if (delta > 0) {
+          nextIdx = rows.findIndex((r) =>
+            current.compareDocumentPosition(r) & Node.DOCUMENT_POSITION_FOLLOWING
+          )
+          if (nextIdx === -1) nextIdx = rows.length - 1
+        } else {
+          nextIdx = -1
+          for (let i = rows.length - 1; i >= 0; i--) {
+            if (current.compareDocumentPosition(rows[i]) & Node.DOCUMENT_POSITION_PRECEDING) {
+              nextIdx = i
+              break
+            }
+          }
+          if (nextIdx === -1) nextIdx = 0
+        }
+      }
       else nextIdx = Math.max(0, Math.min(rows.length - 1, idx + delta))
     }
     if (current) current.classList.remove('is-cursor')
@@ -896,6 +923,10 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
           lineStart: Math.min(anchor, line),
           lineEnd: Math.max(anchor, line),
           anchor,
+          // Inherit `viaMouse` so a CTA started by a real gutter click
+          // stays visible across keyboard extends — and a `c`-started
+          // selection stays CTA-less even after j/k.
+          viaMouse: sel.viaMouse,
         }
         applyCommentSelection()
       }
@@ -905,10 +936,23 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
   const onKey = (e) => {
     if (disposed) return
     if (e.target?.closest?.('input, textarea')) return
-    // j/k cursor nav — bare letters only; let Shift+J / Ctrl+J etc. fall
-    // through so future bindings or browser defaults aren't shadowed.
+    // j/k cursor nav — single-line. Bare letters only; Ctrl/Cmd/Alt
+    // variants fall through so browser defaults (Ctrl+J downloads, etc.)
+    // aren't shadowed. Shift goes to the J/K handler immediately below.
     if ((e.key === 'j' || e.key === 'k') && !e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey) {
       moveCursor(e.key === 'j' ? 1 : -1)
+      revealKeymapHint()
+      e.preventDefault()
+      return
+    }
+    // J/K — 5-line jump. Deliberately omitted from the hint bar: it's a
+    // power-user shortcut and surfacing both `j` and `J` would crowd the
+    // primary nav item without teaching much. `e.key` is already 'J'/'K'
+    // when Shift is held (vs 'j'/'k' otherwise), so no separate shiftKey
+    // check is needed — but we still bar Cmd/Ctrl/Alt+Shift+J to leave
+    // browser-level chords (DevTools, etc.) intact.
+    if ((e.key === 'J' || e.key === 'K') && !e.metaKey && !e.ctrlKey && !e.altKey) {
+      moveCursor(e.key === 'J' ? 5 : -5)
       revealKeymapHint()
       e.preventDefault()
       return
@@ -921,7 +965,19 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
     // semantically-wrong comment side). Cleanly no-ops on hunk-header
     // rows and any row missing the chosen gutter. Gated outside CTA mode
     // so `c` doesn't restart selection from under an in-progress range.
-    if ((e.key === 'c' || e.key === 'C') && !state.commentSelection && !e.metaKey && !e.ctrlKey && !e.altKey) {
+    if ((e.key === 'c' || e.key === 'C') && !e.metaKey && !e.ctrlKey && !e.altKey) {
+      // Commit-on-existing-selection: `V` (visual-line) anchored a range
+      // that the user may have extended with j/k. `c` here is the verb
+      // that acts on it — open the editor on the full range. Mirrors
+      // Enter's behavior in this state; offered as `c` too so vim users
+      // can stay on a single verb across single- and multi-line flows.
+      // Case-insensitive: side is already fixed by V, so `C`'s usual
+      // strict-old gate doesn't apply here.
+      if (state.commentSelection) {
+        openEditorForSelection()
+        e.preventDefault()
+        return
+      }
       const cursor = $('[data-body] tr.diff-row.is-cursor')
       if (!cursor) return
       const strict = e.key === 'C'
@@ -929,7 +985,44 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
       const pick = (side) => cursor.querySelector(`.diff-no[data-side="${side}"][data-line][data-path]`)
       const gutter = pick(preferSide) || (strict ? null : pick('old'))
       if (gutter) {
-        gutter.click()
+        // Flag the synthetic click so the body click listener can tag the
+        // resulting selection as keyboard-initiated (CTA stays hidden).
+        // Sync set→click→reset: HTMLElement.click() invokes listeners
+        // synchronously, so the flag is guaranteed to still be true when
+        // the body click handler reads it, and reset before any subsequent
+        // real click can land. (We use a flag rather than e.isTrusted
+        // because .click() goes through the user-agent's internal fire
+        // path and produces isTrusted=true — same as a real mouse click.)
+        synthClickFromKey = true
+        try { gutter.click() } finally { synthClickFromKey = false }
+        // Open the editor directly on the cursor row. Skipping the
+        // intermediate "press Enter to confirm" step because the CTA's
+        // Add-comment button is hidden in keyboard mode — making the user
+        // press Enter to click a button they can't see was friction with
+        // no purpose. `c` is a verb that commits, vim-style.
+        openEditorForSelection()
+        e.preventDefault()
+      }
+      return
+    }
+    // v / V — enter visual-line mode: anchor a 1-line selection on the
+    // cursor row WITHOUT opening the editor, so j/k can extend it before
+    // the user commits with `c` (or Enter). The verb/visual split mirrors
+    // vim: a single key can't both anchor a range and commit on it, so
+    // v/V anchor and c commits. Case follows the c/C, y/Y, o/O convention:
+    // lowercase prefers new with fallback to old; uppercase is strict-old
+    // (silent no-op on rows missing an old side). Gated outside CTA mode
+    // so v/V doesn't restart selection mid-range.
+    if ((e.key === 'v' || e.key === 'V') && !state.commentSelection && !e.metaKey && !e.ctrlKey && !e.altKey) {
+      const cursor = $('[data-body] tr.diff-row.is-cursor')
+      if (!cursor) return
+      const strict = e.key === 'V'
+      const preferSide = strict ? 'old' : 'new'
+      const pick = (side) => cursor.querySelector(`.diff-no[data-side="${side}"][data-line][data-path]`)
+      const gutter = pick(preferSide) || (strict ? null : pick('old'))
+      if (gutter) {
+        synthClickFromKey = true
+        try { gutter.click() } finally { synthClickFromKey = false }
         e.preventDefault()
       }
       return
@@ -979,6 +1072,26 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
         openForgeForRow(cursor, e.key === 'O' ? 'old' : 'new', e.key === 'O')
       }
       e.preventDefault()
+      return
+    }
+    // r — toggle reviewed status for the cursor row's file. Synthesizes a
+    // click on that file's `.diff-file-head` so all the gates (unresolved
+    // threads, commit-view "later changes" check, optimistic state +
+    // rollback, persistence, collapse↔reviewed sync) run through the
+    // single delegated click handler at diff.js:1916. Gated on Full or
+    // Commit view because Local view's header toggles collapse only.
+    // Suppressed during CTA/editor flows for the same reason as `d` — a
+    // stray `r` mid-selection shouldn't fold the file out from under the
+    // in-progress comment.
+    if (e.key === 'r' && !state.commentSelection && !e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey) {
+      const cursor = $('[data-body] tr.diff-row.is-cursor')
+      if (!cursor) return
+      if (!(isFullIndex(state.index) || isCommitIndex(state.index))) return
+      const head = cursor.closest('.diff-file[data-path]')?.querySelector('[data-toggle-collapse]')
+      if (head) {
+        head.click()
+        e.preventDefault()
+      }
       return
     }
     // d — delete the thread on the cursored line. No-op when the cursor
@@ -1032,6 +1145,16 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
   // different line: Esc or Cancel, then click. Switching (path, side)
   // resets the selection automatically.
   // ------------------------------------------------------------------
+  // Scope flag set by the `c`/`C` vim handler around its synthetic
+  // `gutter.click()` so the body click listener below can tell a real
+  // mouse click apart from one synthesized from a keypress. We can't use
+  // `e.isTrusted` for this: HTMLElement.click() routes through the user
+  // agent's internal fire-an-event path and produces isTrusted=true, same
+  // as a real click. The flag is set→click→reset synchronously inside
+  // .click(), so there's no window in which a real click could read it as
+  // true.
+  let synthClickFromKey = false
+
   $('[data-body]').addEventListener('click', (e) => {
     const gutter = e.target.closest?.('.diff-no[data-line][data-side][data-path]')
     if (!gutter) return
@@ -1040,6 +1163,10 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
     const line = Number(gutter.dataset.line)
     if (!path || !side || !Number.isFinite(line) || line < 1) return
     e.preventDefault(); e.stopPropagation()
+    // The CTA button strip is mouse-only UX; vim users get Enter/Esc/y/o
+    // from the hint bar instead. See applyCommentSelection for the
+    // matching visual gate.
+    const viaMouse = !synthClickFromKey
     const sel = state.commentSelection
     if (sel && sel.path === path && sel.side === side) {
       // Extend the existing selection. Anchor stays where the user first
@@ -1051,6 +1178,7 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
         lineStart: Math.min(anchor, line),
         lineEnd: Math.max(anchor, line),
         anchor,
+        viaMouse,
       }
     } else {
       // First click, or switch to a different file/side → fresh selection.
@@ -1060,6 +1188,7 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
         lineStart: line,
         lineEnd: line,
         anchor: line,
+        viaMouse,
       }
     }
     applyCommentSelection()
@@ -1106,7 +1235,13 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
     // whichever last in-range line IS rendered — matches the
     // "render what we can" anchor-loss semantics elsewhere.
     const cta = document.createElement('tr')
-    cta.className = 'diff-row diff-row-comment-cta'
+    // Keyboard-started selections (the `c` vim key) still get a CTA in
+    // the DOM — y/o vim keys dispatch `.click()` on its buttons for
+    // multi-line range formatting — but it's display:none'd so the vim
+    // user isn't shown a redundant mouse-only button strip. `viaMouse`
+    // is stamped on the selection at its origin (gutter click handler
+    // above) and inherited through j/k extension.
+    cta.className = 'diff-row diff-row-comment-cta' + (sel.viaMouse ? '' : ' is-keyboard-only')
     const rangeLabel = sel.lineStart === sel.lineEnd
       ? `L${sel.lineStart}`
       : `L${sel.lineStart}–${sel.lineEnd}`
