@@ -1,6 +1,6 @@
 import { api } from './api.js'
 import { escapeHtml, toast } from './util.js'
-import { openOverviewModal } from './overview-modal.js'
+import { openOverviewModal, confirmOverviewTool } from './overview-modal.js'
 
 const POLL_MS = 2500
 
@@ -16,6 +16,7 @@ export function setupOverviewNav(container, repoId) {
 
   let disposed = false
   let timer = null
+  let lastStatus = null
   const clearTimer = () => {
     if (timer) clearTimeout(timer)
     timer = null
@@ -31,6 +32,7 @@ export function setupOverviewNav(container, repoId) {
     try {
       const status = await api(`/api/repos/${encodeURIComponent(repoId)}/overview`)
       if (disposed) return
+      lastStatus = status
       render(status)
       if (status.status === 'generating') schedule()
     } catch (e) {
@@ -52,7 +54,7 @@ export function setupOverviewNav(container, repoId) {
       return
     }
     if (status.status === 'generating') {
-      container.innerHTML = '<button type="button" class="btn overview-nav-generating" disabled>Generating overview…</button>'
+      container.innerHTML = '<button type="button" class="page-nav is-busy" disabled>Generating…</button>'
       return
     }
     if (status.status === 'error' || status.error) {
@@ -62,12 +64,12 @@ export function setupOverviewNav(container, repoId) {
       return
     }
     if (status.status === 'stale') {
-      container.innerHTML = '<button type="button" class="page-nav is-stale" data-open-overview title="Overview is out of date for the current branch state">Overview staled</button>'
+      container.innerHTML = '<button type="button" class="page-nav is-stale" data-open-overview title="Overview is out of date for the current branch state">Overview stale</button>'
       wireOpen()
       return
     }
-    if (status.can_generate && status.codex_available) {
-      container.innerHTML = '<button type="button" class="btn overview-nav-generate" data-generate-overview>Generate overview</button>'
+    if (status.can_generate && hasAnyTool(status)) {
+      container.innerHTML = '<button type="button" class="page-nav" data-generate-overview>Overview</button>'
       container.querySelector('[data-generate-overview]')?.addEventListener('click', generate)
       return
     }
@@ -76,13 +78,16 @@ export function setupOverviewNav(container, repoId) {
 
   async function generate() {
     if (disposed) return
+    const tool = await confirmOverviewTool(lastStatus)
+    if (!tool || disposed) return
     container.innerHTML = '<button type="button" class="btn overview-nav-generating" disabled>Generating overview…</button>'
     try {
       const status = await api(`/api/repos/${encodeURIComponent(repoId)}/overview`, {
         method: 'POST',
-        body: JSON.stringify({ force: true }),
+        body: JSON.stringify({ force: true, tool }),
       })
       if (disposed) return
+      lastStatus = status
       render(status)
       if (status.status === 'generating') schedule()
     } catch (e) {
@@ -90,6 +95,11 @@ export function setupOverviewNav(container, repoId) {
       toast('Overview failed: ' + (e.message || 'unknown'))
       await refresh()
     }
+  }
+
+  function hasAnyTool(status) {
+    if (Array.isArray(status?.available_tools)) return status.available_tools.length > 0
+    return !!(status?.codex_available || status?.claude_available)
   }
 
   refresh()

@@ -26,7 +26,10 @@ export function registerOverviewRoutes(app) {
     if (error) return error
     const body = await c.req.json().catch(() => ({}))
     try {
-      return c.json(await ensureOverviewGeneration(repo.path, { force: !!body?.force }))
+      return c.json(await ensureOverviewGeneration(repo.path, {
+        force: !!body?.force,
+        tool: typeof body?.tool === 'string' ? body.tool : null,
+      }))
     } catch (e) {
       return c.json({ error: e.message || 'overview generation failed' }, 500)
     }

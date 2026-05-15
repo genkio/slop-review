@@ -3550,9 +3550,10 @@ body:has(.diff-page) main {
    defined. The panel overlays the right edge of the body instead of
    pushing content out from under itself. */
 
-/* Diff-header action buttons share one compact style — covers the
-   Generate-overview CTA. The cross-page navigation links (Threads,
-   Overview ready/stale/error) live on .page-nav and skip this rule. */
+/* Diff-header action buttons share one compact style. The Overview
+   button (all five states) lives on .page-nav, not on .btn, so this
+   rule no longer applies to it — kept for any future bordered CTAs
+   the diff header grows. */
 .diff-actions .btn {
   padding: 6px 12px;
   border: 1px solid var(--hairline-strong);
@@ -3574,22 +3575,18 @@ body:has(.diff-page) main {
   border-color: var(--accent);
 }
 
-/* Overview generation link/status shared by Threads and Diff headers. */
+/* Overview generation link/status shared by Threads and Diff headers.
+   All five states (idle / ready / generating / stale / error) render
+   on the same `.page-nav` text-link chrome so the button reads as a
+   navigation affordance rather than a heavy action button. State
+   modifiers add tint (.is-stale amber, .is-error red) or a muted
+   in-flight look (.is-busy). The trailing → arrow is suppressed in
+   the busy state since the button is non-clickable. */
 .overview-nav-slot {
   display: inline-flex;
   align-items: center;
 }
 .overview-nav-slot:empty { display: none; }
-.overview-nav-generating,
-.overview-nav-generate {
-  white-space: nowrap;
-}
-.overview-nav-generating:disabled {
-  color: var(--fg-muted);
-  border-color: var(--hairline);
-  background: var(--bg-deep);
-  opacity: 1;
-}
 
 /* Cross-page navigation link. Distinct from .btn (action) — these
    read as text-links with a trailing → arrow that telegraphs "go to"
@@ -3663,6 +3660,19 @@ body:has(.diff-page) main {
 }
 .page-nav.is-error:hover {
   color: color-mix(in srgb, var(--lane-removed) 80%, var(--ink));
+}
+
+/* Busy / in-flight: muted color, no → arrow (the button is non-
+   clickable while generation runs). Used by the overview-nav slot
+   during the generating state — reads as "we're working on it"
+   rather than an actionable link. */
+.page-nav.is-busy,
+.page-nav.is-busy:hover {
+  color: var(--fg-muted);
+  cursor: default;
+}
+.page-nav.is-busy::after {
+  content: none;
 }
 
 /* Overview is rendered inside a wide modal (see .modal.modal-wide above);
@@ -3937,6 +3947,43 @@ body:has(.diff-page) main {
     transform: rotate(90deg);
   }
 }
+/* Picker shown before overview generation. When both Codex and Claude
+   Code CLIs are available the user picks one; when only one is present
+   the modal renders as a plain confirm without the radio group. */
+.overview-tool-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 4px 0 0;
+}
+.overview-tool-option {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: border-color 120ms ease, background 120ms ease;
+}
+.overview-tool-option:hover {
+  border-color: var(--accent);
+  background: var(--bg-deep);
+}
+.overview-tool-option input[type="radio"] {
+  margin: 0;
+}
+.overview-tool-name {
+  font-weight: 500;
+  color: var(--ink);
+}
+.overview-tool-version {
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--fg-muted);
+}
+
 .overview-pending,
 .overview-empty,
 .overview-error {

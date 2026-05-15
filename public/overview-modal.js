@@ -4,6 +4,80 @@ import { makeModal } from './modals.js'
 
 const POLL_MS = 2500
 
+const TOOL_LABELS = {
+  codex: 'Codex CLI',
+  claude: 'Claude Code CLI',
+}
+
+/**
+ * Show a confirmation / picker before kicking off overview generation.
+ * Resolves to the chosen tool id ('codex' | 'claude') or null if the user
+ * cancels. When only one CLI is available the modal degenerates to a
+ * single-button confirm; when both are present the user picks one.
+ */
+export function confirmOverviewTool(status) {
+  return new Promise((resolve) => {
+    const tools = Array.isArray(status?.available_tools) ? status.available_tools : []
+    if (!tools.length) {
+      resolve(null)
+      return
+    }
+
+    const versions = {
+      codex: status?.codex_version || '',
+      claude: status?.claude_version || '',
+    }
+
+    let body
+    if (tools.length === 1) {
+      const tool = tools[0]
+      const version = versions[tool] ? ` (${escapeHtml(versions[tool])})` : ''
+      body = `
+        <h2>Generate overview</h2>
+        <p class="modal-text">Use ${escapeHtml(TOOL_LABELS[tool])}${version} to generate the overview for this branch?</p>
+        <input type="hidden" data-tool-choice value="${escapeHtml(tool)}">
+        <div class="modal-actions is-reversed">
+          <button type="button" class="primary" data-confirm>Generate</button>
+          <button type="button" data-close>Cancel</button>
+        </div>`
+    } else {
+      const options = tools.map((tool, i) => {
+        const version = versions[tool] ? `<span class="overview-tool-version">${escapeHtml(versions[tool])}</span>` : ''
+        return `
+          <label class="overview-tool-option">
+            <input type="radio" name="overview-tool" value="${escapeHtml(tool)}"${i === 0 ? ' checked' : ''}>
+            <span class="overview-tool-name">${escapeHtml(TOOL_LABELS[tool] || tool)}</span>
+            ${version}
+          </label>`
+      }).join('')
+      body = `
+        <h2>Generate overview</h2>
+        <p class="modal-text">Choose which CLI should generate the overview.</p>
+        <div class="overview-tool-picker" role="radiogroup" aria-label="Overview generator">${options}</div>
+        <div class="modal-actions is-reversed">
+          <button type="button" class="primary" data-confirm>Generate</button>
+          <button type="button" data-close>Cancel</button>
+        </div>`
+    }
+
+    let settled = false
+    const backdrop = makeModal(body, {
+      onClose: () => { if (!settled) { settled = true; resolve(null) } },
+    })
+
+    backdrop.querySelector('[data-confirm]')?.focus()
+    backdrop.querySelector('[data-confirm]')?.addEventListener('click', () => {
+      if (settled) return
+      const radio = backdrop.querySelector('input[name="overview-tool"]:checked')
+      const hidden = backdrop.querySelector('input[data-tool-choice]')
+      const choice = radio?.value || hidden?.getAttribute('value') || tools[0]
+      settled = true
+      backdrop.remove()
+      resolve(choice)
+    })
+  })
+}
+
 /**
  * Open the generated branch overview inside a modal. Reuses makeModal's
  * backdrop + Esc handling and the existing section-aware markdown render.
@@ -16,6 +90,7 @@ export function openOverviewModal(repoId) {
 
   let pollTimer = null
   let disposed = false
+  let lastStatus = null
   const clearTimer = () => { if (pollTimer) clearTimeout(pollTimer); pollTimer = null }
 
   const backdrop = makeModal(`
@@ -44,6 +119,7 @@ export function openOverviewModal(repoId) {
     try {
       const status = await api(`/api/repos/${encodeURIComponent(repoId)}/overview`)
       if (disposed) return
+      lastStatus = status
       renderStatus(status)
       if (status.status === 'generating') pollTimer = setTimeout(refresh, POLL_MS)
     } catch (e) {
@@ -87,12 +163,12 @@ export function openOverviewModal(repoId) {
     }
 
     if (status.status === 'stale') {
-      const canRegen = status.can_generate && status.codex_available
+      const canRegen = status.can_generate && hasAnyTool(status)
       const headFrag = status.head_sha
         ? `Current HEAD <code>${escapeHtml(status.head_sha.slice(0, 12))}</code> no longer matches the snapshot this overview was generated for.`
         : 'New commits or local changes have been made since this overview was generated.'
-      const codexNote = !canRegen && status.codex_error
-        ? `<div class="overview-stale-note">${escapeHtml(status.codex_error)}</div>`
+      const codexNote = !canRegen
+        ? `<div class="overview-stale-note">${escapeHtml(unavailableReason(status))}</div>`
         : ''
       const action = canRegen
         ? '<button type="button" class="primary" data-regenerate-overview>Regenerate overview</button>'
@@ -115,10 +191,10 @@ export function openOverviewModal(repoId) {
       return
     }
 
-    const label = status.can_generate && !status.codex_available && status.codex_error
-      ? status.codex_error
+    const label = status.can_generate && !hasAnyTool(status)
+      ? unavailableReason(status)
       : (status.reason || 'No overview has been generated yet.')
-    const action = status.can_generate && status.codex_available
+    const action = status.can_generate && hasAnyTool(status)
       ? '<button type="button" class="primary" data-regenerate-overview>Generate overview</button>'
       : ''
     body.innerHTML = `
@@ -141,6 +217,8 @@ export function openOverviewModal(repoId) {
   }
 
   async function regenerate() {
+    const tool = await confirmOverviewTool(lastStatus)
+    if (!tool || disposed) return
     body.innerHTML = `
       <div class="overview-pending">
         <span class="wt-spinner" aria-hidden="true"></span>
@@ -149,9 +227,10 @@ export function openOverviewModal(repoId) {
     try {
       const status = await api(`/api/repos/${encodeURIComponent(repoId)}/overview`, {
         method: 'POST',
-        body: JSON.stringify({ force: true }),
+        body: JSON.stringify({ force: true, tool }),
       })
       if (disposed) return
+      lastStatus = status
       renderStatus(status)
       if (status.status === 'generating') pollTimer = setTimeout(refresh, POLL_MS)
     } catch (e) {
@@ -161,6 +240,18 @@ export function openOverviewModal(repoId) {
   }
 
   refresh()
+}
+
+function hasAnyTool(status) {
+  if (Array.isArray(status?.available_tools)) return status.available_tools.length > 0
+  return !!(status?.codex_available || status?.claude_available)
+}
+
+function unavailableReason(status) {
+  const parts = []
+  if (status?.codex_error) parts.push(status.codex_error)
+  if (status?.claude_error) parts.push(status.claude_error)
+  return parts.join(' ') || 'No supported CLI (Codex or Claude Code) is available on PATH.'
 }
 
 function renderOverview(markdown) {
