@@ -442,6 +442,10 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
     .then((info) => {
       if (!isCurrent()) return
       state.prInfo = info
+      // Forge bindings (`o`/`O`) become available the moment prInfo
+      // resolves. Refresh the hint so the bar advertises them without
+      // waiting for the next cursor move.
+      renderKeymapHint()
     })
     .catch(() => {})
 
@@ -568,6 +572,7 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
       <div class="diff-loading">Loading diff…</div>
     </div>
     <aside class="diff-symbol-panel" data-symbol-panel hidden></aside>
+    <footer class="diff-keymap-hint" data-keymap-hint hidden></footer>
     <style data-symbol-style></style>`
   main.replaceChildren(root)
 
@@ -612,9 +617,381 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
   }
   activeDispose = dispose
 
+  // Vim-style cursor: a single `tr.diff-row` is "focused" via .is-cursor.
+  // We deliberately don't persist the cursor across re-renders — renderBody
+  // wipes the DOM and the user re-anchors with a fresh j/k. (Persisting
+  // through reflows would mean keying on path+line+side, which adds state
+  // for a feature whose primary use is local, in-place navigation.)
+  function getNavigableRows () {
+    const body = $('[data-body]')
+    if (!body) return []
+    return Array.from(body.querySelectorAll(
+      '.diff-file:not(.is-collapsed) tr.diff-row:not(.diff-row-thread):not(.diff-row-editor):not(.diff-row-comment-cta)'
+    ))
+  }
+  // Dynamic which-key-style hint bar. Hidden until the first vim action;
+  // once revealed, its contents re-compute from current state on every
+  // render so the visible bindings always match what the user can actually
+  // press right now. Callers fire `renderKeymapHint()` after any state
+  // change that could shift the active context (cursor move, comment
+  // selection start/clear). `revealKeymapHint()` is the one-way switch
+  // that flips the bar from `hidden` to live; subsequent renders are
+  // no-ops while still hidden, so we don't pay for DOM work pre-reveal.
+  // ⌘ on macOS, Ctrl elsewhere — matches what `e.metaKey || e.ctrlKey`
+  // accepts at the binding site, so the hint never lies about which
+  // modifier the user should reach for.
+  const IS_MAC = typeof navigator !== 'undefined' && /Mac/i.test(navigator.platform || navigator.userAgent || '')
+  const SUBMIT_MOD = IS_MAC ? '⌘' : 'Ctrl'
+
+  function getKeymapItems () {
+    // Confirmation modal (e.g. Delete thread) — highest priority because
+    // it sits on top of everything else and steals user attention. The
+    // predicate matches ANY backdrop with a `[data-confirm]` button, so
+    // future destructive dialogs (clear reviewed marks, etc.) pick this
+    // hint up automatically.
+    if (document.querySelector('.modal-backdrop [data-confirm]')) {
+      return [
+        { keys: ['↵'],   label: 'confirm' },
+        { keys: ['Esc'], label: 'cancel' },
+      ]
+    }
+    // Editor open — cursor nav is suppressed by the input-field guard
+    // while typing, so only submit/cancel are actionable from inside the
+    // textarea. Editor presence is the DOM-truth signal; checked BEFORE
+    // the comment-selection branch because the selection is still set
+    // while the editor is open (it clears on close).
+    if ($('[data-body] .diff-row-editor')) {
+      return [
+        { keys: [SUBMIT_MOD, '↵'], label: 'submit' },
+        { keys: ['Esc'],           label: 'cancel' },
+      ]
+    }
+    if (state.commentSelection) {
+      // CTA-only bindings — y/o stay live (they route through the CTA
+      // buttons for the multi-line range) but are intentionally absent
+      // from this hint because they're already advertised as top-level
+      // bindings in default mode. Surfacing them again here would just
+      // crowd the bar without teaching the user anything new.
+      return [
+        { keys: ['↵'],     label: 'add comment' },
+        { keys: ['Esc'],   label: 'cancel' },
+        { keys: ['j','k'], label: 'extend ↕' },
+      ]
+    }
+    // `copy` is the default (new side, or whatever side exists on a
+    // single-sided row). `Y copy old` and `O open GitHub (old)` are
+    // surfaced only when the cursor row actually has an old side —
+    // newly-created files, pure-add rows, and inline-view add rows have
+    // no old side, so advertising those keys would be misleading.
+    const hasOld = cursorHasOldSide()
+    const items = [
+      { keys: ['j','k'], label: 'move' },
+      { keys: ['c'],     label: 'comment' },
+    ]
+    if (hasOld) items.push({ keys: ['C'], label: 'comment (old)' })
+    items.push({ keys: ['y'], label: 'copy' })
+    if (hasOld) items.push({ keys: ['Y'], label: 'copy (old)' })
+    // Forge bindings — only surface when `state.prInfo` has resolved a
+    // host we can build URLs for. Same gate as the CTA forge button
+    // (diff.js:1001) so the two hint surfaces agree on "forge available
+    // right now?" — when prInfo is null, neither shows it.
+    const prInfo = state.prInfo
+    if (prInfo?.host === 'github' && prInfo?.pr_url) {
+      items.push({ keys: ['o'], label: 'open GitHub' })
+      if (hasOld) items.push({ keys: ['O'], label: 'open GitHub (old)' })
+    }
+    // Cursor-dependent: only surface `d` when there's actually a thread
+    // to delete on the current line, so the hint bar never advertises a
+    // no-op. revealKeymapHint() runs after every j/k, so this stays
+    // accurate as the cursor moves through the diff.
+    if (cursorThreadId()) items.push({ keys: ['d'], label: 'delete thread' })
+    return items
+  }
+  function renderKeymapHint () {
+    const hint = $('[data-keymap-hint]')
+    if (!hint || hint.hidden) return
+    hint.innerHTML = getKeymapItems().map(({ keys, label }) =>
+      `<span class="diff-keymap-item">${keys.map((k) => `<kbd>${escapeHtml(k)}</kbd>`).join('')}<span class="diff-keymap-label">${escapeHtml(label)}</span></span>`
+    ).join('')
+  }
+  function revealKeymapHint () {
+    const hint = $('[data-keymap-hint]')
+    if (!hint) return
+    hint.hidden = false
+    renderKeymapHint()
+  }
+  // Delete the whole thread (all comments + file). Confirmation modal is
+  // mandatory because the operation is irreversible. Reuses the same
+  // post-delete refresh sequence as the modal-driven delete flow:
+  // `state.threads` swap, inline rerender, banner refresh, hint refresh.
+  function confirmAndDeleteThread (tid) {
+    const t = state.threads.find((x) => x.id === tid)
+    const count = t?.comments?.length || 1
+    const detail = count === 1
+      ? 'Deletes the thread and its single comment.'
+      : `Deletes the thread and all ${count} comments.`
+    // onClose runs for Esc / backdrop-click / × paths; the confirm path
+    // bypasses makeModal's close() by calling backdrop.remove() directly
+    // (matching the existing confirmRemoveComment pattern), so the
+    // confirm onclick also needs to refresh the hint explicitly.
+    const backdrop = makeModal(
+      '<h2>Delete thread?</h2>' +
+      `<p class="modal-text">${escapeHtml(detail)} This can't be undone.</p>` +
+      '<div class="modal-actions is-reversed">' +
+        '<button class="danger" data-confirm>Delete</button>' +
+        '<button data-close>Cancel</button>' +
+      '</div>',
+      { onClose: renderKeymapHint }
+    )
+    // Focus the primary button so Enter natively confirms — no parallel
+    // keymap branch needed, native <button> semantics do the work. The
+    // `danger` styling visually signals which action Enter will fire.
+    backdrop.querySelector('[data-confirm]').focus()
+    renderKeymapHint()
+    backdrop.querySelector('[data-confirm]').onclick = async () => {
+      backdrop.remove()
+      renderKeymapHint()
+      try {
+        const res = await api(
+          `/api/repos/${encodeURIComponent(repo.id)}/threads/${encodeURIComponent(tid)}`,
+          { method: 'DELETE' }
+        )
+        if (res.threads) state.threads = res.threads
+        renderInlineComments()
+        refreshReviewBanner()
+        toast.ok('Thread removed')
+      } catch (err) {
+        toast('Remove failed: ' + (err.message || 'unknown'))
+      }
+    }
+  }
+
+  // Is the cursor on a line whose inline thread row is currently visible?
+  // Single-line threads splice right after the anchor row; multi-line
+  // threads splice after the LAST line (see renderInlineComments:2753 —
+  // `ln >= anchorLine` picks the highest line as the anchor). So the
+  // "thread for this line" question reduces to checking the cursor row's
+  // immediate next sibling. Returns the thread id or null.
+  function cursorThreadId () {
+    const cursor = $('[data-body] tr.diff-row.is-cursor')
+    const next = cursor?.nextElementSibling
+    if (next?.classList?.contains('diff-row-thread')) return next.dataset.threadId || null
+    return null
+  }
+
+  // Does the cursor row have an old-side gutter with a real line number?
+  // False for pure-additions, rows in newly-created files, and (in inline
+  // view) any non-removal row — i.e. anywhere `Y`/`O` would be a no-op.
+  // Drives the conditional hint items so the bar never advertises a key
+  // that would do nothing.
+  function cursorHasOldSide () {
+    const cursor = $('[data-body] tr.diff-row.is-cursor')
+    return !!cursor?.querySelector('.diff-no[data-side="old"][data-line]')
+  }
+
+  // Single-line forge deep-link used by bare `o`/`O` (no comment selection
+  // active). Mirrors the CTA forge button's URL-synthesis path so the two
+  // routes produce identical URLs for a single line. CRITICAL: window.open
+  // is called synchronously to preserve the user-activation flag — the
+  // synthetic .click() from this real keydown carries the gesture in, but
+  // it expires on the next microtask, so the popup must open *before* the
+  // buildForgeDeepLink promise resolves.
+  function openForgeForRow (row, preferSide, strict = false) {
+    if (!row) return
+    const info = state.prInfo
+    if (!info?.host || !info?.pr_url) return
+    const pick = (side) => row.querySelector(`.diff-no[data-side="${side}"][data-line][data-path]`)
+    let cell = pick(preferSide)
+    if (!cell && !strict) cell = pick(preferSide === 'new' ? 'old' : 'new')
+    if (!cell) return
+    const path = cell.dataset.path
+    const line = Number(cell.dataset.line)
+    const side = cell.dataset.side
+    const tab = window.open('about:blank', '_blank')
+    if (!tab) {
+      toast('Popup blocked — allow popups for slop-review to open forge links')
+      return
+    }
+    buildForgeDeepLink({
+      host: info.host,
+      prUrl: info.pr_url,
+      path,
+      lineStart: line,
+      lineEnd: line,
+      side,
+    })
+      .then((url) => {
+        if (!url) { tab.close(); return }
+        tab.opener = null
+        tab.location.href = url
+      })
+      .catch((e) => {
+        tab.close()
+        toast('Failed to build forge URL: ' + (e.message || 'unknown'))
+      })
+  }
+
+  // Single-line copy used by bare `y`/`Y` (no comment selection active).
+  // Mirrors the format the CTA copy button produces for a single-line
+  // range — `path:line` for new side, `path:line (old)` for old — so the
+  // two code paths produce identical refs and clipboard pastes stay
+  // consistent regardless of how the user invoked copy.
+  function copyLineRef (row, preferSide, strict = false) {
+    if (!row) return
+    const pick = (side) => row.querySelector(`.diff-no[data-side="${side}"][data-line][data-path]`)
+    let cell = pick(preferSide)
+    if (!cell && !strict) cell = pick(preferSide === 'new' ? 'old' : 'new')
+    if (!cell) return
+    const path = cell.dataset.path
+    const line = cell.dataset.line
+    const side = cell.dataset.side
+    const ref = side === 'old' ? `${path}:${line} (old)` : `${path}:${line}`
+    copyToClipboard(ref)
+      .then(() => toast.ok(`Copied ${ref}`))
+      .catch((e) => toast('Copy failed: ' + (e.message || 'unknown')))
+  }
+
+  function moveCursor (delta) {
+    let rows = getNavigableRows()
+    // CTA mode: j/k extends the selection rather than just moving the
+    // cursor. Restrict navigable rows to ones with a gutter on the same
+    // (path, side) as the selection — this way j/k always lands on a
+    // line we can include in the range, skipping hunk headers and rows
+    // from other files that would otherwise force a fresh selection.
+    const sel = state.commentSelection
+    if (sel) {
+      rows = rows.filter((r) => r.querySelector(
+        `.diff-no[data-side="${sel.side}"][data-line][data-path="${cssEscape(sel.path)}"]`
+      ))
+    }
+    if (rows.length === 0) return
+    const body = $('[data-body]')
+    const current = body?.querySelector('tr.diff-row.is-cursor')
+    let nextIdx
+    if (!current) {
+      // First press: j → first line, k → last line.
+      nextIdx = delta > 0 ? 0 : rows.length - 1
+    } else {
+      const idx = rows.indexOf(current)
+      if (idx === -1) nextIdx = delta > 0 ? 0 : rows.length - 1
+      else nextIdx = Math.max(0, Math.min(rows.length - 1, idx + delta))
+    }
+    if (current) current.classList.remove('is-cursor')
+    const next = rows[nextIdx]
+    next.classList.add('is-cursor')
+    next.scrollIntoView({ block: 'nearest', behavior: 'auto' })
+    // Extend the selection to span [anchor, new cursor line]. Mirrors
+    // the gutter-click extension at the body click handler — same anchor
+    // pivot, same min/max logic — so mouse and keyboard converge on the
+    // same selection shape. applyCommentSelection re-splices the CTA
+    // beneath the new last-line and re-paints the range ribbon.
+    if (sel) {
+      const gutter = next.querySelector(`.diff-no[data-side="${sel.side}"][data-line]`)
+      const line = Number(gutter?.dataset?.line)
+      if (Number.isFinite(line)) {
+        const anchor = sel.anchor
+        state.commentSelection = {
+          path: sel.path,
+          side: sel.side,
+          lineStart: Math.min(anchor, line),
+          lineEnd: Math.max(anchor, line),
+          anchor,
+        }
+        applyCommentSelection()
+      }
+    }
+  }
+
   const onKey = (e) => {
     if (disposed) return
     if (e.target?.closest?.('input, textarea')) return
+    // j/k cursor nav — bare letters only; let Shift+J / Ctrl+J etc. fall
+    // through so future bindings or browser defaults aren't shadowed.
+    if ((e.key === 'j' || e.key === 'k') && !e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey) {
+      moveCursor(e.key === 'j' ? 1 : -1)
+      revealKeymapHint()
+      e.preventDefault()
+      return
+    }
+    // c / C — "click" the cursored line's gutter to open the CTA via the
+    // same click delegation as a mouse gutter-click. `c` prefers the new
+    // side (falling back to old on pure-removals so the key isn't a
+    // no-op); capital `C` is strict-old (matches Y/O strictness — silent
+    // no-op on rows without an old side rather than risking a
+    // semantically-wrong comment side). Cleanly no-ops on hunk-header
+    // rows and any row missing the chosen gutter. Gated outside CTA mode
+    // so `c` doesn't restart selection from under an in-progress range.
+    if ((e.key === 'c' || e.key === 'C') && !state.commentSelection && !e.metaKey && !e.ctrlKey && !e.altKey) {
+      const cursor = $('[data-body] tr.diff-row.is-cursor')
+      if (!cursor) return
+      const strict = e.key === 'C'
+      const preferSide = strict ? 'old' : 'new'
+      const pick = (side) => cursor.querySelector(`.diff-no[data-side="${side}"][data-line][data-path]`)
+      const gutter = pick(preferSide) || (strict ? null : pick('old'))
+      if (gutter) {
+        gutter.click()
+        e.preventDefault()
+      }
+      return
+    }
+    // y / Y — copy line reference. Available in default cursor mode AND
+    // CTA mode. In CTA mode we route through the existing copy button so
+    // multi-line selections are formatted correctly; in default mode we
+    // copy the cursored row's single-line ref directly. `e.key` already
+    // encodes shift state ('y' vs 'Y'), so we don't need a separate
+    // shiftKey check — but we still bar the cmd/ctrl/alt variants from
+    // shadowing browser shortcuts like Cmd+Y (history).
+    if ((e.key === 'y' || e.key === 'Y') && !e.metaKey && !e.ctrlKey && !e.altKey) {
+      if (state.commentSelection) {
+        $('[data-cta-copy]')?.click()
+      } else {
+        const cursor = $('[data-body] tr.diff-row.is-cursor')
+        // Capital-Y is strict (old only) — matches the hint, which hides
+        // the `Y copy old` item when the row has no old side. Lowercase y
+        // keeps the fallback so it always copies whichever side exists.
+        if (cursor) copyLineRef(cursor, e.key === 'Y' ? 'old' : 'new', e.key === 'Y')
+      }
+      e.preventDefault()
+      return
+    }
+    // Enter in CTA mode → "Add comment" button. Cursor nav already bailed
+    // by here, and we know no modifier keys are held by the bare-Enter
+    // requirement; further modifier-key combos pass through untouched.
+    if (e.key === 'Enter' && state.commentSelection && !e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey) {
+      $('[data-cta-add]')?.click()
+      e.preventDefault()
+      return
+    }
+    // o / O — open forge deep-link. Top-level (works in default cursor mode
+    // AND CTA mode), mirroring the y/Y line-level pattern. CTA mode routes
+    // through the existing forge button so multi-line ranges are formatted
+    // correctly; default mode synthesizes a single-line URL from the
+    // cursor row via openForgeForRow. Cmd/Ctrl/Alt+O passes through to
+    // browser defaults (Cmd+O = open file dialog) untouched.
+    if ((e.key === 'o' || e.key === 'O') && !e.metaKey && !e.ctrlKey && !e.altKey) {
+      if (state.commentSelection) {
+        // Selection has a fixed side, so capital-O has nothing extra to
+        // do here — only the lowercase form routes through the button.
+        if (e.key === 'o') $('[data-cta-forge]')?.click()
+      } else {
+        const cursor = $('[data-body] tr.diff-row.is-cursor')
+        // Capital-O is strict (old only) — same reasoning as `Y` above.
+        openForgeForRow(cursor, e.key === 'O' ? 'old' : 'new', e.key === 'O')
+      }
+      e.preventDefault()
+      return
+    }
+    // d — delete the thread on the cursored line. No-op when the cursor
+    // isn't on a line with a visible thread; suppressed during CTA/editor
+    // flows so a stray `d` in selection mode can't nuke an adjacent thread.
+    if (e.key === 'd' && !state.commentSelection && !e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey) {
+      const tid = cursorThreadId()
+      if (tid) {
+        confirmAndDeleteThread(tid)
+        e.preventDefault()
+      }
+      return
+    }
     if (e.key === 'Escape') {
       // Layered Escape: minimize the active session into a parked strip
       // rather than closing it (preserves session state). To fully dismiss
@@ -703,6 +1080,7 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
     if (!body) return
     body.querySelectorAll('.is-comment-selected').forEach((el) => el.classList.remove('is-comment-selected'))
     body.querySelectorAll('.diff-row-comment-cta').forEach((r) => r.remove())
+    renderKeymapHint()
     const sel = state.commentSelection
     if (!sel) return
     // Mark every (path, side) cell whose data-line falls in the range.
@@ -822,6 +1200,11 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
         toast('Failed to build forge URL: ' + (e.message || 'unknown'))
       }
     })
+    // Second hint refresh — the earlier call (line ~964) fires before the
+    // CTA row is in the DOM, so it can't see `[data-cta-forge]`. This call
+    // runs after the CTA + forge button are mounted, so the `o open …`
+    // hint item shows up when the forge button is available.
+    renderKeymapHint()
   }
 
   function openEditorForSelection() {
@@ -1302,6 +1685,10 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
     row.parentNode.insertBefore(editor, row.nextSibling)
     const ta = editor.querySelector('.diff-editor-input')
     ta.focus()
+    // Editor presence is what the hint-bar context check keys off — render
+    // now so the bar flips to "submit / cancel" the moment the textarea
+    // appears, not on the next state change.
+    renderKeymapHint()
 
     const closeAndClear = () => {
       editor.remove()
@@ -1310,6 +1697,24 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
       clearCommentSelection()
     }
     editor.querySelector('[data-cancel]').addEventListener('click', closeAndClear)
+    // Editor-local keybindings. Scoped to the editor row (bubble phase),
+    // so when the textarea is focused the document-level onKey still
+    // bails on its input/textarea guard — no cross-talk. Both bindings
+    // target the visible buttons via .click() so the submit/cancel side
+    // effects (saving, toast, scroll preservation) all run through the
+    // single existing implementation.
+    editor.addEventListener('keydown', (e) => {
+      if (e.target?.tagName !== 'TEXTAREA') return
+      if (e.key === 'Escape') {
+        e.preventDefault()
+        editor.querySelector('[data-cancel]')?.click()
+        return
+      }
+      if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+        e.preventDefault()
+        editor.querySelector('[data-submit]')?.click()
+      }
+    })
     editor.querySelector('[data-submit]').addEventListener('click', async () => {
       const body = ta.value.trim()
       if (!body) { ta.focus(); return }
@@ -2529,7 +2934,14 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
     // Clear stale multi-line range ribbons before re-applying.
     body.querySelectorAll('.has-thread-range').forEach((el) => el.classList.remove('has-thread-range'))
 
-    if (!state.threads.length) return
+    if (!state.threads.length) {
+      // Empty-threads early return still needs to refresh the hint —
+      // otherwise a `d delete thread` item lingers after the last thread
+      // is deleted. The trailing render at the bottom of this function
+      // covers the splice path but is unreachable here.
+      renderKeymapHint()
+      return
+    }
     const view = viewForCurrentIndex()
     // Gutter cells now carry the same (path, side, line) attrs as text
     // cells (for the multi-line selection gesture), so widen the query
@@ -2584,6 +2996,10 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
       const display = makeThreadDisplayRow(t)
       row.parentNode.insertBefore(display, row.nextSibling)
     }
+    // After thread DOM mutates, the cursor-dependent `d delete thread`
+    // hint item can appear or disappear without the cursor moving — refresh
+    // so the bar tracks the visible state.
+    renderKeymapHint()
   }
 
   function makeThreadDisplayRow(thread) {

@@ -2440,6 +2440,51 @@ a.card-file:hover .card-file-mark {
 
 .diff-row { vertical-align: top; }
 
+/* Vim-style line cursor — j/k moves it through visible diff rows. Uses an
+   inset left ribbon on every cell so the marker reads against any of the
+   per-kind cell backgrounds (+ / - / context / hunk-head) without fighting
+   them. Scoped to the diff body so thread-card rows etc. inside the page
+   never accidentally render a cursor. */
+.diff-body .diff-row.is-cursor > td {
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+
+/* Compact one-row keybinding hint at the bottom of the diff page. Hidden
+   until the first vim-style key press, then revealed for the rest of the
+   session. Flex member (not overlay) so the diff body shrinks to make
+   room and the last row stays visible. */
+.diff-keymap-hint {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 5px 14px;
+  background: var(--bg-deep);
+  border-top: 1px solid var(--hairline);
+  color: var(--fg-muted);
+  font-size: 11px;
+  user-select: none;
+}
+.diff-keymap-hint[hidden] { display: none; }
+.diff-keymap-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+.diff-keymap-label { margin-left: 4px; }
+.diff-keymap-hint kbd {
+  display: inline-block;
+  min-width: 14px;
+  padding: 1px 5px;
+  border: 1px solid var(--hairline-strong);
+  border-bottom-width: 2px;
+  border-radius: 3px;
+  background: var(--card);
+  color: var(--fg);
+  font: 600 10px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
+  text-align: center;
+}
+
 .diff-no {
   padding: 1px 8px 1px 6px;
   text-align: right;
