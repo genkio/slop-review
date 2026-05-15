@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.17.0](https://github.com/genkio/slop-review/compare/v0.16.0...v0.17.0) (2026-05-15)
+
+
+### Features
+
+* dynamic page title ([8974ed1](https://github.com/genkio/slop-review/commit/8974ed1634eff4dd616d867a7a97d18b0782c936))
+* generate overview with claude code cli ([272a1e4](https://github.com/genkio/slop-review/commit/272a1e4fc3b5e2984677f6a4489b23c20a46f8f3))
+* generate overview with claude code cli ([cc0196a](https://github.com/genkio/slop-review/commit/cc0196abc124b03ae7fe14ece5c68a8eb0d4b303))
+* vim mode ([be266a0](https://github.com/genkio/slop-review/commit/be266a0a2c41a7817f56c6192ae293c9e310bca9))
+
 ## [0.16.0](https://github.com/genkio/slop-review/compare/v0.15.0...v0.16.0) (2026-05-14)
 
 
