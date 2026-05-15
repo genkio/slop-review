@@ -29,6 +29,9 @@ const LOG_LIMIT = 16000
 
 const jobs = new Map()
 let codexAvailabilityPromise = null
+let claudeAvailabilityPromise = null
+
+const SUPPORTED_TOOLS = ['codex', 'claude']
 
 function sha1(value) {
   return createHash('sha1').update(value).digest('hex')
@@ -87,27 +90,47 @@ function generationReadiness(info) {
   return { can_generate: true, reason: null }
 }
 
+function probeCli(command, label) {
+  return pExecFile(command, ['--version'], {
+    timeout: 5000,
+    maxBuffer: 1024 * 1024,
+    encoding: 'utf8',
+  })
+    .then(({ stdout, stderr }) => {
+      const firstLine = (stdout || stderr || '').trim().split('\n')[0] || ''
+      const match = firstLine.match(/\d+\.\d+(?:\.\d+)?(?:[-+][\w.]+)?/)
+      return {
+        available: true,
+        version: match ? match[0] : (firstLine || null),
+        error: null,
+      }
+    })
+    .catch((e) => ({
+      available: false,
+      version: null,
+      error: e?.code === 'ENOENT'
+        ? `${label} is not available on PATH.`
+        : (e?.message || `${label} availability check failed.`),
+    }))
+}
+
 async function codexAvailability() {
   if (!codexAvailabilityPromise) {
-    codexAvailabilityPromise = pExecFile('codex', ['--version'], {
-      timeout: 5000,
-      maxBuffer: 1024 * 1024,
-      encoding: 'utf8',
-    })
-      .then(({ stdout, stderr }) => ({
-        available: true,
-        version: (stdout || stderr || '').trim().split('\n')[0] || null,
-        error: null,
-      }))
-      .catch((e) => ({
-        available: false,
-        version: null,
-        error: e?.code === 'ENOENT'
-          ? 'Codex CLI is not available on PATH.'
-          : (e?.message || 'Codex CLI availability check failed.'),
-      }))
+    codexAvailabilityPromise = probeCli('codex', 'Codex CLI')
   }
   return codexAvailabilityPromise
+}
+
+async function claudeAvailability() {
+  if (!claudeAvailabilityPromise) {
+    claudeAvailabilityPromise = probeCli('claude', 'Claude Code CLI')
+  }
+  return claudeAvailabilityPromise
+}
+
+async function toolAvailability() {
+  const [codex, claude] = await Promise.all([codexAvailability(), claudeAvailability()])
+  return { codex, claude }
 }
 
 async function localChangeFingerprint(repoPath) {
@@ -186,8 +209,13 @@ async function writeOverviewState(repoPath, branchId, data) {
   try { await chmod(target, 0o600) } catch {}
 }
 
-function stateForClient(context, data, statusOverride = null, codex = null) {
+function stateForClient(context, data, statusOverride = null, tools = null) {
   const readiness = generationReadiness(context.branchInfo)
+  const codex = tools?.codex || null
+  const claude = tools?.claude || null
+  const availableTools = []
+  if (codex?.available) availableTools.push('codex')
+  if (claude?.available) availableTools.push('claude')
   return {
     status: statusOverride || data?.status || 'idle',
     can_generate: readiness.can_generate,
@@ -195,6 +223,10 @@ function stateForClient(context, data, statusOverride = null, codex = null) {
     codex_available: codex?.available ?? null,
     codex_version: codex?.version || null,
     codex_error: codex?.error || null,
+    claude_available: claude?.available ?? null,
+    claude_version: claude?.version || null,
+    claude_error: claude?.error || null,
+    available_tools: availableTools,
     ...clientMeta(context),
     started_at: data?.started_at || null,
     completed_at: data?.completed_at || null,
@@ -205,55 +237,44 @@ function stateForClient(context, data, statusOverride = null, codex = null) {
 
 export async function getOverviewStatus(repoPath) {
   const context = await getOverviewContext(repoPath)
-  const codex = await codexAvailability()
+  const tools = await toolAvailability()
   const key = jobKey(repoPath, context.branchId)
   const job = jobs.get(key)
   if (job && job.cacheKey === context.cacheKey) {
-    return stateForClient(context, job, 'generating', codex)
+    return stateForClient(context, job, 'generating', tools)
   }
 
   const cached = await readOverviewState(repoPath, context.branchId)
   if (cached?.cache_key === context.cacheKey && (cached.status === 'ready' || cached.status === 'error')) {
-    return stateForClient(context, cached, null, codex)
+    return stateForClient(context, cached, null, tools)
   }
 
   // Cache miss but a previous overview exists — surface its content so the
   // reviewer keeps the older context while the stale banner prompts to regen.
   if (cached) {
-    return stateForClient(context, cached, 'stale', codex)
+    return stateForClient(context, cached, 'stale', tools)
   }
 
-  const readiness = generationReadiness(context.branchInfo)
-  return {
-    status: 'idle',
-    can_generate: readiness.can_generate,
-    reason: readiness.reason,
-    codex_available: codex.available,
-    codex_version: codex.version,
-    codex_error: codex.error,
-    ...clientMeta(context),
-    started_at: null,
-    completed_at: null,
-    content: '',
-    error: null,
-  }
+  return stateForClient(context, { status: 'idle' }, null, tools)
 }
 
-export async function ensureOverviewGeneration(repoPath, { force = false } = {}) {
+export async function ensureOverviewGeneration(repoPath, { force = false, tool = null } = {}) {
   const context = await getOverviewContext(repoPath)
-  const codex = await codexAvailability()
+  const tools = await toolAvailability()
   const readiness = generationReadiness(context.branchInfo)
   if (!readiness.can_generate) {
-    return stateForClient(context, { status: 'idle' }, null, codex)
+    return stateForClient(context, { status: 'idle' }, null, tools)
   }
-  if (!codex.available) {
-    return stateForClient(context, { status: 'idle' }, null, codex)
+
+  const selected = resolveTool(tool, tools)
+  if (!selected) {
+    return stateForClient(context, { status: 'idle' }, null, tools)
   }
 
   const key = jobKey(repoPath, context.branchId)
   const existing = jobs.get(key)
   if (existing) {
-    if (existing.cacheKey === context.cacheKey) return stateForClient(context, existing, 'generating', codex)
+    if (existing.cacheKey === context.cacheKey) return stateForClient(context, existing, 'generating', tools)
     try { existing.child?.kill('SIGTERM') } catch {}
     jobs.delete(key)
   }
@@ -261,20 +282,32 @@ export async function ensureOverviewGeneration(repoPath, { force = false } = {})
   if (!force) {
     const cached = await readOverviewState(repoPath, context.branchId)
     if (cached?.cache_key === context.cacheKey && cached.status === 'ready') {
-      return stateForClient(context, cached, null, codex)
+      return stateForClient(context, cached, null, tools)
     }
   }
 
-  const job = startOverviewGeneration(repoPath, context)
-  return stateForClient(context, job, 'generating', codex)
+  const job = startOverviewGeneration(repoPath, context, selected)
+  return stateForClient(context, job, 'generating', tools)
 }
 
-function startOverviewGeneration(repoPath, context) {
+function resolveTool(requested, tools) {
+  if (requested && SUPPORTED_TOOLS.includes(requested)) {
+    if (requested === 'codex' && tools.codex.available) return 'codex'
+    if (requested === 'claude' && tools.claude.available) return 'claude'
+    return null
+  }
+  if (tools.codex.available) return 'codex'
+  if (tools.claude.available) return 'claude'
+  return null
+}
+
+function startOverviewGeneration(repoPath, context, tool) {
   const key = jobKey(repoPath, context.branchId)
   const startedAt = new Date().toISOString()
   const job = {
     status: 'generating',
     cacheKey: context.cacheKey,
+    tool,
     started_at: startedAt,
     completed_at: null,
     content: '',
@@ -283,9 +316,10 @@ function startOverviewGeneration(repoPath, context) {
   }
   jobs.set(key, job)
 
+  const runner = tool === 'claude' ? runClaudeOverview : runCodexOverview
   job.promise = (async () => {
     try {
-      const content = await runCodexOverview(repoPath, buildOverviewPrompt(repoPath, context), job)
+      const content = await runner(repoPath, buildOverviewPrompt(repoPath, context), job)
       const data = {
         version: OVERVIEW_STATE_VERSION,
         status: 'ready',
@@ -449,6 +483,205 @@ async function runCodexOverview(repoPath, prompt, job) {
   } finally {
     try { await rm(tmpDir, { recursive: true, force: true }) } catch {}
   }
+}
+
+const CLAUDE_TIMEOUT_MS = CODEX_TIMEOUT_MS
+const CLAUDE_FILE_POLL_MS = 500
+const CLAUDE_FILE_STABLE_MS = 1500
+
+async function runClaudeOverview(repoPath, prompt, job) {
+  const tmpDir = await mkdtemp(join(tmpdir(), 'slop-overview-claude-'))
+  const outputFile = join(tmpDir, 'overview.md')
+  try {
+    return await driveClaudePty(repoPath, claudeSinkPrompt(prompt, outputFile), outputFile, tmpDir, job)
+  } finally {
+    try { await rm(tmpDir, { recursive: true, force: true }) } catch {}
+  }
+}
+
+function claudeSinkPrompt(basePrompt, outputFile) {
+  return `${basePrompt}
+
+---
+
+OUTPUT INSTRUCTION: Do not print the Markdown answer to chat. Use your Write tool to save the entire Markdown answer to this exact file path:
+
+  ${outputFile}
+
+The file's contents must be the complete Markdown answer described above, starting with "# Overview" and ending after the closing fence of the "## Sketch" JSON block. Do not include any other text in the file. After the file is saved, stop without further commentary.`
+}
+
+// Python stdlib pty.fork(): opens its own PTY (no parent TTY required),
+// sets 36x140 winsize (Claude's TUI breaks at 0x0), forwards SIGTERM to
+// the child so our teardown actually kills claude.
+const PTY_DRIVER_PY = [
+  'import sys, os, pty, select, signal, fcntl, termios, struct',
+  'argv = sys.argv[1:]',
+  'pid, fd = pty.fork()',
+  'if pid == 0: os.execvp(argv[0], argv)',
+  'try: fcntl.ioctl(fd, termios.TIOCSWINSZ, struct.pack("HHHH", 36, 140, 0, 0))',
+  'except OSError: pass',
+  'def _kill(*_):',
+  '    try: os.kill(pid, signal.SIGTERM)',
+  '    except ProcessLookupError: pass',
+  'signal.signal(signal.SIGTERM, _kill)',
+  'while True:',
+  '    try: rd, _, _ = select.select([fd, 0], [], [])',
+  '    except InterruptedError: continue',
+  '    if fd in rd:',
+  '        try: data = os.read(fd, 4096)',
+  '        except OSError: break',
+  '        if not data: break',
+  '        os.write(1, data)',
+  '    if 0 in rd:',
+  '        try: data = os.read(0, 4096)',
+  '        except OSError: data = b""',
+  '        if data: os.write(fd, data)',
+  'try: os.waitpid(pid, 0)',
+  'except ChildProcessError: pass',
+].join('\n')
+
+function ptyInvocation(target, targetArgs) {
+  return { command: 'python3', args: ['-c', PTY_DRIVER_PY, target, ...targetArgs] }
+}
+
+// Strip ANSI/CSI/OSC so word-level patterns match. Claude's TUI emits
+// "\x1b[1C" (cursor-forward) between words — there are no literal spaces
+// in the raw buffer, so /\bfoo bar\b/ never hits without stripping.
+function stripAnsi(s) {
+  return s
+    .replace(/\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g, '') // OSC: ESC ] ... BEL/ST
+    .replace(/\x1b[PX^_][\s\S]*?\x1b\\/g, '')          // DCS/SOS/PM/APC
+    .replace(/\x1b\[[\x30-\x3f]*[\x20-\x2f]*[\x40-\x7e]/g, '') // CSI
+    .replace(/\x1b[@-Z\\-_]/g, '')                     // single-char escapes
+}
+
+function driveClaudePty(repoPath, prompt, outputFile, tmpDir, job) {
+  return new Promise((resolve, reject) => {
+    // Pre-approve only the tools the prompt uses. Anything else hangs at a
+    // permission prompt we can't service → 10-min timeout (clean failure).
+    const claudeArgs = [
+      '--allowedTools', 'Read,Grep,Glob,LS,Write,Bash',
+      '--add-dir', tmpDir,
+    ]
+    const { command, args } = ptyInvocation('claude', claudeArgs)
+    const child = spawn(command, args, {
+      cwd: repoPath,
+      env: { ...process.env, TERM: 'xterm-256color', NO_COLOR: '1' },
+      stdio: ['pipe', 'pipe', 'pipe'],
+    })
+    job.child = child
+
+    let screen = ''
+    let stderr = ''
+    let trustHandled = false
+    let promptSent = false
+    let settled = false
+    let lastSize = -1
+    let lastSizeAt = 0
+
+    const teardown = () => {
+      try { child.stdin.write('\x03') } catch {} // Ctrl+C asks claude to exit cleanly
+      try { child.kill('SIGTERM') } catch {}
+      setTimeout(() => { try { child.kill('SIGKILL') } catch {} }, 3000).unref()
+    }
+
+    const timer = setTimeout(() => {
+      if (settled) return
+      settled = true
+      teardown()
+      reject(new Error(`Claude overview timed out after ${Math.round(CLAUDE_TIMEOUT_MS / 60000)} minutes.`))
+    }, CLAUDE_TIMEOUT_MS)
+    timer.unref()
+
+    child.stdout.on('data', (d) => {
+      screen = appendCapped(screen, d.toString())
+      handleScreen()
+    })
+    child.stderr.on('data', (d) => {
+      stderr = appendCapped(stderr, d.toString())
+    })
+
+    child.on('error', (e) => {
+      if (settled) return
+      settled = true
+      clearTimeout(timer)
+      const hint = e?.code === 'ENOENT'
+        ? `python3 is not available on PATH; Claude Code overview requires it to allocate a PTY.`
+        : e.message
+      reject(new Error(`Failed to start Claude Code CLI: ${hint}`))
+    })
+    child.on('close', (code, signal) => {
+      if (settled) return
+      settled = true
+      clearTimeout(timer)
+      const detail = (stderr || `exit ${code}${signal ? ` (${signal})` : ''}`).trim()
+      reject(new Error(`Claude Code CLI exited before producing an overview: ${detail || 'no output captured'}`))
+    })
+
+    function handleScreen() {
+      const view = stripAnsi(screen)
+      // Workspace-trust dialog (per-cwd, first run). Default highlight is
+      // option 1 (No), so type "2" before \r. Reset screen so the readiness
+      // check below matches fresh post-modal output, not pre-modal banner.
+      if (!trustHandled && /do\s*you\s*trust|trust\s*the\s*files|trust\s*this\s*(folder|directory)/i.test(view)) {
+        trustHandled = true
+        try { child.stdin.write('2\r') } catch {}
+        screen = ''
+        return
+      }
+      // ❯ also serves as the selected-row arrow inside modal lists, so
+      // marker matching is only authoritative after modals are cleared.
+      if (!promptSent && (view.includes('❯') || /for\s*shortcuts/i.test(view))) {
+        sendPrompt()
+      }
+    }
+    function sendPrompt() {
+      if (promptSent || settled) return
+      promptSent = true
+      // Bracketed-paste (claude advertises \x1b[?2004h on startup), then
+      // submit. In vim INSERT, \r inserts a newline — drop to NORMAL via
+      // Esc first. The 100ms gap prevents the terminal from coalescing
+      // \x1b\r into Alt+Enter, which is a different binding.
+      try { child.stdin.write('\x1b[200~' + prompt + '\x1b[201~') } catch {}
+      setTimeout(() => {
+        if (settled) return
+        const inVim = /--\s*INSERT\s*--/i.test(stripAnsi(screen))
+        if (inVim) {
+          try { child.stdin.write('\x1b') } catch {}
+          setTimeout(() => { try { child.stdin.write('\r') } catch {} }, 100)
+        } else {
+          try { child.stdin.write('\r') } catch {}
+        }
+      }, 250).unref()
+    }
+
+    const poll = async () => {
+      if (settled) return
+      try {
+        const s = await stat(outputFile)
+        if (s.size > 0) {
+          if (s.size === lastSize) {
+            if (Date.now() - lastSizeAt >= CLAUDE_FILE_STABLE_MS) {
+              const content = (await readFile(outputFile, 'utf8')).trim()
+              if (content) {
+                settled = true
+                clearTimeout(timer)
+                teardown()
+                resolve(content)
+                return
+              }
+            }
+          } else {
+            lastSize = s.size
+            lastSizeAt = Date.now()
+          }
+        }
+      } catch {}
+      setTimeout(poll, CLAUDE_FILE_POLL_MS).unref()
+    }
+    poll()
+  })
 }
 
 function codexArgs({ repoPath, outputFile, approval, ephemeral, output }) {
