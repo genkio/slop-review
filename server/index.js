@@ -11,7 +11,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url))
 const PROJECT_ROOT = join(__dirname, '..')
 const PUBLIC_DIR_REL = relative(process.cwd(), join(PROJECT_ROOT, 'public')) || '.'
 
-const DEFAULT_PORT = 4919
+const DEFAULT_PORT = 9410
 
 /**
  * Build and start the slop-review server. Returned promise resolves once

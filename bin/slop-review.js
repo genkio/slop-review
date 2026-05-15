@@ -26,7 +26,7 @@ review target automatically. Review threads are stored in <repo>/.reviews/
 (add it to .gitignore to keep them local-only).
 
 Options:
-  -p, --port <n>   Port to bind (default: 4919, falling back to a free port)
+  -p, --port <n>   Port to bind (default: first free port in 9410-9419, then any free port)
       --host <h>   Hostname to bind (default: 0.0.0.0)
       --no-open    Don't auto-open the browser
   -h, --help       Show this help
@@ -61,7 +61,11 @@ try {
 }
 
 // 2. Pick a port. If --port is given, use it (fail loudly if taken). Otherwise
-//    try the default (4919) and fall back to a kernel-assigned free port.
+//    walk a small known range (9410-9419), then fall back to a kernel-assigned
+//    free port if all are taken. The range shares the common prefix `941` so a
+//    single Vimium-style browser-extension exclusion rule keyed to
+//    `http://localhost:941*/*` covers every port the range can hand out —
+//    across launches and concurrent instances, without re-editing per port.
 async function isPortFree(port, host) {
   return new Promise((resolve) => {
     const s = createServer()
@@ -94,8 +98,13 @@ if (portArg) {
     process.exit(1)
   }
 } else {
-  const preferred = 4919
-  port = (await isPortFree(preferred, hostArg)) ? preferred : await findFreePort(hostArg)
+  const RANGE_START = 9410
+  const RANGE_END = 9419
+  port = null
+  for (let p = RANGE_START; p <= RANGE_END; p++) {
+    if (await isPortFree(p, hostArg)) { port = p; break }
+  }
+  if (port == null) port = await findFreePort(hostArg)
 }
 
 // 3. Hand off to the server. Setting env vars before the dynamic import

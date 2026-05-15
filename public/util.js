@@ -92,7 +92,7 @@ toast.ok = (msg) => toast(msg, { autoDismiss: true })
  * Copy text to the OS clipboard with a fallback for non-secure contexts.
  *
  * `navigator.clipboard` is only exposed on HTTPS or localhost — accessing
- * slop-review over a LAN/Tailscale URL (e.g. http://your-mac:4919) leaves
+ * slop-review over a LAN/Tailscale URL (e.g. http://your-mac:9410) leaves
  * it undefined, which is why the modern path can throw "cannot read
  * property writeText of undefined" before it ever runs. The legacy
  * `document.execCommand` path is deprecated but works everywhere and

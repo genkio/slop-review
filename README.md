@@ -20,7 +20,7 @@ cd /path/to/your-feature-branch
 npx slop-review
 ```
 
-That's it. The cwd is auto-bootstrapped as the review target, the server picks a free port (default 4919), and your browser opens. Review threads are stored in `<repo>/.reviews/` — add it to that repo's `.gitignore` if you want them local-only.
+That's it. The cwd is auto-bootstrapped as the review target, the server picks a free port (default range 9410-9419), and your browser opens. Review threads are stored in `<repo>/.reviews/` — add it to that repo's `.gitignore` if you want them local-only.
 
 Flags: `--port <n>`, `--host <h>`, `--no-open`, `-h`.
 
