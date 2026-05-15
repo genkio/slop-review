@@ -46,6 +46,13 @@ export async function renderDiffPage(parsed = { variant: 'full' }, isCurrent = (
     return
   }
 
+  // Tab title carries the branch so multi-tab review across branches/repos
+  // stays scannable. Detached HEAD falls back to a short SHA; the repo name
+  // tails as context for users running several slop-review instances at once.
+  const branchLabel = branchInfo.current_branch
+    || (branchInfo.head_sha ? `@${branchInfo.head_sha.slice(0, 7)}` : '(no HEAD)')
+  document.title = `${branchLabel} · ${repo.display_name}`
+
   // Empty-state branches: render an explanatory card and stop.
   // The on-base case only counts as empty when there's literally nothing
   // to diff — no local changes AND no commits to review. The on-base
