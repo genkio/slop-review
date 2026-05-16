@@ -712,6 +712,16 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
     if (prInfo?.host === 'github' && prInfo?.pr_url) {
       items.push({ keys: ['o'], label: 'open GitHub' })
     }
+    // n — jump to next thread in view. Surfaced only when at least one
+    // thread is currently rendered (view filter + non-collapsed file).
+    // Capital `N` (prev thread) is live but unadvertised — same pattern
+    // as J/K's 5-line jump and C/V/Y/O's old-side variants — to keep the
+    // bar uncluttered. Reads the DOM (not state.threads) so the count
+    // honors per-file collapse and the current view filter for free.
+    const body = $('[data-body]')
+    if (body?.querySelector('.diff-file:not(.is-collapsed) tr.diff-row-thread')) {
+      items.push({ keys: ['n'], label: 'next thread' })
+    }
     // Cursor-dependent: only surface `d` when there's actually a thread
     // to delete on the current line, so the hint bar never advertises a
     // no-op. revealKeymapHint() runs after every j/k, so this stays
@@ -972,6 +982,74 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
     }
   }
 
+  // Returns the deduped list of "thread anchor" rows in the current view —
+  // the diff-rows that have at least one inline thread attached. Walks
+  // back past stacked threads (multiple comments on the same line render
+  // as consecutive .diff-row-thread siblings) so each unique anchor
+  // appears once. Driven by DOM, not state.threads, so the view filter
+  // and per-file collapse are honored for free.
+  function getThreadAnchorsInView () {
+    const body = $('[data-body]')
+    if (!body) return []
+    const threadRows = body.querySelectorAll('.diff-file:not(.is-collapsed) tr.diff-row-thread')
+    const seen = new Set()
+    const anchors = []
+    for (const tr of threadRows) {
+      let el = tr.previousElementSibling
+      while (el && !el.matches('tr.diff-row:not(.diff-row-thread):not(.diff-row-editor):not(.diff-row-comment-cta)')) {
+        el = el.previousElementSibling
+      }
+      if (el && !seen.has(el)) {
+        seen.add(el)
+        anchors.push(el)
+      }
+    }
+    return anchors
+  }
+
+  // Jump cursor to next/prev thread anchor. Wraps at the ends (vim `n`
+  // convention). When the cursor is on a non-anchor row (just navigating
+  // diff lines), finds the nearest anchor in the direction of travel
+  // rather than jumping to absolute first/last — mirrors moveCursor's
+  // "current dropped out of the set" logic so the jump feels continuous
+  // with where the user was reading.
+  function jumpToThread (direction) {
+    const anchors = getThreadAnchorsInView()
+    if (anchors.length === 0) return
+    const body = $('[data-body]')
+    const current = body.querySelector('tr.diff-row.is-cursor')
+    let nextIdx
+    if (!current) {
+      nextIdx = direction > 0 ? 0 : anchors.length - 1
+    } else {
+      const idx = anchors.indexOf(current)
+      if (idx !== -1) {
+        nextIdx = (idx + direction + anchors.length) % anchors.length
+      } else if (direction > 0) {
+        nextIdx = anchors.findIndex((a) =>
+          current.compareDocumentPosition(a) & Node.DOCUMENT_POSITION_FOLLOWING
+        )
+        if (nextIdx === -1) nextIdx = 0
+      } else {
+        nextIdx = -1
+        for (let i = anchors.length - 1; i >= 0; i--) {
+          if (current.compareDocumentPosition(anchors[i]) & Node.DOCUMENT_POSITION_PRECEDING) {
+            nextIdx = i
+            break
+          }
+        }
+        if (nextIdx === -1) nextIdx = anchors.length - 1
+      }
+    }
+    if (current) current.classList.remove('is-cursor')
+    const next = anchors[nextIdx]
+    next.classList.add('is-cursor')
+    // `center` (not `nearest`) because n/N is a discrete jump, not a
+    // continuous walk — putting the anchor mid-viewport keeps the thread
+    // row (rendered below it) visible at the same time.
+    next.scrollIntoView({ block: 'center', behavior: 'auto' })
+  }
+
   const onKey = (e) => {
     if (disposed) return
     if (e.target?.closest?.('input, textarea')) return
@@ -1142,6 +1220,18 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
         confirmAndDeleteThread(tid)
         e.preventDefault()
       }
+      return
+    }
+    // n / N — jump to next / prev thread anchor in the current view.
+    // Wraps at the ends, vim `n`-style. Silent no-op when there are no
+    // threads (the hint at getKeymapItems hides `n` in that case so the
+    // bar never advertises a dead key). Suppressed during CTA/editor
+    // flows so the cursor can't teleport out from under an in-progress
+    // selection — matches d/r/p's gating.
+    if ((e.key === 'n' || e.key === 'N') && !state.commentSelection && !e.metaKey && !e.ctrlKey && !e.altKey) {
+      jumpToThread(e.key === 'n' ? 1 : -1)
+      revealKeymapHint()
+      e.preventDefault()
       return
     }
     // p — peek HEAD: open the head-preview modal for the cursor row.
