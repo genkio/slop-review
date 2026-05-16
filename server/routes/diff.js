@@ -4,6 +4,7 @@ import {
   getCommits,
   getCommitDiff,
   getFullDiff,
+  getHeadPreview,
   getLocalDiff,
   getOriginUrl,
   isValidSha,
@@ -86,6 +87,32 @@ export function registerDiffRoutes(app) {
       return c.json(diff)
     } catch (e) {
       return c.json({ error: e.message || 'commit diff failed' }, 500)
+    }
+  })
+
+  // Peek what a commit-view line looks like at HEAD. The client only
+  // wires this on commit-view rows whose file has later changes — for
+  // unchanged files the preview would equal what's already on screen,
+  // and Full/Local already render HEAD content. The endpoint itself
+  // accepts any (sha, path, line); the gating lives on the client so
+  // we keep the URL surface small.
+  app.get('/api/repos/:id/commits/:sha/head-preview', async (c) => {
+    const { repo, error } = await withRepo(c)
+    if (error) return error
+    const sha = c.req.param('sha')
+    if (!isValidSha(sha)) return c.json({ error: 'invalid sha' }, 400)
+    const path = c.req.query('path')
+    const line = Number(c.req.query('line'))
+    const context = Math.max(0, Math.min(50, Number(c.req.query('context')) || 10))
+    if (!path) return c.json({ error: 'path required' }, 400)
+    if (!Number.isFinite(line) || line < 1) {
+      return c.json({ error: 'line must be a positive integer' }, 400)
+    }
+    try {
+      const out = await getHeadPreview(repo.path, sha, path, line, context)
+      return c.json(out)
+    } catch (e) {
+      return c.json({ error: e.message || 'head preview failed' }, 500)
     }
   })
 

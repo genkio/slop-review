@@ -1,6 +1,6 @@
 import { api } from './api.js'
 import { escapeHtml, inlineCode, relTime, copyToClipboard, toast, buildForgeDeepLink } from './util.js'
-import { openThreadModal, confirmRemoveComment, makeModal } from './modals.js'
+import { openThreadModal, confirmRemoveComment, makeModal, openHeadPreviewModal } from './modals.js'
 import { languageForPath, highlightLine } from './syntax.js'
 import { intraLineSegments } from './intra-line-diff.js'
 import { ROUTES } from './routes.js'
@@ -717,6 +717,12 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
     // no-op. revealKeymapHint() runs after every j/k, so this stays
     // accurate as the cursor moves through the diff.
     if (cursorThreadId()) items.push({ keys: ['d'], label: 'delete thread' })
+    // `p` peek-HEAD shares the same cursor-dependent treatment: surfaced
+    // only when the cursor row has a new-side line on a file with later
+    // changes (in commit view). The triple gate matches the `p` key
+    // handler exactly via rowHeadPreviewTarget, so the bar never lies.
+    const cursor = $('[data-body] tr.diff-row.is-cursor')
+    if (cursor && rowHeadPreviewTarget(cursor)) items.push({ keys: ['p'], label: 'peek HEAD' })
     return items
   }
   function renderKeymapHint () {
@@ -831,6 +837,39 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
         tab.close()
         toast('Failed to build forge URL: ' + (e.message || 'unknown'))
       })
+  }
+
+  // True when the current view is a commit-diff AND the given file is one
+  // that has later changes between this commit and HEAD. Used to gate the
+  // "Peek HEAD" affordances: the question "what does this look like now?"
+  // is only meaningful in this corner — Full/Local are already at HEAD,
+  // and unchanged files would show identical content.
+  function fileHasLaterChanges (path) {
+    if (!isCommitIndex(state.index)) return false
+    const file = state.diff?.files?.find((f) => f.path === path)
+    return file ? file.is_unchanged_since_commit === false : false
+  }
+
+  // Returns {path, line} for the new-side anchor on the given row if it
+  // qualifies for HEAD preview, else null. We require new side because
+  // an old-side line was *removed* by this commit — there's no
+  // corresponding line at HEAD to follow forward to. The hint bar and
+  // the `p` key handler both consult this so they stay in sync.
+  function rowHeadPreviewTarget (row) {
+    if (!row) return null
+    const cell = row.querySelector('.diff-no[data-side="new"][data-line][data-path]')
+    if (!cell) return null
+    const path = cell.dataset.path
+    const line = Number(cell.dataset.line)
+    if (!path || !Number.isFinite(line) || line < 1) return null
+    if (!fileHasLaterChanges(path)) return null
+    return { path, line }
+  }
+
+  function openHeadPreviewForRow (row) {
+    const t = rowHeadPreviewTarget(row)
+    if (!t) return
+    openHeadPreviewModal({ repoId: repo.id, commitSha: state.diff.sha, path: t.path, line: t.line })
   }
 
   // Single-line copy used by bare `y`/`Y` (no comment selection active).
@@ -1105,6 +1144,19 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
       }
       return
     }
+    // p — peek HEAD: open the head-preview modal for the cursor row.
+    // Gated three ways (commit view + new side + file has later changes)
+    // through rowHeadPreviewTarget, which the hint bar also consults, so
+    // the key never advertises a no-op. Suppressed during CTA mode
+    // because the CTA already exposes its own [data-cta-peek] button —
+    // having `p` work simultaneously would be ambiguous if the cursor
+    // sat on a different file than the CTA selection.
+    if (e.key === 'p' && !state.commentSelection && !e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey) {
+      const cursor = $('[data-body] tr.diff-row.is-cursor')
+      openHeadPreviewForRow(cursor)
+      e.preventDefault()
+      return
+    }
     if (e.key === 'Escape') {
       // Layered Escape: minimize the active session into a parked strip
       // rather than closing it (preserves session state). To fully dismiss
@@ -1258,12 +1310,22 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
     const forgeBtn = forgeLabel
       ? `<button type="button" data-cta-forge>${escapeHtml(forgeLabel)}</button>`
       : ''
+    // Peek-HEAD button: surfaces the same affordance the `p` vim key
+    // exposes. Gated identically — commit view + new side + file has
+    // later changes — so a commenter who triggers the CTA on a file with
+    // no HEAD divergence isn't shown a button that would just echo what
+    // they're already reading. We anchor on sel.lineStart for ranges;
+    // the preview is a peek, not a literal range render.
+    const peekHeadBtn = (sel.side === 'new' && fileHasLaterChanges(sel.path))
+      ? '<button type="button" data-cta-peek>Peek HEAD</button>'
+      : ''
     cta.innerHTML =
       '<td colspan="4" class="diff-comment-cta-cell">' +
         '<div class="diff-comment-cta">' +
           `<span class="diff-comment-cta-label">Comment on ${escapeHtml(rangeLabel)} (${escapeHtml(sel.side)})</span>` +
           '<div class="diff-comment-cta-actions">' +
             '<button type="button" data-cta-cancel>Cancel</button>' +
+            peekHeadBtn +
             forgeBtn +
             '<button type="button" data-cta-copy>Copy lines</button>' +
             '<button type="button" class="primary" data-cta-add>Add comment</button>' +
@@ -1295,6 +1357,18 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
     cta.querySelector('[data-cta-add]').addEventListener('click', (ev) => {
       ev.preventDefault(); ev.stopPropagation()
       openEditorForSelection()
+    })
+    // Peek HEAD: opens the head-preview modal anchored on the range's
+    // first line. The button only exists when fileHasLaterChanges was
+    // true at CTA-render time, so we don't need to re-check here — but
+    // we do double-check state.diff.sha because a navigation could in
+    // theory race the click (the CTA persists across `applyCommentSelection`
+    // calls, but state.diff is replaced wholesale on diff swap).
+    cta.querySelector('[data-cta-peek]')?.addEventListener('click', (ev) => {
+      ev.preventDefault(); ev.stopPropagation()
+      const sha = state.diff?.sha
+      if (!sha) return
+      openHeadPreviewModal({ repoId: repo.id, commitSha: sha, path: sel.path, line: sel.lineStart })
     })
     // GitHub deep-link: synthesize the `pull/N/files#diff-<sha>R<line>` URL
     // and open in a new tab. Pre-opening the tab BEFORE the async hash

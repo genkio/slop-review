@@ -1,5 +1,6 @@
 import { api } from './api.js'
 import { escapeHtml, inlineCode, relTime, toast, copyToClipboard, formatLineRange } from './util.js'
+import { languageForPath, highlightLine } from './syntax.js'
 
 export function makeModal(innerHtml, opts = {}) {
   const { onClose, noCloseButton = false, noBackdropClose = false } = opts
@@ -109,6 +110,120 @@ export function confirmRemoveComment({ isLast, onConfirm }) {
     backdrop.remove()
     onConfirm()
   }
+}
+
+/**
+ * Peek what a commit-view line looks like at HEAD. Only meaningful in
+ * commit view on files with later changes (`is_unchanged_since_commit ===
+ * false`) — the trigger sites enforce that gate. Renders a ±N line window
+ * around the *HEAD-mapped* line position, not the raw commit-line number,
+ * so a line that was pushed down by later inserts still shows up centered
+ * in the window. The mapping is done server-side via mapLineThroughDiff.
+ *
+ * Status banners cover the three non-happy paths:
+ *   - in-changed-hunk: line was modified between then and now → orange band
+ *   - file-deleted:    file no longer exists at HEAD          → red band
+ *   - binary:          file became binary at HEAD             → grey band
+ * The happy path ('mapped') gets no banner — the lines + the line numbers
+ * are self-explanatory.
+ */
+export function openHeadPreviewModal({ repoId, commitSha, path, line }) {
+  const fileLabel = path.split('/').pop() || path
+  const loadingHtml =
+    '<header class="modal-header head-preview-header">' +
+      `<h2>Peek HEAD <code class="modal-path">${escapeHtml(fileLabel)}</code></h2>` +
+      `<span class="head-preview-subtle">commit line ${line}</span>` +
+    '</header>' +
+    '<div class="head-preview-body"><p class="modal-text">Loading…</p></div>'
+
+  const backdrop = makeModal(loadingHtml)
+  const modal = backdrop.querySelector('.modal')
+
+  api(`/api/repos/${repoId}/commits/${commitSha}/head-preview?path=${encodeURIComponent(path)}&line=${line}&context=10`)
+    .then((data) => {
+      // Backdrop may have been dismissed mid-fetch — bail rather than
+      // re-rendering a detached node.
+      if (!backdrop.isConnected) return
+      modal.innerHTML = renderHeadPreviewBody(data, { path, line })
+    })
+    .catch((e) => {
+      if (!backdrop.isConnected) return
+      modal.innerHTML =
+        '<header class="modal-header head-preview-header">' +
+          `<h2>Peek HEAD <code class="modal-path">${escapeHtml(fileLabel)}</code></h2>` +
+        '</header>' +
+        `<div class="head-preview-body"><p class="modal-text modal-error">Failed to load: ${escapeHtml(e.message || 'unknown error')}</p></div>` +
+        '<div class="modal-actions is-reversed"><button data-close>Close</button></div>'
+    })
+
+  return backdrop
+}
+
+function renderHeadPreviewBody(data, { path, line }) {
+  const fileLabel = path.split('/').pop() || path
+  const headShortSha = (data.head_sha || '').slice(0, 7)
+  const header =
+    '<header class="modal-header head-preview-header">' +
+      `<h2>Peek HEAD <code class="modal-path">${escapeHtml(fileLabel)}</code></h2>` +
+      `<span class="head-preview-subtle">commit line ${line}` +
+        (data.head_line && data.head_line !== line ? ` → HEAD line ${data.head_line}` : '') +
+        (headShortSha ? ` · HEAD ${escapeHtml(headShortSha)}` : '') +
+      '</span>' +
+    '</header>'
+
+  if (data.status === 'file-deleted') {
+    return header +
+      '<div class="head-preview-body">' +
+        '<p class="head-preview-banner is-deleted">This file no longer exists at HEAD — a later commit removed it.</p>' +
+      '</div>' +
+      '<div class="modal-actions is-reversed"><button data-close>Close</button></div>'
+  }
+  if (data.binary) {
+    return header +
+      '<div class="head-preview-body">' +
+        '<p class="head-preview-banner is-binary">This file is binary at HEAD — no text preview available.</p>' +
+      '</div>' +
+      '<div class="modal-actions is-reversed"><button data-close>Close</button></div>'
+  }
+  if (!data.lines || data.lines.length === 0) {
+    return header +
+      '<div class="head-preview-body">' +
+        '<p class="head-preview-banner is-empty">File at HEAD is empty.</p>' +
+      '</div>' +
+      '<div class="modal-actions is-reversed"><button data-close>Close</button></div>'
+  }
+
+  // In-changed-hunk: the commit's exact line was rewritten between then
+  // and HEAD, so we anchored the window on the hunk's newStart rather
+  // than a 1:1 line correspondence. Banner makes that explicit so the
+  // user doesn't read the highlighted line as "this is your line".
+  const banner = data.status === 'in-changed-hunk'
+    ? '<p class="head-preview-banner is-changed">Line was modified between this commit and HEAD. Showing the region in HEAD where the change landed.</p>'
+    : ''
+
+  const lang = languageForPath(path)
+  const lineRows = data.lines.map((text, i) => {
+    const ln = data.start + i
+    const isAnchor = ln === data.head_line
+    return (
+      `<tr class="head-preview-row${isAnchor ? ' is-anchor' : ''}">` +
+        `<td class="head-preview-ln">${ln}</td>` +
+        `<td class="head-preview-code">${highlightLine(text, lang) || '&nbsp;'}</td>` +
+      '</tr>'
+    )
+  }).join('')
+
+  const rangeLabel = data.start === data.end
+    ? `Line ${data.start} of ${data.total_lines}`
+    : `Lines ${data.start}–${data.end} of ${data.total_lines}`
+
+  return header +
+    '<div class="head-preview-body">' +
+      banner +
+      `<div class="head-preview-range">${rangeLabel}</div>` +
+      `<table class="head-preview-table">${lineRows}</table>` +
+    '</div>' +
+    '<div class="modal-actions is-reversed"><button data-close>Close</button></div>'
 }
 
 /**

@@ -1355,6 +1355,127 @@ a.card-file:hover .card-file-mark {
 .modal-actions.is-reversed button:first-child { margin-right: 0; }
 .modal-actions.is-reversed button:last-child  { margin-left: auto; }
 
+/* ——— Head-preview modal ———
+   "Peek HEAD" surfaces what a commit-view line looks like at HEAD when
+   the file has later changes. The modal renders a ±10 line window
+   around the HEAD-mapped position (computed server-side via diff-hunk
+   walking), with a status banner for the corner cases (line modified
+   between then-and-now, file deleted at HEAD, file became binary). */
+.head-preview-header {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 12px;
+}
+.head-preview-header h2 {
+  margin: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.modal-path {
+  font-family: var(--font-mono);
+  font-size: 0.85em;
+  font-weight: 500;
+  color: var(--fg-soft);
+  background: rgba(0,0,0,0.04);
+  padding: 1px 6px;
+  border-radius: 2px;
+}
+.head-preview-subtle {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--fg-soft);
+  letter-spacing: 0.04em;
+}
+.head-preview-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+/* Status banners — same color language as .diff-file-warn for consistency
+   with the "later changes" surface that lives just below the diff head.
+   is-changed is the orange/accent variant (line was modified between
+   then and now); is-deleted reuses the danger color (gone at HEAD);
+   is-binary and is-empty are muted (no content to look at). */
+.head-preview-banner {
+  margin: 0;
+  padding: 8px 12px;
+  font-family: var(--font-sans);
+  font-size: 12px;
+  border-radius: 2px;
+  border-left: 2px solid;
+}
+.head-preview-banner.is-changed {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 6%, var(--card));
+  border-left-color: var(--accent);
+}
+.head-preview-banner.is-deleted {
+  color: var(--lane-removed);
+  background: color-mix(in srgb, var(--lane-removed) 6%, var(--card));
+  border-left-color: var(--lane-removed);
+}
+.head-preview-banner.is-binary,
+.head-preview-banner.is-empty {
+  color: var(--fg-soft);
+  background: rgba(0,0,0,0.03);
+  border-left-color: var(--hairline-strong);
+}
+.head-preview-range {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--fg-soft);
+}
+/* The code block. Monospace + zebra-free; line numbers in a dedicated
+   gutter cell so anchor-line highlighting (the `.is-anchor` row) can
+   bleed across the gutter+content seam the same way diff selection
+   ribbons do. table-layout: fixed keeps the gutter column from
+   stretching with long lines. */
+.head-preview-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.55;
+  background: var(--card);
+  border: 1px solid var(--hairline);
+  border-radius: 2px;
+  table-layout: fixed;
+}
+.head-preview-row .head-preview-ln {
+  width: 48px;
+  padding: 1px 8px 1px 10px;
+  color: var(--fg-soft);
+  text-align: right;
+  user-select: none;
+  border-right: 1px solid var(--hairline);
+  white-space: nowrap;
+}
+.head-preview-row .head-preview-code {
+  padding: 1px 10px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--fg);
+}
+/* Anchor row: the line in HEAD that corresponds to the commit line
+   the user peeked from. Uses the same accent wash as comment selection
+   markers so the visual language is consistent across the app. */
+.head-preview-row.is-anchor .head-preview-ln,
+.head-preview-row.is-anchor .head-preview-code {
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+}
+.head-preview-row.is-anchor .head-preview-ln {
+  color: var(--accent);
+  font-weight: 600;
+}
+.modal-error {
+  color: var(--lane-removed);
+}
+
 /* ——————————————————— Toast ——————————————————— */
 /* Host: positions the stack at bottom-center; toasts inside it grow upward
    via `column-reverse` so older toasts don't shift when a new one arrives.

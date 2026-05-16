@@ -246,6 +246,177 @@ export async function getBlobShasAt(repoPath, ref, paths) {
 }
 
 /**
+ * Read a file's text at `ref` and return a 1-indexed line window of width
+ * `2*context+1` centered on `line`. Empty/missing/binary content are
+ * reported via flags rather than thrown — the head-preview UI surfaces
+ * each as its own modal state, so a 500 here would just blank the modal.
+ *
+ * Binary detection mirrors what `git diff` itself does for "Binary files
+ * differ" — a NUL byte in the first 8KB. Good enough for the preview
+ * (which can't render binary anyway); not authoritative.
+ */
+export async function getFileWindowAt(repoPath, ref, path, line, context) {
+  const window = Math.max(0, Number(context) | 0)
+  const target = Math.max(1, Number(line) | 0)
+
+  let raw
+  try {
+    const res = await git(repoPath, ['show', `${ref}:${path}`], { encoding: 'buffer' })
+    raw = res.stdout
+  } catch {
+    return { missing: true, binary: false, start: 0, end: 0, lines: [], total_lines: 0 }
+  }
+
+  const probeLen = Math.min(raw.length, 8192)
+  for (let i = 0; i < probeLen; i++) {
+    if (raw[i] === 0) {
+      return { missing: false, binary: true, start: 0, end: 0, lines: [], total_lines: 0 }
+    }
+  }
+
+  const text = raw.toString('utf8')
+  // `git show` always terminates the blob with the file's own bytes —
+  // a trailing newline produces an empty final element on .split, which
+  // we drop so total_lines reflects the file's actual line count.
+  const allLines = text.split('\n')
+  if (allLines.length > 0 && allLines[allLines.length - 1] === '') allLines.pop()
+
+  const total = allLines.length
+  if (total === 0) {
+    return { missing: false, binary: false, start: 0, end: 0, lines: [], total_lines: 0 }
+  }
+  const clampedTarget = Math.min(target, total)
+  const start = Math.max(1, clampedTarget - window)
+  const end   = Math.min(total, clampedTarget + window)
+  return {
+    missing: false,
+    binary: false,
+    start,
+    end,
+    lines: allLines.slice(start - 1, end),
+    total_lines: total,
+  }
+}
+
+/**
+ * Translate a 1-indexed new-side line number at `fromSha` into the
+ * corresponding line at `toRef`, by walking `git diff fromSha..toRef`
+ * hunks. With `--unified=0` each hunk is the minimal change region:
+ *   @@ -A,B +C,D @@   ← B old lines starting at A map to D new at C
+ *
+ * Three outcomes:
+ *   - mapped:           the line still exists verbatim; result = line + Σ(D-B)
+ *                       over hunks strictly before this one
+ *   - in-changed-hunk:  the line falls inside [A, A+B); content was modified
+ *                       or removed, so we point at the hunk's newStart (C) as
+ *                       the closest "this region now lives here" anchor
+ *   - file-deleted:     the path is absent at `toRef`
+ *
+ * Pure-add hunks (B=0) are anchored on the OLD line *before* the addition,
+ * so the "before this hunk" boundary is `line <= A`, not `line < A`. The
+ * normal-hunk case uses `line < A` — same rule, expressed differently.
+ *
+ * Exported separately from getHeadPreview so tests can target the
+ * pure-line-math layer without git fixtures for every edge case.
+ */
+export function mapLineThroughDiff(diffText, fromLine) {
+  if (!diffText || !diffText.trim()) {
+    return { line: fromLine, status: 'mapped' }
+  }
+  const hunkRe = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/gm
+  let m
+  let offset = 0
+  while ((m = hunkRe.exec(diffText))) {
+    const A = +m[1]
+    const B = m[2] != null ? +m[2] : 1
+    const C = +m[3]
+    const D = m[4] != null ? +m[4] : 1
+    if (B === 0) {
+      // Pure addition between old lines A and A+1. Line A itself is the
+      // unaffected context line before the inserted block.
+      if (fromLine <= A) return { line: fromLine + offset, status: 'mapped' }
+    } else {
+      if (fromLine < A)         return { line: fromLine + offset, status: 'mapped' }
+      if (fromLine < A + B)     return { line: C, status: 'in-changed-hunk' }
+    }
+    offset += D - B
+  }
+  return { line: fromLine + offset, status: 'mapped' }
+}
+
+export async function mapLineToRef(repoPath, fromSha, toRef, path, fromLine) {
+  const headBlobs = await getBlobShasAt(repoPath, toRef, [path])
+  if (headBlobs.get(path) == null) {
+    return { line: null, status: 'file-deleted' }
+  }
+  let diffText = ''
+  try {
+    const { stdout } = await git(repoPath, [
+      'diff', '--unified=0', '--no-color', '--no-ext-diff',
+      `${fromSha}..${toRef}`, '--', path,
+    ])
+    diffText = stdout
+  } catch {
+    // If diff itself fails (rare — usually a permissions or oversized
+    // case), fall through to "mapped at identity" rather than 500ing.
+    return { line: fromLine, status: 'mapped' }
+  }
+  return mapLineThroughDiff(diffText, fromLine)
+}
+
+/**
+ * High-level: given a commit sha + a new-side line in that commit's view,
+ * return a HEAD-side window of lines for the preview modal to render.
+ * Composes mapLineToRef (which line in HEAD?) and getFileWindowAt (give
+ * me ±context around that line). Status field is forwarded so the client
+ * can show the right banner.
+ */
+export async function getHeadPreview(repoPath, commitSha, path, commitLine, context = 10) {
+  if (!isValidSha(commitSha)) throw new Error('invalid sha')
+  const { stdout: headRaw } = await git(repoPath, ['rev-parse', 'HEAD'])
+  const head_sha = headRaw.trim()
+
+  const map = await mapLineToRef(repoPath, commitSha, 'HEAD', path, commitLine)
+  if (map.status === 'file-deleted') {
+    return {
+      path, head_sha, commit_line: commitLine, head_line: null,
+      status: 'file-deleted',
+      start: 0, end: 0, lines: [], total_lines: 0, binary: false,
+    }
+  }
+  const win = await getFileWindowAt(repoPath, 'HEAD', path, map.line, context)
+  if (win.binary) {
+    return {
+      path, head_sha, commit_line: commitLine, head_line: map.line,
+      status: 'binary',
+      start: 0, end: 0, lines: [], total_lines: 0, binary: true,
+    }
+  }
+  if (win.missing) {
+    // mapLineToRef said the file exists, getFileWindowAt says it doesn't —
+    // a rare race (HEAD moved under us, or blob is unreadable). Surface
+    // as file-deleted; less misleading than empty content.
+    return {
+      path, head_sha, commit_line: commitLine, head_line: map.line,
+      status: 'file-deleted',
+      start: 0, end: 0, lines: [], total_lines: 0, binary: false,
+    }
+  }
+  return {
+    path,
+    head_sha,
+    commit_line: commitLine,
+    head_line: map.line,
+    status: map.status,         // 'mapped' or 'in-changed-hunk'
+    start: win.start,
+    end: win.end,
+    lines: win.lines,
+    total_lines: win.total_lines,
+    binary: false,
+  }
+}
+
+/**
  * Get the per-commit diff. Returns the same `files[]` shape as the
  * full/local diff endpoints so the frontend renderer can consume any
  * variant uniformly.
