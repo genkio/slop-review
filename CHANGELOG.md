@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.18.0](https://github.com/genkio/slop-review/compare/v0.17.0...v0.18.0) (2026-05-16)
+
+
+### Features
+
+* more vim bindings ([b3309c3](https://github.com/genkio/slop-review/commit/b3309c3ae8e274ee6aa77f35b346d122bf215a5e))
+* peek HEAD for commit-view lines with later changes ([b17b290](https://github.com/genkio/slop-review/commit/b17b29091214ae9a2e14ca533e0c094a7792de67))
+* vim binding for jump between threads ([2026fd0](https://github.com/genkio/slop-review/commit/2026fd0962afc7075cd7ce824b9532611a59acfd))
+
 ## [0.17.0](https://github.com/genkio/slop-review/compare/v0.16.0...v0.17.0) (2026-05-15)
 
 
