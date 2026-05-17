@@ -4,6 +4,10 @@ A local PR-review loop for developer ↔ LLM. Run it inside any git repo to leav
 
 The UI is a single diff page: pick the full branch diff, the local working-copy diff, or any individual commit; threads and the LLM-generated branch overview both open as modals from the diff header. Agent replies land in the JSON files directly — refresh or reopen a thread to see them.
 
+# Demo
+
+https://github.com/user-attachments/assets/3058c57d-74b0-4bba-9c99-73cca13925f0
+
 ## Highlights
 
 - **Per-file blob-keyed reviewed marks, with HEAD peek for later-changed files.** Click a file's header to mark it reviewed (also collapses it). The mark is keyed by the file's blob SHA at marking time, so a later push that modifies *that one file* silently invalidates only its mark — every untouched file stays green. Marking from a per-commit view is gated to "no later changes" (the file's blob at the commit must equal its blob at HEAD), so you never persist a sign-off against content you weren't actually looking at. When the gate fires, you can peek what the file looks like at HEAD without leaving the commit view — a focused window centered on your cursor's line, walked through the diff between this commit and HEAD so intervening inserts/deletes don't drift you off the line you meant.
