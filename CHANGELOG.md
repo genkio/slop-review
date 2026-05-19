@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.19.0](https://github.com/genkio/slop-review/compare/v0.18.0...v0.19.0) (2026-05-19)
+
+
+### Features
+
+* resume from last visited view ([fa1a737](https://github.com/genkio/slop-review/commit/fa1a7374f3500dc45671af4770fc308c60386ca2))
+* resume on unresolved-only ([9076bc1](https://github.com/genkio/slop-review/commit/9076bc11f2ee5359e097201effc0b0a7af09b399))
+
 ## [0.18.0](https://github.com/genkio/slop-review/compare/v0.17.0...v0.18.0) (2026-05-16)
 
 
