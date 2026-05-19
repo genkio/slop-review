@@ -589,8 +589,25 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
     const c = state.commits[idx]
     return c?.sha ? ROUTES.diffCommit(c.sha) : ROUTES.diffFull()
   }
+  // Stable tag identifying the *kind* of view (independent of URL shape).
+  // Persisted as `last_view:<branchId>` so a cold relaunch can resume here
+  // instead of falling back to the first-commit smart default. The page-
+  // level resolver validates `commit:<sha>` against the live commit list,
+  // so a force-push that removed the sha self-heals to the smart default.
+  function viewTagForIndex(idx) {
+    if (state.hasLocal && idx === state.commits.length + 1) return 'local'
+    if (idx === state.commits.length) return 'full'
+    const c = state.commits[idx]
+    return c?.sha ? `commit:${c.sha}` : 'full'
+  }
   function syncUrl() {
     const next = urlForIndex(state.index)
+    // Persist the current view *before* the early-return below — the
+    // initial mount calls syncUrl when the URL already matches (so `next
+    // === currentPath`), and that first call is the one that re-stamps
+    // the saved view after a cold launch. Without this ordering, the
+    // saved view would only refresh on actual variant changes.
+    patchRepoUiState({ [`last_view:${branchId}`]: viewTagForIndex(state.index) })
     // Preserve any query params on the current URL — `?file=…` and
     // `?thread=…` carry state independent of the diff variant, and
     // clobbering them here would break the Jump-to-file modal flow and

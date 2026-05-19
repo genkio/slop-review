@@ -47,17 +47,20 @@ A couple of behaviors are intentional but might surprise readers coming from Git
 
 ### Where you land on launch
 
-Cold-launching `npx slop-review` resolves a sensible per-commit default instead of opening the full cumulative diff:
+Cold-launching `npx slop-review` first tries to resume the last view you were on for this branch, then falls back to a sensible per-commit default:
 
 | Scenario                                              | Lands on                        |
 |-------------------------------------------------------|---------------------------------|
+| URL explicitly names a sha or `local`                 | Honored as-is                   |
+| Saved last view exists and still resolves             | Resumes that view               |
 | Feature branch, commits ahead of base                 | First commit (oldest in branch) |
 | On `main`/`master`, no commits ahead                  | Latest commit                   |
 | On `main`/`master`, no commits ahead, has local edits | Local view                      |
 | Empty branch (no commits at all)                      | Full diff (degenerate fallback) |
-| URL explicitly names a sha or `local`                 | Honored as-is                   |
 
 Rationale: feature-branch review is "walk forward from base", so first-commit is the natural entry. The on-base path uses an empty-tree merge-base fallback that can synthesize the whole repo history, where the latest commit is more useful than the dawn of the project. The Full diff is always a Shift+→ keystroke away from any commit view.
+
+Resume behavior: each time you navigate between views (Shift+→/←, the prev/next buttons, or a fresh hash URL), the current view is stamped under `state.config.repo_ui_state.<repoId>.last_view:<branchId>` in `~/.config/slop-review/state.json` as `full`, `local`, or `commit:<sha>`. On the next cold launch slop-review reads that value and rehydrates — unless the saved commit no longer exists (force-push, rebase, garbage-collected sha), in which case the table's smart-default rules kick in. Per-branch scoping means switching branches doesn't carry the wrong sha across.
 
 ## AI agent integration
 

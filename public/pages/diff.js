@@ -88,41 +88,61 @@ export async function renderDiffPage(parsed = { variant: 'full' }, isCurrent = (
   }
 
   const hasLocal = !!branchInfo.has_local_changes
+  const branchId = sanitizeBranchId(branchInfo.current_branch || '')
 
-  // Resolve initialIndex from the parsed-hash variant.
-  let initialIndex = commits.length                               // fallback: Full
+  // Resolve initialIndex. Precedence:
+  //   1. Explicit URL variant — `#/diff/<sha>` or `#/diff/local` always
+  //      wins. Honors shared/bookmarked links and the README's "URL
+  //      explicitly names a sha or `local`" row.
+  //   2. Saved last-visited view (per branch, in state.json) — resumes
+  //      the user where they left off across restarts. Validated against
+  //      the live commit list, so a force-push that removed the saved
+  //      commit falls through to (3) instead of erroring.
+  //   3. Smart default — feature branch lands on first commit, on-base
+  //      lands on latest commit. See the table in README.
+  let initialIndex = null
+
+  // (1) Explicit variants from the URL.
   if (parsed.variant === 'local' && hasLocal) initialIndex = commits.length + 1
   else if (parsed.variant === 'commit' && parsed.sha) {
     const idx = commits.findIndex((c) => (c.sha || '').startsWith(parsed.sha))
     if (idx >= 0) initialIndex = idx
   }
-  else if (commits.length > 0) {
-    // Bare `#/diff` (cold launch, no explicit variant) → land on a
-    // per-commit view rather than dumping the reviewer into the whole
-    // cumulative diff. Two flavors keyed on whether this is a feature
-    // branch or the on-base browse mode:
-    //
-    //   - Feature branch  → FIRST commit. The natural review flow is
-    //                       "walk forward from base", so we start at
-    //                       the bottom of the stack.
-    //   - On-base browse  → LATEST commit. The empty-tree merge-base
-    //                       fallback can synthesize hundreds of commits
-    //                       (whole repo history), so anchoring at the
-    //                       dawn of the project is rarely useful — the
-    //                       most recent change is.
-    //
-    // Reload-on-Full caveat: `#/diff` is also what we emit when the user
-    // is sitting on Full, so reloading there lands on first/last commit
-    // instead. Acceptable: Full is one Next-click away. A separate
-    // explicit-Full URL would be the cleaner fix but isn't worth the
-    // route churn right now.
-    initialIndex = branchInfo.on_base ? commits.length - 1 : 0
+
+  // (2) Saved last-visited view — only kicks in for bare `#/diff` (the
+  // router collapses `#/` and `#/diff` both to variant 'full'). Stored
+  // shape: 'full' | 'local' | 'commit:<sha>'. Anything else, or a sha
+  // that no longer resolves, falls through.
+  if (initialIndex === null && parsed.variant === 'full') {
+    const saved = store.state?.config?.repo_ui_state?.[repo.id]?.[`last_view:${branchId}`]
+    if (saved === 'full') initialIndex = commits.length
+    else if (saved === 'local' && hasLocal) initialIndex = commits.length + 1
+    else if (typeof saved === 'string' && saved.startsWith('commit:')) {
+      const sha = saved.slice('commit:'.length)
+      const idx = commits.findIndex((c) => (c.sha || '').startsWith(sha))
+      if (idx >= 0) initialIndex = idx
+    }
+  }
+
+  // (3) Smart default for bare `#/diff` with no saved view (or an
+  // invalidated one). Two flavors keyed on whether this is a feature
+  // branch or the on-base browse mode:
+  //
+  //   - Feature branch  → FIRST commit. The natural review flow is
+  //                       "walk forward from base", so we start at
+  //                       the bottom of the stack.
+  //   - On-base browse  → LATEST commit. The empty-tree merge-base
+  //                       fallback can synthesize hundreds of commits
+  //                       (whole repo history), so anchoring at the
+  //                       dawn of the project is rarely useful — the
+  //                       most recent change is.
+  if (initialIndex === null) {
+    initialIndex = commits.length                                 // fallback: Full
+    if (commits.length > 0) initialIndex = branchInfo.on_base ? commits.length - 1 : 0
   }
 
   // On the base branch with only local changes → land on local view.
   if (branchInfo.on_base && hasLocal) initialIndex = commits.length + (hasLocal ? 1 : 0)
-
-  const branchId = sanitizeBranchId(branchInfo.current_branch || '')
 
   // Thread context: when `?file=…&thread=…` is in the hash, the diff
   // view filters to that one file and surfaces a "← Back to thread"
