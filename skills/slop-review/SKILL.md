@@ -35,7 +35,10 @@ Either role can be a developer or an LLM. The skill works the same way for both 
 
 - **`<8hex>`** is a stable random hex id; never changes when status flips.
 
-Sidecars (not threads, ignore): `_reviewed.json`, `_overview.json`.
+Sidecars in the same directory:
+
+- `_reviewed.json` — slop-review web UI bookkeeping for per-file "reviewed" marks. **Ignore**; don't read or write.
+- `_overview.json` — the branch overview that the UI's Overview modal renders. You can author this yourself; see [Workflow: generate the branch overview](#workflow-generate-the-branch-overview) below.
 
 ---
 
@@ -201,11 +204,68 @@ User prompt example: *"reply to `thread_open_a1b2c3d4.json`"*.
 
 ---
 
+## Workflow: generate the branch overview
+
+User prompt examples: *"generate the slop-review overview"*, or as a step in *"understand the changes, generate overview, then review"*. When the user asks for overview + review together, do the overview first — it's the warm-up that makes the line-level review better-targeted.
+
+The slop-review UI's **Overview** modal renders `<repo>/.reviews/<branch_id>/_overview.json`. The CLI normally produces it; you can write the same artifact yourself.
+
+1. **Skip if nothing changed.** No commits ahead of base and no local changes → tell the user and stop.
+
+2. **Inspect** the diff in scope (`<merge-base>..HEAD` for committed work, `git diff HEAD` for local-only). Exclude `.reviews/`.
+
+3. **Write the Markdown** with these four section headings in this order — the UI parses them, so names and ordering are load-bearing:
+
+   ```
+   # Overview
+   ## What Changed
+   ## Mental Model
+   ## Before vs After Behavior
+   ## Sketch       (fenced ```json``` block, shape below)
+   ```
+
+   Sketch shape: `{ "nodes": [{ "id": "...", "label": "...", "detail": "..." }], "edges": [["from", "to"]] }`. Small (≈3-6 nodes, 2-7 edges); node ids are lowercase letters/digits/`_-`. The UI renders it as a diagram.
+
+   Keep the prose concise and grounded in what the diff actually shows. For the exact original prompt the CLI uses (word counts, bullet caps, tone rules), read `buildOverviewPrompt` in `server/overview.js`.
+
+4. **Compute `cache_key`** so the UI doesn't badge the overview "stale". SHA-1 over a JSON.stringify of this object, in this key order:
+
+   ```js
+   {
+     prompt_version: 3,
+     branch, base_sha, merge_base_sha, head_sha,   // null if unknown
+     has_commits_ahead, has_local_changes,         // booleans
+     local: null,                                  // see note below
+   }
+   ```
+
+   When `has_local_changes` is true the server replaces `local: null` with a working-tree fingerprint (tracked diff SHA-1 + `[{path, size, mtime_ms}]` per untracked file). Reproducing it is fiddly, so just leave `local: null` and accept the "stale" badge — content still renders, regenerate is one click for the developer.
+
+5. **Write atomically** (tmp file + `mv`) to `<repo>/.reviews/<branch_id>/_overview.json`:
+
+   ```jsonc
+   {
+     "version": 1, "status": "ready",
+     "cache_key": "<step 4>", "prompt_version": 3,
+     "branch_id": "...", "branch": "...",
+     "base_branch": "...", "base_sha": "...",
+     "merge_base_sha": "...", "head_sha": "...",
+     "has_local_changes": false,
+     "started_at": "<UTC ISO>", "completed_at": "<UTC ISO>",
+     "content": "<the Markdown from step 3>",
+     "error": null
+   }
+   ```
+
+6. Tell the user where it landed and a one-line takeaway. Don't paste the Markdown — the UI renders it. If the user also asked for a review pass, continue into the reviewer workflow.
+
+---
+
 ## Things to avoid
 
 - **Don't touch `resolved_at`** and **don't rename `_open_*` → `_resolved_*` files**. Resolution status is developer-controlled via the slop-review web UI.
 - **Don't act on `thread_resolved_*.json` files**. They're closed; the conversation is done. (You can read them for historical context if asked, but don't append to them or edit them.)
-- **Don't delete `<repo>/.reviews/`** or the `_reviewed.json` / `_overview.json` sidecars — those are the slop-review web UI's bookkeeping; nuking them isn't reversible.
+- **Don't delete `<repo>/.reviews/`** or the `_reviewed.json` sidecar — those are slop-review web UI bookkeeping; nuking them isn't reversible. `_overview.json` is fair game to (re)write under the overview workflow, but don't delete it.
 - **Don't push to the remote** (`git push`) unless the user explicitly asks. Resolutions are local commits by default.
 - **Don't fold multiple thread resolutions into one commit** unless they're literally the same edit. The default is one commit per thread; the slop-review UI's per-commit view (`#/diff/<sha>`) shows the original comment + reply + the resolving diff side by side, which is the whole point of the loop.
 - **Don't synthesize replies the developer didn't ask for.** If asked "find unresolved threads", just *list* them — don't append "I'll handle this" comments to each one.
