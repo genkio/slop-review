@@ -2125,20 +2125,19 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
     if (e.target.closest('[data-show-first-thread]')) {
       if (window.getSelection?.()?.toString().trim()) return
       e.preventDefault(); e.stopPropagation()
-      // Scope the candidate ids to the current view so resume + fallback
-      // match the "open N out of M threads" label the user just clicked.
-      // Resuming an out-of-view cursor would teleport the diff into a
-      // different view and contradict that label — and the modal that
-      // opens would walk a different thread set than the count promised.
-      // When the cursor is out-of-view we fall through to "first thread
-      // in this view"; the click handler still updates the cursor via
-      // openThread → setResumeCursor, so subsequent clicks resume from
-      // there if the user stays put.
-      const order = computeThreadOrderInCurrentView()
+      // Resume is *unresolved-only* — the button surfaces outstanding work,
+      // not the full backlog. Cursor pointing at a resolved thread (user
+      // resolved it then closed the modal) falls through to "first
+      // unresolved", which matches the user's intent: walk the next thing
+      // that needs attention. Inline `.diff-thread-body` clicks still use
+      // the unfiltered order, so revisiting a resolved thread is one click
+      // away on the diff itself.
+      const order = computeUnresolvedThreadOrderInCurrentView()
+      if (order.length === 0) return  // button is hidden in this case; guard anyway
       const cursor = getResumeCursor()
       const resumeId = cursor && order.includes(cursor) ? cursor : null
       const target = resumeId || order[0]
-      if (target) openThread(target)
+      if (target) openThread(target, { threadOrder: order })
       return
     }
 
@@ -2779,33 +2778,45 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
           if (c.user !== 'reviewer') revieweeMsgs++
         }
       }
-      // Threads pill (leading): visible label is just the count; the
-      // trailing → link icon opens the modal. Resume position lives in
-      // the icon's tooltip only — keeps the pill visually parallel with
-      // the others. The click handler (data-show-first-thread) resumes
-      // the cursor when one points into this view, else falls back to
-      // the first thread by (file, line). Position is computed within
-      // the *scoped* order so the tooltip can never read "Resume thread
-      // 5 of 3"; when the bookmark sits in a different view, indexOf
-      // returns -1, +1 lands at 0, and the title degrades to "Open the
-      // first thread". Resolution is deferred to click-time via the
-      // data-show-first-thread sentinel — eager id stamping here would
-      // go stale if state.threads mutates between render and click.
-      const order = computeThreadOrderInCurrentView()
+      // Threads pill (leading): visible label is the *total* count; the
+      // trailing → link icon resumes the *unresolved* walk. Two distinct
+      // numbers in one pill is intentional — the count is the headline
+      // ("how many threads exist in this view?") while the action is
+      // task-oriented ("walk what still needs attention"). Position
+      // (`N of M`) lives in the tooltip and is scoped to the unresolved
+      // order so the modal's "N of M" label stays in lockstep. When the
+      // resume cursor points at a resolved thread, indexOf returns -1,
+      // +1 lands at 0, and the title degrades to "Open the first
+      // unresolved thread". Resolution is deferred to click-time via
+      // the data-show-first-thread sentinel — eager id stamping here
+      // would go stale if state.threads mutates between render and
+      // click.
+      const unresolvedOrder = computeUnresolvedThreadOrderInCurrentView()
       const cursor = getResumeCursor()
-      const resumePos = cursor ? order.indexOf(cursor) + 1 : 0
+      const resumePos = cursor ? unresolvedOrder.indexOf(cursor) + 1 : 0
       const totalTitle = resumePos > 0
-        ? `Resume thread ${resumePos} of ${threads.length}`
-        : 'Open the first thread'
-      const totalLinkBtn =
-        `<button type="button" class="state-pill-link" data-show-first-thread ` +
-        `aria-label="${escapeHtml(totalTitle)}" title="${escapeHtml(totalTitle)}">→</button>`
+        ? `Resume unresolved thread ${resumePos} of ${unresolvedOrder.length}`
+        : 'Open the first unresolved thread'
+      // Drop the → button entirely when nothing's outstanding — the pill
+      // keeps its is-all-resolved tint as the visual cue. Inline thread-
+      // body clicks remain the way to revisit resolved threads.
+      const totalLinkBtn = unresolvedOrder.length > 0
+        ? `<button type="button" class="state-pill-link" data-show-first-thread ` +
+          `aria-label="${escapeHtml(totalTitle)}" title="${escapeHtml(totalTitle)}">→</button>`
+        : ''
       // Green-tint the threads pill when every thread in this view is
       // closed — same resolved-predicate as unresolvedThreadCountFor so
       // the visual signal can't disagree with the reviewed-gate logic.
       const allResolved = threads.every((t) => (t.state || 'awaiting') === 'resolved')
       const threadsPillClass = `state-pill is-count${allResolved ? ' is-all-resolved' : ''}`
-      threadsPill = `<span class="${threadsPillClass}">${threads.length} thread${threads.length === 1 ? '' : 's'}${totalLinkBtn}</span>`
+      // Label tracks the *action* (Resume walks unresolved only), not the
+      // raw total — keeps the headline and the → button telling the same
+      // story. Total count is still discoverable via the per-file pills
+      // in the diff body and the inline thread row state ribbons. The
+      // wrapper `title=` keeps the total one hover away for power users.
+      const totalTooltip = `${threads.length} thread${threads.length === 1 ? '' : 's'} total in this view`
+      const openLabel = `${unresolvedOrder.length} open thread${unresolvedOrder.length === 1 ? '' : 's'}`
+      threadsPill = `<span class="${threadsPillClass}" title="${escapeHtml(totalTooltip)}">${openLabel}${totalLinkBtn}</span>`
 
       // × inside the reviewee-replies pill triggers a bulk-delete of the
       // *last reply* of every multi-comment thread, scoped to the current
@@ -3616,6 +3627,27 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
   }
 
   /**
+   * Same order as computeThreadOrderInCurrentView, filtered to threads
+   * whose state is not 'resolved'. Powers the counts-strip Resume button
+   * (data-show-first-thread) so it only walks outstanding work — inline
+   * `.diff-thread-body` clicks still use the unfiltered order so a
+   * deliberate revisit of a resolved thread is one click away.
+   *
+   * Captured once at modal-open time. Resolving a thread mid-walk does
+   * NOT shrink the captured order (matches how the all-threads order
+   * behaves — only delete splices, see modals.js adjacentThreadId). The
+   * walk stays predictable for the session; the *next* time the user
+   * clicks Resume, the recomputed order reflects the new resolved state.
+   */
+  function computeUnresolvedThreadOrderInCurrentView() {
+    const byId = new Map(state.threads.map((t) => [t.id, t]))
+    return computeThreadOrderInCurrentView().filter((id) => {
+      const t = byId.get(id)
+      return t && (t.state || 'awaiting') !== 'resolved'
+    })
+  }
+
+  /**
    * Aim the diff at a thread's anchor cell. Reuses the existing one-shot
    * `scrollToAnchor` + `maybeScrollToAnchor` machinery so reviewed-file
    * uncollapse, defer-a-frame layout, scroll-to-center, and flash-cell
@@ -3636,8 +3668,14 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
    * Open the thread modal with prev/next nav wired. Centralised because
    * multiple call sites (inline thread click, ?thread= auto-reopen on
    * mount, "← Back to thread" clear-filter path) need identical opts.
+   *
+   * `opts.threadOrder` overrides the default all-threads-in-view walk —
+   * used by the counts-strip Resume button to restrict navigation to
+   * unresolved threads. When omitted, the modal walks every thread in
+   * the current view (the historical default for inline-row clicks and
+   * URL-driven reopens).
    */
-  function openThread(tid) {
+  function openThread(tid, opts = {}) {
     if (!tid) return
     // Stamp the resume cursor first — the counts-strip total reads this
     // on its next click. Captured here (and again in onNavigate below)
@@ -3666,7 +3704,9 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
       // just clicked. In Full / Local this is every thread (those views
       // aggregate), so the prior branch-wide walk is preserved there;
       // only commit view tightens to a per-commit walk.
-      threadOrder: computeThreadOrderInCurrentView(),
+      // `opts.threadOrder` lets the Resume button narrow further to
+      // unresolved threads only.
+      threadOrder: opts.threadOrder || computeThreadOrderInCurrentView(),
       // Prev/next stays in the current diff view — no swap, no URL rewrite.
       // The modal was opened against a specific view (Full, Local, or a
       // commit), and the user's expectation is that walking threads from
