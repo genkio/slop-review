@@ -3023,6 +3023,52 @@ a.card-file:hover .card-file-mark {
 }
 .diff-hunk-meta { color: var(--accent); margin-right: 8px; }
 
+/* Expand-context buttons — small blue square on the hunk header (up
+   arrow) plus a full-width footer row (down arrow) after the last hunk.
+   Click loads ±20 lines from the file at the appropriate ref. The slot
+   span keeps the meta horizontally aligned with rows that DO have a
+   button — empty `<span class="diff-expand-btn-slot">` reserves the
+   same width so first-hunk-at-line-1 headers don't jog left. */
+.diff-expand-btn,
+.diff-expand-btn-slot {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 18px;
+  margin-right: 8px;
+  vertical-align: middle;
+}
+.diff-expand-btn {
+  background: var(--accent);
+  color: var(--bg-deep);
+  border: none;
+  border-radius: 3px;
+  font-size: 9px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0;
+  opacity: 0.65;
+  transition: opacity 0.12s ease;
+}
+.diff-expand-btn:hover { opacity: 1; }
+.diff-expand-btn:disabled { opacity: 0.35; cursor: wait; }
+.diff-expand-btn.is-full {
+  width: auto;
+  height: 22px;
+  padding: 0 12px;
+  font-size: 11px;
+  font-family: var(--font-mono);
+  margin-right: 0;
+  letter-spacing: 0.02em;
+}
+.diff-row-expand-down td {
+  padding: 4px;
+  text-align: center;
+  background: var(--bg-deep);
+  border-top: 1px solid var(--hairline);
+}
+
 /* —— Mobile: shrink line-no columns + stack diff actions —— */
 @media (max-width: 768px) {
   .diff-head {

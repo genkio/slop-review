@@ -1,5 +1,7 @@
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
+import { readFile } from 'node:fs/promises'
+import { join, normalize, isAbsolute } from 'node:path'
 
 const pExecFile = promisify(execFile)
 
@@ -294,6 +296,77 @@ export async function getFileWindowAt(repoPath, ref, path, line, context) {
     start,
     end,
     lines: allLines.slice(start - 1, end),
+    total_lines: total,
+  }
+}
+
+/**
+ * Read a closed [start, end] (1-indexed, inclusive) line range from
+ * `path` at `ref`. Powers the "expand context" buttons on hunk headers —
+ * given a gap of unchanged lines between two hunks, the client asks for
+ * the slice and splices it in as context rows.
+ *
+ * `ref` may be a git ref (sha, branch, 'HEAD') OR the sentinel
+ * 'WORKTREE', which reads from disk instead of `git show`. The local
+ * diff has no ref for its new side — the working tree IS the new side —
+ * so WORKTREE is the only way to expand context there. Same binary +
+ * missing-file flag shape as getFileWindowAt for caller symmetry.
+ *
+ * Path traversal is blocked when reading from WORKTREE: a relative
+ * path is joined onto repoPath and the resolved path must stay under
+ * repoPath. `git show` is naturally sandboxed to the repo's object store
+ * so refs don't need the same guard.
+ */
+export async function getFileLines(repoPath, ref, path, start, end) {
+  const s = Math.max(1, Number(start) | 0)
+  const e = Math.max(s, Number(end) | 0)
+
+  let raw
+  if (ref === 'WORKTREE') {
+    if (!path || isAbsolute(path)) {
+      return { missing: true, binary: false, start: 0, end: 0, lines: [], total_lines: 0 }
+    }
+    const resolved = normalize(join(repoPath, path))
+    const repoNorm = normalize(repoPath)
+    if (!resolved.startsWith(repoNorm + '/') && resolved !== repoNorm) {
+      return { missing: true, binary: false, start: 0, end: 0, lines: [], total_lines: 0 }
+    }
+    try {
+      raw = await readFile(resolved)
+    } catch {
+      return { missing: true, binary: false, start: 0, end: 0, lines: [], total_lines: 0 }
+    }
+  } else {
+    try {
+      const res = await git(repoPath, ['show', `${ref}:${path}`], { encoding: 'buffer' })
+      raw = res.stdout
+    } catch {
+      return { missing: true, binary: false, start: 0, end: 0, lines: [], total_lines: 0 }
+    }
+  }
+
+  const probeLen = Math.min(raw.length, 8192)
+  for (let i = 0; i < probeLen; i++) {
+    if (raw[i] === 0) {
+      return { missing: false, binary: true, start: 0, end: 0, lines: [], total_lines: 0 }
+    }
+  }
+
+  const text = raw.toString('utf8')
+  const allLines = text.split('\n')
+  if (allLines.length > 0 && allLines[allLines.length - 1] === '') allLines.pop()
+  const total = allLines.length
+  if (total === 0) {
+    return { missing: false, binary: false, start: 0, end: 0, lines: [], total_lines: 0 }
+  }
+  const cs = Math.min(s, total)
+  const ce = Math.min(e, total)
+  return {
+    missing: false,
+    binary: false,
+    start: cs,
+    end: ce,
+    lines: allLines.slice(cs - 1, ce),
     total_lines: total,
   }
 }

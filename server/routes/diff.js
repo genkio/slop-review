@@ -3,6 +3,7 @@ import {
   getBranchInfo,
   getCommits,
   getCommitDiff,
+  getFileLines,
   getFullDiff,
   getHeadPreview,
   getLocalDiff,
@@ -113,6 +114,43 @@ export function registerDiffRoutes(app) {
       return c.json(out)
     } catch (e) {
       return c.json({ error: e.message || 'head preview failed' }, 500)
+    }
+  })
+
+  // Fetch a line range from a file at a given ref, used by the diff
+  // view's "expand context" buttons on hunk headers. `ref` may be a
+  // sha/branch name OR the sentinel 'WORKTREE' (local diff's new side).
+  // start/end are 1-indexed and inclusive; the server clamps end to the
+  // file's actual length and reports `total_lines` so the client can
+  // tell when there's nothing more to expand.
+  app.get('/api/repos/:id/file-lines', async (c) => {
+    const { repo, error } = await withRepo(c)
+    if (error) return error
+    const ref   = c.req.query('ref')
+    const path  = c.req.query('path')
+    const start = Number(c.req.query('start'))
+    const end   = Number(c.req.query('end'))
+    if (!ref)  return c.json({ error: 'ref required' }, 400)
+    if (!path) return c.json({ error: 'path required' }, 400)
+    if (!Number.isFinite(start) || start < 1) {
+      return c.json({ error: 'start must be a positive integer' }, 400)
+    }
+    if (!Number.isFinite(end) || end < start) {
+      return c.json({ error: 'end must be >= start' }, 400)
+    }
+    // Cap the range size so a runaway request can't pull a 1M-line file
+    // into memory. 2000 lines is well beyond any sensible expand chunk.
+    if (end - start + 1 > 2000) {
+      return c.json({ error: 'range too large (max 2000 lines)' }, 400)
+    }
+    if (ref !== 'WORKTREE' && !isValidSha(ref) && !/^[A-Za-z0-9_.\/-]+$/.test(ref)) {
+      return c.json({ error: 'invalid ref' }, 400)
+    }
+    try {
+      const out = await getFileLines(repo.path, ref, path, start, end)
+      return c.json({ ref, path, ...out })
+    } catch (e) {
+      return c.json({ error: e.message || 'file-lines failed' }, 500)
     }
   })
 

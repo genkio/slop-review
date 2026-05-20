@@ -149,13 +149,57 @@ function pairRows(rows) {
   return out
 }
 
-function hunkHeaderRow(hunk) {
+function hunkHeaderRow(hunk, ctx = {}) {
   const meta = `@@ -${hunk.oldStart},${hunk.oldLines} +${hunk.newStart},${hunk.newLines} @@`
-  const ctx  = hunk.header ? ' ' + escapeHtml(hunk.header) : ''
-  return `<tr class="diff-row diff-row-hunk"><td colspan="4" class="diff-hunk-head"><span class="diff-hunk-meta">${meta}</span>${ctx}</td></tr>`
+  const hdr  = hunk.header ? ' ' + escapeHtml(hunk.header) : ''
+  // Expand-up button: hidden when the hunk starts at file line 1, OR the
+  // previous hunk's tail butts directly against this hunk's head. Either
+  // way the gap above is empty — the button would be a no-op. Carries
+  // everything the click handler needs so the handler stays stateless:
+  // path / ref / mode for the fetch + render, target/floor lines for the
+  // range math, old-vs-new offset so context rows know their old line.
+  let expandBtn = ''
+  if (ctx.gapAbove && ctx.newRef && ctx.path) {
+    const target = hunk.newStart - 1
+    const floor  = ctx.floorLine
+    const offset = hunk.oldStart - hunk.newStart
+    expandBtn =
+      `<button type="button" class="diff-expand-btn" data-expand-direction="up"` +
+      ` data-path="${escapeHtml(ctx.path)}" data-ref="${escapeHtml(ctx.newRef)}"` +
+      ` data-target-line="${target}" data-floor-line="${floor}"` +
+      ` data-old-new-offset="${offset}" data-mode="${ctx.mode}"` +
+      ` data-sha="${escapeHtml(ctx.sha || '')}" data-lang="${escapeHtml(ctx.language || '')}"` +
+      ` title="Expand ${ctx.chunkSize} lines up" aria-label="Expand context up">▲</button>`
+  } else {
+    expandBtn = `<span class="diff-expand-btn-slot" aria-hidden="true"></span>`
+  }
+  return `<tr class="diff-row diff-row-hunk"><td colspan="4" class="diff-hunk-head">` +
+    expandBtn +
+    `<span class="diff-hunk-meta">${meta}</span>${hdr}` +
+  `</td></tr>`
 }
 
-function renderHunkSplit(hunk, path, sha, language) {
+// Footer row after the last hunk — single full-width button to expand
+// context downward into the un-rendered tail of the file. Total-lines is
+// unknown until the first fetch resolves; the click handler stamps it
+// onto the button so subsequent clicks know when to stop.
+function expandDownRow(lastHunk, ctx) {
+  if (!lastHunk || !ctx.newRef || !ctx.path) return ''
+  const anchor = lastHunk.newStart + lastHunk.newLines
+  const offset = (lastHunk.oldStart + lastHunk.oldLines) - anchor
+  return `<tr class="diff-row diff-row-expand-down">` +
+    `<td colspan="4">` +
+      `<button type="button" class="diff-expand-btn is-full" data-expand-direction="down"` +
+      ` data-path="${escapeHtml(ctx.path)}" data-ref="${escapeHtml(ctx.newRef)}"` +
+      ` data-anchor-line="${anchor}" data-total-lines=""` +
+      ` data-old-new-offset="${offset}" data-mode="${ctx.mode}"` +
+      ` data-sha="${escapeHtml(ctx.sha || '')}" data-lang="${escapeHtml(ctx.language || '')}"` +
+      ` title="Expand ${ctx.chunkSize} lines down" aria-label="Expand context down">▼</button>` +
+    `</td>` +
+  `</tr>`
+}
+
+function renderHunkSplit(hunk, path, sha, language, expandCtx = null) {
   const paired = pairRows(hunk.rows)
   const body = paired.map((p) => {
     const lk = p.left ? p.left.kind : 'blank'
@@ -182,10 +226,10 @@ function renderHunkSplit(hunk, path, sha, language) {
       `<td class="diff-text diff-${rk}" ${rAttrs}><span class="diff-marker">${rMark}</span><span class="diff-line">${p.right ? renderLineCell(p.right, language, 'right') : ''}</span></td>` +
       `</tr>`
   }).join('')
-  return hunkHeaderRow(hunk) + body
+  return hunkHeaderRow(hunk, expandCtx || {}) + body
 }
 
-function renderHunkInline(hunk, path, sha, language) {
+function renderHunkInline(hunk, path, sha, language, expandCtx = null) {
   const body = hunk.rows.map((r) => {
     const marker = r.kind === 'add' ? '+' : r.kind === 'del' ? '-' : ' '
     const side   = r.kind === 'del' ? 'old' : 'new'
@@ -203,7 +247,7 @@ function renderHunkInline(hunk, path, sha, language) {
       `<td class="diff-text diff-${r.kind}" colspan="2" data-side="${side}" data-line="${lineNo}" data-path="${escapeHtml(path)}" data-sha="${sha}"><span class="diff-marker">${marker}</span><span class="diff-line">${renderLineCell(r, language, lineSide)}</span></td>` +
       `</tr>`
   }).join('')
-  return hunkHeaderRow(hunk) + body
+  return hunkHeaderRow(hunk, expandCtx || {}) + body
 }
 
 function compareForReview(a, b, priorities) {
@@ -231,6 +275,12 @@ const RELATIONSHIP_LABELS = {
   'circular':    { arrow: '↔', text: 'circular',    verb: 'circular import with' },
 }
 
+// How many lines a single expand-button click pulls in. Matches GitHub's
+// default behavior (their button is "expand 20 lines"); a multi-step
+// approach (clicking again to expand more) is preferred over a dropdown
+// because it keeps the diff body free of menus.
+const EXPAND_CHUNK_SIZE = 20
+
 function renderFileSection(file, mode, sha, opts = {}) {
   const {
     isReviewed          = false,
@@ -242,6 +292,11 @@ function renderFileSection(file, mode, sha, opts = {}) {
     anchorPath          = null,
     threadCount         = 0,
     openThreadCount     = 0,
+    // Ref to fetch unchanged context lines from when the user clicks an
+    // expand button. Full/Commit pass the new-side sha; Local passes the
+    // sentinel 'WORKTREE'. Renamed/binary/deleted files don't get expand
+    // buttons — they have no current new-side file to read from.
+    newRef              = null,
   } = opts
   const status      = file.status || 'modified'
   const statusGlyph = STATUS_GLYPH[status] || '?'
@@ -270,7 +325,30 @@ function renderFileSection(file, mode, sha, opts = {}) {
     const colgroup = effectiveMode === 'split'
       ? '<colgroup><col class="diff-col-no"><col class="diff-col-text"><col class="diff-col-no"><col class="diff-col-text"></colgroup>'
       : '<colgroup><col class="diff-col-no"><col class="diff-col-no"><col class="diff-col-text"><col class="diff-col-text"></colgroup>'
-    body = `<table class="diff-table diff-${effectiveMode}">${colgroup}<tbody>${hunks.map((h) => renderHunk(h, file.path, sha, language)).join('')}</tbody></table>`
+    // Per-hunk expand context. Floor = first line of the gap above this
+    // hunk = previous hunk's tail + 1 (or 1 for the first hunk). Pure
+    // adds (deleted files) and binaries don't expose buttons — the file-
+    // level status check above sets newRef to null in those cases.
+    const expandable = !!newRef && status !== 'removed'
+    const hunkHtml = hunks.map((h, i) => {
+      let expandCtx = null
+      if (expandable) {
+        const prev = i > 0 ? hunks[i - 1] : null
+        const floorLine = prev ? prev.newStart + prev.newLines : 1
+        const gapAbove  = h.newStart > floorLine
+        expandCtx = {
+          gapAbove, floorLine,
+          path: file.path, newRef, sha, mode: effectiveMode,
+          language, chunkSize: EXPAND_CHUNK_SIZE,
+        }
+      }
+      return renderHunk(h, file.path, sha, language, expandCtx)
+    }).join('')
+    const lastHunk = hunks[hunks.length - 1]
+    const downRow = expandable && lastHunk
+      ? expandDownRow(lastHunk, { path: file.path, newRef, sha, mode: effectiveMode, language, chunkSize: EXPAND_CHUNK_SIZE })
+      : ''
+    body = `<table class="diff-table diff-${effectiveMode}">${colgroup}<tbody>${hunkHtml}${downRow}</tbody></table>`
   }
 
   // Per-file related-filter button: shows count of incoming+outgoing among
@@ -750,6 +828,11 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
     // handler exactly via rowHeadPreviewTarget, so the bar never lies.
     const cursor = $('[data-body] tr.diff-row.is-cursor')
     if (cursor && rowHeadPreviewTarget(cursor)) items.push({ keys: ['p'], label: 'peek HEAD' })
+    // e — surface only when the cursor has a reachable target (▲ above
+    // its hunk, or ▼ when in the last hunk). Single key, single hint;
+    // the smart-fallback inside findExpandTarget keeps the user from
+    // needing a second binding.
+    if (findExpandTarget()) items.push({ keys: ['e'], label: 'expand' })
     return items
   }
   function renderKeymapHint () {
@@ -821,6 +904,54 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
     const cursor = $('[data-body] tr.diff-row.is-cursor')
     const next = cursor?.nextElementSibling
     if (next?.classList?.contains('diff-row-thread')) return next.dataset.threadId || null
+    return null
+  }
+
+  // Single `e` target picker. Walks back from the cursor to its enclosing
+  // hunk-head and returns that header's ▲ button when it's visible. If
+  // ▲ is missing or already exhausted AND the cursor sits in the file's
+  // LAST hunk, falls back to the file's ▼ button so the keystroke also
+  // covers the un-rendered tail. The fallback is gated on "cursor is in
+  // the last hunk" specifically because that's when the ▼ button is
+  // visually close to the cursor — clicking it inserts rows right below
+  // the cursor's hunk, no scroll needed and no cursor jump. For cursors
+  // in non-last hunks with the gap above already filled, we return null
+  // and let the key handler toast — the user moves to the next hunk to
+  // continue expanding, instead of being teleported to the file's tail.
+  function findExpandTarget () {
+    const body = $('[data-body]')
+    if (!body) return null
+    const cursor = body.querySelector('tr.diff-row.is-cursor')
+    if (!cursor) {
+      // No cursor: prefer the first visible ▲ across all files; fall back
+      // to the first ▼ so a fresh page still does something useful.
+      const files = Array.from(body.querySelectorAll('.diff-file:not(.is-collapsed)'))
+      for (const f of files) {
+        const up = f.querySelector('.diff-expand-btn[data-expand-direction="up"]')
+        if (up && up.style.visibility !== 'hidden') return up
+      }
+      for (const f of files) {
+        const down = f.querySelector('.diff-expand-btn[data-expand-direction="down"]')
+        if (down) return down
+      }
+      return null
+    }
+    // Walk back to the cursor's enclosing hunk header.
+    let row = cursor
+    while (row && !row.classList.contains('diff-row-hunk')) {
+      row = row.previousElementSibling
+    }
+    const upBtn = row?.querySelector('.diff-expand-btn[data-expand-direction="up"]')
+    if (upBtn && upBtn.style.visibility !== 'hidden') return upBtn
+    // ▲ unavailable. Try the file's ▼ only if the cursor's hunk IS the
+    // file's last hunk — otherwise the ▼ lives far below the cursor and
+    // the keystroke would feel like a teleport.
+    const file = cursor.closest('.diff-file:not(.is-collapsed)')
+    if (!file || !row) return null
+    const hunks = file.querySelectorAll('tr.diff-row-hunk')
+    if (hunks[hunks.length - 1] === row) {
+      return file.querySelector('.diff-expand-btn[data-expand-direction="down"]') || null
+    }
     return null
   }
 
@@ -1261,6 +1392,26 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
     if (e.key === 'p' && !state.commentSelection && !e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey) {
       const cursor = $('[data-body] tr.diff-row.is-cursor')
       openHeadPreviewForRow(cursor)
+      e.preventDefault()
+      return
+    }
+    // e — expand diff context. Single key; the target picker decides
+    // which ▲ or ▼ button to click based on the cursor's position
+    // (see findExpandTarget). The cursor stays put across expansions
+    // because either: (a) the ▲ inserts rows above the cursor's hunk
+    // header (no cursor movement), or (b) the ▼ fallback only fires when
+    // the cursor is in the last hunk — so the inserted rows land just
+    // below the cursor and stay in view. Suppressed during CTA mode for
+    // the same reason as `p`: the cursor row's file may not match the
+    // file under selection.
+    if (e.key === 'e' && !state.commentSelection && !e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey) {
+      const btn = findExpandTarget()
+      if (btn) {
+        btn.click()
+        revealKeymapHint()
+      } else {
+        toast('Nothing more to expand here — move the cursor to another hunk')
+      }
       e.preventDefault()
       return
     }
@@ -2098,8 +2249,175 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
     }
   })
 
+  /**
+   * Decide the [start, end] line range to fetch for a single expand click.
+   *
+   * Inputs:
+   *  - direction: 'up' (gap above current hunk; lower line numbers) or
+   *    'down' (below the last hunk; higher line numbers).
+   *  - anchor: the next line we want to load. For 'up' it's the line
+   *    just above the visible hunk; for 'down' it's the line just below
+   *    the last visible row. The fetch should INCLUDE this line.
+   *  - floor: 'up' only — the lowest line we may fetch (1 for the first
+   *    hunk, prev-hunk-tail + 1 otherwise). For 'down' this is null.
+   *  - ceiling: 'down' only — the file's total_lines if known. null on
+   *    the first 'down' click (we discover it from the response).
+   *  - chunkSize: caller's default request size (EXPAND_CHUNK_SIZE).
+   *
+   * Returns { start, end } (1-indexed, inclusive) — or null if there's
+   * nothing left to expand (anchor has already crossed the boundary).
+   */
+  function computeExpandRange(direction, anchor, floor, ceiling, chunkSize) {
+    if (direction === 'up') {
+      if (anchor < floor) return null
+      return { start: Math.max(floor, anchor - chunkSize + 1), end: anchor }
+    }
+    if (ceiling != null && anchor > ceiling) return null
+    const tentativeEnd = anchor + chunkSize - 1
+    return { start: anchor, end: ceiling != null ? Math.min(ceiling, tentativeEnd) : tentativeEnd }
+  }
+
+  // Build one context-row tr for either split or inline mode. Mirrors the
+  // shape renderHunkSplit / renderHunkInline produce so the inserted rows
+  // are layout-identical to the diff-table's existing context lines — same
+  // gutters, same data-side/data-line attrs so the comment-selection gutter
+  // click handler picks them up too.
+  function renderContextRowHtml({ text, oldLine, newLine, path, sha, language, mode }) {
+    const pathAttr = escapeHtml(path)
+    const html = highlightLine(text, language)
+    if (mode === 'split') {
+      return `<tr class="diff-row" data-pair-kind="context" data-expanded="1">` +
+        `<td class="diff-no diff-no-old" data-side="old" data-line="${oldLine}" data-path="${pathAttr}">${oldLine}</td>` +
+        `<td class="diff-text diff-context" data-side="old" data-line="${oldLine}" data-path="${pathAttr}" data-sha="${sha}"><span class="diff-marker"> </span><span class="diff-line">${html}</span></td>` +
+        `<td class="diff-no diff-no-new" data-side="new" data-line="${newLine}" data-path="${pathAttr}">${newLine}</td>` +
+        `<td class="diff-text diff-context" data-side="new" data-line="${newLine}" data-path="${pathAttr}" data-sha="${sha}"><span class="diff-marker"> </span><span class="diff-line">${html}</span></td>` +
+      `</tr>`
+    }
+    return `<tr class="diff-row" data-pair-kind="context" data-expanded="1">` +
+      `<td class="diff-no diff-no-old" data-side="old" data-line="${oldLine}" data-path="${pathAttr}">${oldLine}</td>` +
+      `<td class="diff-no diff-no-new" data-side="new" data-line="${newLine}" data-path="${pathAttr}">${newLine}</td>` +
+      `<td class="diff-text diff-context" colspan="2" data-side="new" data-line="${newLine}" data-path="${pathAttr}" data-sha="${sha}"><span class="diff-marker"> </span><span class="diff-line">${html}</span></td>` +
+    `</tr>`
+  }
+
+  // Fetch + splice handler. Reads everything it needs from the button's
+  // data-* attrs so the function stays free of closures over hunk state —
+  // expanded rows mutate the DOM but not state.diff, and a fresh renderBody
+  // (filter toggle, view switch) is the natural reset.
+  async function expandContext(btn) {
+    if (btn.disabled) return
+    const direction = btn.dataset.expandDirection
+    const path  = btn.dataset.path
+    const ref   = btn.dataset.ref
+    const sha   = btn.dataset.sha
+    const mode  = btn.dataset.mode
+    const language = btn.dataset.lang || ''
+    const offset = Number(btn.dataset.oldNewOffset) || 0
+
+    let anchor, floor = null, ceiling = null
+    if (direction === 'up') {
+      anchor = Number(btn.dataset.targetLine)
+      floor  = Number(btn.dataset.floorLine) || 1
+    } else {
+      anchor = Number(btn.dataset.anchorLine)
+      const tot = Number(btn.dataset.totalLines)
+      ceiling = Number.isFinite(tot) && tot > 0 ? tot : null
+    }
+    if (!Number.isFinite(anchor) || anchor < 1) return
+
+    const range = computeExpandRange(direction, anchor, floor, ceiling, EXPAND_CHUNK_SIZE)
+    if (!range) return
+
+    btn.disabled = true
+    let payload
+    try {
+      const url = `/api/repos/${encodeURIComponent(repo.id)}/file-lines` +
+        `?ref=${encodeURIComponent(ref)}&path=${encodeURIComponent(path)}` +
+        `&start=${range.start}&end=${range.end}`
+      payload = await api(url)
+    } catch (e) {
+      btn.disabled = false
+      toast('Expand failed: ' + (e.message || 'unknown'))
+      return
+    }
+    btn.disabled = false
+
+    if (payload.binary || payload.missing) {
+      toast(payload.binary ? 'Cannot expand: binary file' : 'Cannot expand: file not found at ref')
+      // Remove the affordance so the user doesn't keep clicking — the
+      // underlying condition won't resolve without a fresh diff payload.
+      btn.closest('tr.diff-row-expand-down')?.remove()
+      btn.style.visibility = 'hidden'
+      return
+    }
+
+    const lines = payload.lines || []
+    if (!lines.length) {
+      // Nothing came back (probably hit EOF or empty file). Retire the
+      // button so it stops advertising an action that does nothing.
+      btn.closest('tr.diff-row-expand-down')?.remove()
+      if (direction === 'up') btn.style.visibility = 'hidden'
+      // Keyboard users can't see the footer row disappear if it was
+      // off-screen — surface a brief toast so the keystroke isn't
+      // experienced as a no-op. (Mouse users already have the affordance
+      // visibly retire under their cursor.)
+      toast(direction === 'up' ? 'Top of file reached' : 'End of file reached')
+      renderKeymapHint()
+      return
+    }
+
+    const rowsHtml = lines.map((text, i) => {
+      const newLine = payload.start + i
+      const oldLine = newLine + offset
+      return renderContextRowHtml({ text, oldLine, newLine, path, sha, language, mode })
+    }).join('')
+    const tmp = document.createElement('tbody')
+    tmp.innerHTML = rowsHtml
+    const newRows = Array.from(tmp.children)
+
+    if (direction === 'up') {
+      // Splice rows BEFORE the hunk-head that owns this button. The hunk
+      // header itself stays put — its @@ meta still describes the next
+      // hunk's actual changes; only the un-rendered gap above gets filled.
+      const headRow = btn.closest('tr.diff-row-hunk')
+      if (!headRow) return
+      for (const r of newRows) headRow.parentNode.insertBefore(r, headRow)
+      const nextTarget = payload.start - 1
+      if (nextTarget < floor) {
+        btn.style.visibility = 'hidden'
+      } else {
+        btn.dataset.targetLine = String(nextTarget)
+      }
+    } else {
+      // Splice rows BEFORE the expand-down row, so the button keeps
+      // hovering at the bottom for another click.
+      const footRow = btn.closest('tr.diff-row-expand-down')
+      if (!footRow) return
+      for (const r of newRows) footRow.parentNode.insertBefore(r, footRow)
+      const nextAnchor = payload.end + 1
+      const total = payload.total_lines || 0
+      btn.dataset.anchorLine = String(nextAnchor)
+      btn.dataset.totalLines = String(total)
+      if (total && nextAnchor > total) footRow.remove()
+    }
+    // Hint bar may need to drop `e` / `E` now that this direction's
+    // target retired (button hidden / footer removed). Cheap DOM walk;
+    // safe to call on every successful expand.
+    renderKeymapHint()
+  }
+
   // Click delegation: relate-filter buttons, reviewed banner, collapse toggle.
   $('[data-body]').addEventListener('click', (e) => {
+    // Expand-context buttons get top-priority routing. They're nested in
+    // hunk-head / expand-down rows that don't have any of the other
+    // delegated targets, but stopPropagation keeps future handlers honest.
+    const expandBtn = e.target.closest?.('.diff-expand-btn')
+    if (expandBtn) {
+      e.preventDefault(); e.stopPropagation()
+      expandContext(expandBtn)
+      return
+    }
+
     // Handle data-show-thread BEFORE any other case + bubbling: the global
     // click handler in events.js can't open the thread (no repoId/getThread
     // context at that level), so we own it here where we have state.threads
@@ -3051,6 +3369,12 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
         else if (importsAnchor)                  relationship = 'imports'
         else if (importedByAnchor)               relationship = 'imported-by'
       }
+      // Pick the ref the expand-context endpoint reads unchanged lines
+      // from. Local view has no ref for its new side — the working tree
+      // *is* the new side — so we pass 'WORKTREE' (the server branches
+      // to fs.readFile for that sentinel). Full + Commit both use the
+      // diff's `sha` (head_sha and the commit's sha respectively).
+      const newRef = isLocal ? 'WORKTREE' : (state.diff.sha || null)
       return renderFileSection(f, state.mode, state.diff.sha, {
         isReviewed: state.reviewed.has(f.path),
         isCollapsed: state.collapsedPaths.has(f.path),
@@ -3061,6 +3385,7 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
         anchorPath: filterAnchor,
         threadCount: threadCountByFile.get(f.path) || 0,
         openThreadCount: openCountByFile.get(f.path) || 0,
+        newRef,
       })
     }).join('')
     // Preserve scroll across `innerHTML` swaps. `overflow-anchor: none`
