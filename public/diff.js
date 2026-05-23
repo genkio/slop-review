@@ -13,6 +13,20 @@ import { store } from './store.js'
 // cache by bumping the prefix.
 const DIFF_CACHE_PREFIX = 'slop-review:diff:v2:'
 
+// Whether to skip rendering the line-number gutter cells. Inline diffs
+// without gutters render as a single text column — iOS Safari's
+// table-layout: fixed doesn't reliably zero col widths, so we skip the
+// gutter cells in HTML rather than fight engine quirks via CSS.
+//
+// Driven by a module-level flag that renderDiffView keeps in sync with
+// state.showLineNumbers at the start of each render. Default reflects the
+// mobile breakpoint (mobile = hide, desktop = show) but the user's saved
+// preference (localStorage 'slop-review:line-numbers') wins on hydration.
+let _hideGutter = window.matchMedia('(max-width: 768px)').matches
+function isMobileDiffView() {
+  return _hideGutter
+}
+
 function loadCachedDiff(sha) {
   try {
     const raw = sessionStorage.getItem(DIFF_CACHE_PREFIX + sha)
@@ -173,7 +187,8 @@ function hunkHeaderRow(hunk, ctx = {}) {
   } else {
     expandBtn = `<span class="diff-expand-btn-slot" aria-hidden="true"></span>`
   }
-  return `<tr class="diff-row diff-row-hunk"><td colspan="4" class="diff-hunk-head">` +
+  const cspan = isMobileDiffView() ? '' : ' colspan="4"'
+  return `<tr class="diff-row diff-row-hunk"><td${cspan} class="diff-hunk-head">` +
     expandBtn +
     `<span class="diff-hunk-meta">${meta}</span>${hdr}` +
   `</td></tr>`
@@ -187,8 +202,9 @@ function expandDownRow(lastHunk, ctx) {
   if (!lastHunk || !ctx.newRef || !ctx.path) return ''
   const anchor = lastHunk.newStart + lastHunk.newLines
   const offset = (lastHunk.oldStart + lastHunk.oldLines) - anchor
+  const cspan = isMobileDiffView() ? '' : ' colspan="4"'
   return `<tr class="diff-row diff-row-expand-down">` +
-    `<td colspan="4">` +
+    `<td${cspan}>` +
       `<button type="button" class="diff-expand-btn is-full" data-expand-direction="down"` +
       ` data-path="${escapeHtml(ctx.path)}" data-ref="${escapeHtml(ctx.newRef)}"` +
       ` data-anchor-line="${anchor}" data-total-lines=""` +
@@ -230,11 +246,22 @@ function renderHunkSplit(hunk, path, sha, language, expandCtx = null) {
 }
 
 function renderHunkInline(hunk, path, sha, language, expandCtx = null) {
+  // Mobile collapses inline mode to a single text column (no gutter cells,
+  // no colspan tricks) because iOS Safari doesn't reliably honor col
+  // width: 0 + table-layout: fixed for zeroing the gutter — the gutter
+  // cells claim layout space and push the code into the right half.
+  // Rendering a single-cell row sidesteps the engine quirk entirely.
+  const mobile = isMobileDiffView()
   const body = hunk.rows.map((r) => {
     const marker = r.kind === 'add' ? '+' : r.kind === 'del' ? '-' : ' '
     const side   = r.kind === 'del' ? 'old' : 'new'
     const lineNo = r.kind === 'del' ? (r.oldNo ?? '') : (r.newNo ?? '')
     const lineSide = r.kind === 'del' ? 'left' : 'right'
+    if (mobile) {
+      return `<tr class="diff-row" data-pair-kind="${r.kind}">` +
+        `<td class="diff-text diff-${r.kind}" data-side="${side}" data-line="${lineNo}" data-path="${escapeHtml(path)}" data-sha="${sha}"><span class="diff-marker">${marker}</span><span class="diff-line">${renderLineCell(r, language, lineSide)}</span></td>` +
+        `</tr>`
+    }
     // Same mirroring as renderHunkSplit: addressable gutter cells let the
     // selection click handler treat either gutter as the "click target".
     const lnAttrs = r.oldNo != null
@@ -311,7 +338,14 @@ function renderFileSection(file, mode, sha, opts = {}) {
   // Modified / renamed / copied files have content on both sides and
   // continue to honor the user's split/inline preference.
   const isSingleSide = status === 'added' || status === 'removed'
-  const effectiveMode = (mode === 'split' && isSingleSide) ? 'inline' : mode
+  // Hiding the gutter forces inline rendering — renderHunkSplit always
+  // emits 4 cells per row (no-gutter branch doesn't exist there), and a
+  // split layout without line-number cells would leave the two text cols
+  // floating with no visual anchor. Drops to inline whenever the user (or
+  // the mobile default) has the gutter off.
+  const effectiveMode = isMobileDiffView() ? 'inline'
+    : (mode === 'split' && isSingleSide) ? 'inline'
+    : mode
 
   let body
   if (file.is_binary) {
@@ -322,9 +356,11 @@ function renderFileSection(file, mode, sha, opts = {}) {
     const hunks = parsePatch(file.patch)
     const renderHunk = effectiveMode === 'split' ? renderHunkSplit : renderHunkInline
     const language = languageForPath(file.path)
-    const colgroup = effectiveMode === 'split'
-      ? '<colgroup><col class="diff-col-no"><col class="diff-col-text"><col class="diff-col-no"><col class="diff-col-text"></colgroup>'
-      : '<colgroup><col class="diff-col-no"><col class="diff-col-no"><col class="diff-col-text"><col class="diff-col-text"></colgroup>'
+    const colgroup = isMobileDiffView()
+      ? '<colgroup><col class="diff-col-text"></colgroup>'
+      : effectiveMode === 'split'
+        ? '<colgroup><col class="diff-col-no"><col class="diff-col-text"><col class="diff-col-no"><col class="diff-col-text"></colgroup>'
+        : '<colgroup><col class="diff-col-no"><col class="diff-col-no"><col class="diff-col-text"><col class="diff-col-text"></colgroup>'
     // Per-hunk expand context. Floor = first line of the gap above this
     // hunk = previous hunk's tail + 1 (or 1 for the first hunk). Pure
     // adds (deleted files) and binaries don't expose buttons — the file-
@@ -451,6 +487,30 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
 
   const isMobile = window.matchMedia('(max-width: 768px)').matches
   const maxIdx = commits.length + (hasLocal ? 1 : 0)
+  // Default wrap: on for mobile (narrow viewport, code would overflow), off
+  // for desktop (plenty of horizontal real estate, no-wrap reads more like
+  // an editor). Saved preference in localStorage overrides — if the user
+  // explicitly toggled either direction, honour that across sessions.
+  let initialWrap = isMobile
+  try {
+    const saved = localStorage.getItem('slop-review:wrap')
+    if (saved === 'true')  initialWrap = true
+    else if (saved === 'false') initialWrap = false
+  } catch {}
+  // Same pattern for line-number visibility. Default hidden on mobile so
+  // the narrow viewport hands all its horizontal space to code; default
+  // shown on desktop where the gutter is useful for orientation. Whatever
+  // the user explicitly chose persists.
+  let initialShowLineNumbers = !isMobile
+  try {
+    const saved = localStorage.getItem('slop-review:line-numbers')
+    if (saved === 'true')  initialShowLineNumbers = true
+    else if (saved === 'false') initialShowLineNumbers = false
+  } catch {}
+  // Mirror the resolved preference into the module flag so the first
+  // renderBody picks up the correct gutter mode without waiting for
+  // applyLineNumbers() (which only runs after the diff loads).
+  _hideGutter = !initialShowLineNumbers
   const state = {
     index:    Math.max(0, Math.min(initialIndex, maxIdx)),
     commits,
@@ -460,6 +520,8 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
     branchInfo,
     hasLocal,
     mode:     isMobile ? 'inline' : 'split',
+    lineWrap: initialWrap,
+    showLineNumbers: initialShowLineNumbers,
     diff:     null,
     loading:  false,
     threads:  [],
@@ -643,6 +705,14 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
         </div>
       </div>
       <div class="diff-actions">
+        <label class="diff-wrap-toggle" title="Toggle line wrap (long lines fold vs. scroll horizontally)">
+          <input type="checkbox" data-wrap-toggle>
+          <span>Wrap</span>
+        </label>
+        <label class="diff-wrap-toggle" title="Toggle line numbers (gutter column shown vs. hidden)">
+          <input type="checkbox" data-linenums-toggle>
+          <span>Line #</span>
+        </label>
         <span data-overview-nav class="overview-nav-slot"></span>
       </div>
     </header>
@@ -655,6 +725,52 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
   main.replaceChildren(root)
 
   const $  = (sel) => root.querySelector(sel)
+
+  // ------------------------------------------------------------------
+  // Line-wrap toggle — CSS-driven (`.diff-page.no-wrap`), state lives on
+  // state.lineWrap, persisted under localStorage key 'slop-review:wrap'.
+  // ------------------------------------------------------------------
+  // Sync DOM to current state.lineWrap: toggles the .no-wrap class that
+  // unwraps long code lines, and mirrors state into the checkbox's
+  // `checked` property so the visible control matches.
+  function applyLineWrap() {
+    root.classList.toggle('no-wrap', !state.lineWrap)
+    const input = root.querySelector('[data-wrap-toggle]')
+    if (input) input.checked = state.lineWrap
+  }
+  applyLineWrap()
+  // `change` (not `click`) is the right event for a checkbox — the browser
+  // has already flipped `checked` by the time it fires, so we read it
+  // directly rather than negating state.lineWrap and risking drift if a
+  // click-without-change ever sneaks through (e.g. label-tap that's
+  // preventDefault'd elsewhere).
+  root.querySelector('[data-wrap-toggle]')?.addEventListener('change', (e) => {
+    state.lineWrap = e.target.checked
+    try { localStorage.setItem('slop-review:wrap', String(state.lineWrap)) } catch {}
+    applyLineWrap()
+  })
+
+  // ------------------------------------------------------------------
+  // Line-numbers toggle — structurally different from wrap: changes the
+  // table shape (1-col vs 4-col), so requires a full renderBody() to take
+  // effect. Module-level `_hideGutter` is the truth for render functions;
+  // we mirror state.showLineNumbers into it before each render.
+  // ------------------------------------------------------------------
+  function applyLineNumbers() {
+    _hideGutter = !state.showLineNumbers
+    const input = root.querySelector('[data-linenums-toggle]')
+    if (input) input.checked = state.showLineNumbers
+  }
+  applyLineNumbers()
+  root.querySelector('[data-linenums-toggle]')?.addEventListener('change', (e) => {
+    state.showLineNumbers = e.target.checked
+    try { localStorage.setItem('slop-review:line-numbers', String(state.showLineNumbers)) } catch {}
+    applyLineNumbers()
+    // renderBody() rebuilds the table with the new colgroup + row shape.
+    // Existing CTA / editor / thread rows would have a stale colspan after
+    // the swap, but renderBody wipes them anyway as part of the rerender.
+    renderBody()
+  })
 
   // ------------------------------------------------------------------
   // URL sync — page owns the entire `#/diff[/...]` route shape.
@@ -966,7 +1082,7 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
     if (!row) return
     const info = state.prInfo
     if (!info?.host || !info?.pr_url) return
-    const pick = (side) => row.querySelector(`.diff-no[data-side="${side}"][data-line][data-path]`)
+    const pick = (side) => row.querySelector(`[data-side="${side}"][data-line][data-path]`)
     let cell = pick(preferSide)
     if (!cell && !strict) cell = pick(preferSide === 'new' ? 'old' : 'new')
     if (!cell) return
@@ -1015,7 +1131,7 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
   // the `p` key handler both consult this so they stay in sync.
   function rowHeadPreviewTarget (row) {
     if (!row) return null
-    const cell = row.querySelector('.diff-no[data-side="new"][data-line][data-path]')
+    const cell = row.querySelector('[data-side="new"][data-line][data-path]')
     if (!cell) return null
     const path = cell.dataset.path
     const line = Number(cell.dataset.line)
@@ -1037,7 +1153,7 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
   // consistent regardless of how the user invoked copy.
   function copyLineRef (row, preferSide, strict = false) {
     if (!row) return
-    const pick = (side) => row.querySelector(`.diff-no[data-side="${side}"][data-line][data-path]`)
+    const pick = (side) => row.querySelector(`[data-side="${side}"][data-line][data-path]`)
     let cell = pick(preferSide)
     if (!cell && !strict) cell = pick(preferSide === 'new' ? 'old' : 'new')
     if (!cell) return
@@ -1060,7 +1176,7 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
     const sel = state.commentSelection
     if (sel) {
       rows = rows.filter((r) => r.querySelector(
-        `.diff-no[data-side="${sel.side}"][data-line][data-path="${cssEscape(sel.path)}"]`
+        `[data-side="${sel.side}"][data-line][data-path="${cssEscape(sel.path)}"]`
       ))
     }
     if (rows.length === 0) return
@@ -1110,7 +1226,7 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
     // same selection shape. applyCommentSelection re-splices the CTA
     // beneath the new last-line and re-paints the range ribbon.
     if (sel) {
-      const gutter = next.querySelector(`.diff-no[data-side="${sel.side}"][data-line]`)
+      const gutter = next.querySelector(`[data-side="${sel.side}"][data-line]`)
       const line = Number(gutter?.dataset?.line)
       if (Number.isFinite(line)) {
         const anchor = sel.anchor
@@ -1247,7 +1363,7 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
       if (!cursor) return
       const strict = e.key === 'C'
       const preferSide = strict ? 'old' : 'new'
-      const pick = (side) => cursor.querySelector(`.diff-no[data-side="${side}"][data-line][data-path]`)
+      const pick = (side) => cursor.querySelector(`[data-side="${side}"][data-line][data-path]`)
       const gutter = pick(preferSide) || (strict ? null : pick('old'))
       if (gutter) {
         // Flag the synthetic click so the body click listener can tag the
@@ -1283,7 +1399,7 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
       if (!cursor) return
       const strict = e.key === 'V'
       const preferSide = strict ? 'old' : 'new'
-      const pick = (side) => cursor.querySelector(`.diff-no[data-side="${side}"][data-line][data-path]`)
+      const pick = (side) => cursor.querySelector(`[data-side="${side}"][data-line][data-path]`)
       const gutter = pick(preferSide) || (strict ? null : pick('old'))
       if (gutter) {
         synthClickFromKey = true
@@ -1466,8 +1582,35 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
   let synthClickFromKey = false
 
   $('[data-body]').addEventListener('click', (e) => {
-    const gutter = e.target.closest?.('.diff-no[data-line][data-side][data-path]')
-    if (!gutter) return
+    // Three intents, gated by where the user tapped and whether the gutter
+    // is currently rendered:
+    //   1. Tap on .diff-no    -> CTA  (always; desktop AND mobile-with-Line#)
+    //   2. Tap on .diff-text  -> CTA  (mobile only, AND Line # is OFF)
+    //   3. Tap on .diff-text  -> symbol panel  (mobile only, AND Line # is ON)
+    // Desktop falls through to no-op on text taps so mouse text selection
+    // and the existing dblclick-for-symbol gesture keep working unchanged.
+    const isMobile = window.matchMedia('(max-width: 768px)').matches
+    let gutter = e.target.closest?.('.diff-no[data-line][data-side][data-path]')
+    if (!gutter) {
+      const textCell = e.target.closest?.('.diff-text[data-line][data-side][data-path]')
+      if (!textCell || !isMobile) return
+      if (_hideGutter) {
+        // (2) Line # OFF on mobile — text taps stand in for the missing
+        // gutter and open the CTA.
+        gutter = textCell
+      } else {
+        // (3) Line # ON on mobile — text taps open the symbol panel for
+        // the identifier under the tap point. caretRangeFromPoint resolves
+        // the coords; getWordAtTap walks the text node for word bounds.
+        const word = getWordAtTap(e)
+        if (word && IDENT_RE.test(word)) {
+          e.preventDefault(); e.stopPropagation()
+          const anchor = { path: textCell.dataset.path, line: textCell.dataset.line, side: textCell.dataset.side }
+          openSymbolPanel(word, textCell.dataset.path, anchor)
+        }
+        return
+      }
+    }
     const path = gutter.dataset.path
     const side = gutter.dataset.side
     const line = Number(gutter.dataset.line)
@@ -1578,7 +1721,7 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
       ? '<button type="button" data-cta-peek>Peek HEAD</button>'
       : ''
     cta.innerHTML =
-      '<td colspan="4" class="diff-comment-cta-cell">' +
+      `<td${isMobileDiffView() ? '' : ' colspan="4"'} class="diff-comment-cta-cell">` +
         '<div class="diff-comment-cta">' +
           `<span class="diff-comment-cta-label">Comment on ${escapeHtml(rangeLabel)} (${escapeHtml(sel.side)})</span>` +
           '<div class="diff-comment-cta-actions">' +
@@ -1705,6 +1848,39 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
   // ------------------------------------------------------------------
   const IDENT_RE = /^[a-zA-Z_$][a-zA-Z0-9_$]{0,63}$/
 
+  // Resolve a tap to the word at that pixel, for mobile single-tap symbol
+  // panel. Tries the modern caretPositionFromPoint first; falls back to
+  // caretRangeFromPoint for older WebKit (Safari < 18.4). Either API
+  // resolves the tap to a text-node + offset; we then walk character-by-
+  // character through the node until we hit a non-identifier-char in
+  // either direction. Returns '' if the tap landed off any text node.
+  // Desktop continues to use window.getSelection() in the dblclick handler
+  // below — dblclick natively word-selects, so no manual walk is needed.
+  function getWordAtTap(e) {
+    let node, offset
+    if (document.caretPositionFromPoint) {
+      const pos = document.caretPositionFromPoint(e.clientX, e.clientY)
+      if (!pos) return ''
+      node = pos.offsetNode
+      offset = pos.offset
+    } else if (document.caretRangeFromPoint) {
+      const range = document.caretRangeFromPoint(e.clientX, e.clientY)
+      if (!range) return ''
+      node = range.startContainer
+      offset = range.startOffset
+    } else {
+      return ''
+    }
+    if (node?.nodeType !== Node.TEXT_NODE) return ''
+    const text = node.textContent || ''
+    const isWord = (c) => /[a-zA-Z0-9_$]/.test(c)
+    let s = offset
+    let end = s
+    while (s > 0 && isWord(text[s - 1])) s--
+    while (end < text.length && isWord(text[end])) end++
+    return text.slice(s, end)
+  }
+
   $('[data-body]').addEventListener('dblclick', (e) => {
     if (e.target.closest('input, textarea, button, .diff-row-thread, .diff-row-editor')) return
     const sel = window.getSelection()?.toString().trim() || ''
@@ -1725,14 +1901,36 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
     const sessionId = sessionEl.dataset.sessionId
     const action = e.target.closest('[data-action]')?.dataset.action
     if (action === 'close')    { closeSession(sessionId); return }
-    if (action === 'back')     { popSymbolJump(sessionId); return }
-    if (action === 'start')    { popSymbolJumpAll(sessionId); return }
+    if (action === 'back') {
+      popSymbolJump(sessionId)
+      // Mirror the match-tap behavior: navigation succeeded, user wants to
+      // SEE the result, so park the panel into a strip on mobile.
+      if (window.matchMedia('(max-width: 768px)').matches) minimizeActive()
+      return
+    }
+    if (action === 'start') {
+      popSymbolJumpAll(sessionId)
+      // "Back to original" is the user saying "I'm done navigating, send
+      // me home" — close the session entirely on mobile so the panel is
+      // out of the way. They can re-tap the original word to restart.
+      if (window.matchMedia('(max-width: 768px)').matches) closeSession(sessionId)
+      return
+    }
     if (action === 'minimize') { minimizeActive(); return }
     if (action === 'restore')  { activateSession(sessionId); return }
     // Match click in the active session's list.
     const matchEl = e.target.closest('[data-path][data-line][data-side]')
     if (matchEl) {
       scrollToMatch(sessionId, matchEl.dataset.path, matchEl.dataset.line, matchEl.dataset.side)
+      // On mobile the active panel covers the entire viewport, so the
+      // scroll-into-view we just triggered isn't visible until the panel
+      // shrinks. Auto-minimize after navigating so the user immediately
+      // sees the jumped-to cell. The parked strip stays on the right edge
+      // and a tap on it brings the match list back when they want to jump
+      // somewhere else.
+      if (window.matchMedia('(max-width: 768px)').matches) {
+        minimizeActive()
+      }
       return
     }
     // Click anywhere else on a minimized strip = restore that session.
@@ -1801,6 +1999,19 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
       jumpStack: [],
       currentAnchor: anchor,
     }
+    // Snapshot the diff-body scroll position before the panel renders so we
+    // can restore it on close. With Wrap off + Line # on, long lines extend
+    // horizontally and the user may have been scrolled mid-line when they
+    // tapped to open the panel; otherwise closing the panel would leave
+    // them stranded on whatever the panel's last interaction scrolled to
+    // (or on a position where short lines show as bare bg). Only stored on
+    // the *first* session creation — re-opening from a parked session
+    // keeps the original snapshot since the user's "reading position"
+    // hasn't fundamentally changed.
+    if (state.symbolPanel.sessions.length === 0) {
+      const body = $('[data-body]')
+      if (body) state.symbolPanel.scrollSnapshot = { left: body.scrollLeft, top: body.scrollTop }
+    }
     state.symbolPanel.sessions.push(session)
     state.symbolPanel.activeId = session.id
     state.symbolPanel.open = true
@@ -1821,6 +2032,20 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
     // Highlights track the active session; with none active, clear them
     // so the diff body isn't dotted with old-session match tints.
     clearSymbolHighlights()
+    // Restore the diff-body scroll to where the user was reading before
+    // the panel took over. Match-row scrollIntoView inside the panel can
+    // have dragged the body to a different vertical/horizontal position;
+    // minimize is a "return to my reading flow" gesture, same as full
+    // close. Snapshot persists in state.symbolPanel so reopening keeps
+    // the same reference point.
+    const snapshot = state.symbolPanel.scrollSnapshot
+    if (snapshot) {
+      const body = $('[data-body]')
+      if (body) {
+        body.scrollLeft = snapshot.left
+        body.scrollTop = snapshot.top
+      }
+    }
   }
 
   function closeSession(id) {
@@ -1843,6 +2068,7 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
   }
 
   function closeSymbolPanel() {
+    const snapshot = state.symbolPanel.scrollSnapshot
     state.symbolPanel = { open: false, sessions: [], activeId: null }
     clearActiveFlash()
     const panel = $('[data-symbol-panel]')
@@ -1852,10 +2078,18 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
     }
     root.classList.remove('has-symbol-panel')
     clearSymbolHighlights()
-    // Panel floats over the diff body (no padding-right shift in CSS), so
-    // closing it doesn't reflow the body. Whatever cell the user was on is
-    // still at the same viewport position — the panel just stops covering
-    // the right edge.
+    // Restore the diff-body scroll position captured when the panel first
+    // opened. Without this, any match-row scrollIntoView the user invoked
+    // while the panel was open (or any horizontal pan they did inside the
+    // panel) leaves them stranded — on mobile with Wrap off, a 1500px
+    // scrollLeft renders most short lines as bare bg, looking like a bug.
+    if (snapshot) {
+      const body = $('[data-body]')
+      if (body) {
+        body.scrollLeft = snapshot.left
+        body.scrollTop = snapshot.top
+      }
+    }
   }
 
   function scrollToMatch(sessionId, path, line, side) {
@@ -1869,6 +2103,13 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
     }
     session.currentAnchor = { path, line, side }
     scrollToDiffCell(path, line, side)
+    // User navigated to a match — drop the pre-panel scroll snapshot so
+    // close/minimize doesn't snap them back to where they were before
+    // opening the panel. On mobile this is critical because the active
+    // panel covers the whole viewport: the scroll happens immediately but
+    // the user can't see the result until they minimize/close, at which
+    // point an unconditional restore would silently undo the jump.
+    state.symbolPanel.scrollSnapshot = null
     renderSymbolPanel()
   }
 
@@ -1878,6 +2119,7 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
     const target = session.jumpStack.pop()
     session.currentAnchor = target
     scrollToDiffCell(target.path, target.line, target.side)
+    state.symbolPanel.scrollSnapshot = null
     renderSymbolPanel()
   }
 
@@ -1891,6 +2133,7 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
     session.jumpStack = []
     session.currentAnchor = target
     scrollToDiffCell(target.path, target.line, target.side)
+    state.symbolPanel.scrollSnapshot = null
     renderSymbolPanel()
   }
 
@@ -2139,7 +2382,7 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
     const editor = document.createElement('tr')
     editor.className = 'diff-row diff-row-editor'
     editor.innerHTML =
-      '<td colspan="4" class="diff-editor-cell">' +
+      `<td${isMobileDiffView() ? '' : ' colspan="4"'} class="diff-editor-cell">` +
         '<div class="diff-editor">' +
           `<div class="diff-editor-anchor">${escapeHtml(rangeLabel)} <span class="diff-editor-side">(${escapeHtml(side)})</span></div>` +
           `<textarea class="diff-editor-input" rows="3" placeholder="${escapeHtml(placeholder)}"></textarea>` +
@@ -2290,6 +2533,13 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
         `<td class="diff-no diff-no-old" data-side="old" data-line="${oldLine}" data-path="${pathAttr}">${oldLine}</td>` +
         `<td class="diff-text diff-context" data-side="old" data-line="${oldLine}" data-path="${pathAttr}" data-sha="${sha}"><span class="diff-marker"> </span><span class="diff-line">${html}</span></td>` +
         `<td class="diff-no diff-no-new" data-side="new" data-line="${newLine}" data-path="${pathAttr}">${newLine}</td>` +
+        `<td class="diff-text diff-context" data-side="new" data-line="${newLine}" data-path="${pathAttr}" data-sha="${sha}"><span class="diff-marker"> </span><span class="diff-line">${html}</span></td>` +
+      `</tr>`
+    }
+    if (isMobileDiffView()) {
+      // Mobile inline: single text col, no gutter cells (see
+      // renderHunkInline mobile branch for the matching primary-row shape).
+      return `<tr class="diff-row" data-pair-kind="context" data-expanded="1">` +
         `<td class="diff-text diff-context" data-side="new" data-line="${newLine}" data-path="${pathAttr}" data-sha="${sha}"><span class="diff-marker"> </span><span class="diff-line">${html}</span></td>` +
       `</tr>`
     }
@@ -3710,7 +3960,7 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
       .join('')
 
     tr.innerHTML =
-      '<td colspan="4" class="diff-thread-cell">' +
+      `<td${isMobileDiffView() ? '' : ' colspan="4"'} class="diff-thread-cell">` +
         `<div class="diff-thread ${stateClass}${jumpedFrom}" data-thread-id="${escapeHtml(thread.id)}">` +
           `<div class="diff-thread-comments">${commentsHtml}</div>` +
         '</div>' +

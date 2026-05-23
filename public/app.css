@@ -2032,11 +2032,22 @@ a.card-file:hover .card-file-mark {
   background: var(--accent);
   color: #ffffff;
 }
+/* renderBody defaults mobile to inline (diff.js:462), so the toggle is dead
+   chrome there — every column hidden by the gutter rule already constrains
+   the viewport to a single text track, so split has nothing meaningful to
+   offer on a phone. */
+@media (max-width: 768px) {
+  .diff-view-toggle { display: none; }
+}
 
 .diff-close { position: static; }
 
 .diff-body {
   flex: 1 1 auto;
+  min-width: 0;                  /* see comment in main flex chain — without
+                                    this the table's intrinsic content-min
+                                    width pushes diff-body past the viewport,
+                                    and overflow:auto can't kick in. */
   min-height: 0;
   overflow: auto;
   overflow-anchor: none;
@@ -2555,9 +2566,9 @@ a.card-file:hover .card-file-mark {
 }
 .diff-col-no   { width: 52px; }
 .diff-col-text { width: auto; }    /* text cols share remaining width equally */
-@media (max-width: 768px) {
-  .diff-col-no { width: 38px; }
-}
+/* Mobile gutter handling lives in the larger @media block below (search for
+   ".diff-no" inside @media (max-width: 768px)) so it sits AFTER the
+   default .diff-no rule and wins the cascade naturally. */
 
 .diff-row { vertical-align: top; }
 
@@ -2986,8 +2997,18 @@ a.card-file:hover .card-file-mark {
 @media (max-width: 768px) {
   /* On phones the active session takes the full width — the parked strips
      still stack at 32px each to its left, but realistically you won't have
-     many parked at once on a phone screen. */
-  .diff-symbol-panel       { width: 100%; }
+     many parked at once on a phone screen.
+
+     With ONLY parked sessions (panel minimized, no expanded session) the
+     panel shrinks to fit the strips instead of claiming the full viewport
+     width. Otherwise the empty area between strips and the right edge of
+     the screen would silently absorb touches that the user wanted to send
+     to the diff body underneath. Belt-and-suspenders: pointer-events on
+     the panel itself drops to none so even the gaps between strips fall
+     through; the strips re-enable pointer-events on themselves. */
+  .diff-symbol-panel       { width: 100%; pointer-events: none; }
+  .diff-symbol-panel:not(:has(.is-active)) { width: auto; }
+  .diff-symbol-session     { pointer-events: auto; }
   .diff-symbol-session.is-active {
     width: 100%;
     box-shadow: none;
@@ -3085,6 +3106,11 @@ a.card-file:hover .card-file-mark {
   .diff-headline { font-size: 14px; }
   .diff-body { padding: 10px; }
   .diff-body > * { max-width: 100%; }                /* let mobile fill the viewport */
+  /* Gutter cells, when shown on mobile, get the original tight sizing.
+     When the Line # toggle is OFF, the JS render path skips emitting the
+     cells entirely (renderHunkInline mobile branch) so this rule applies
+     only to the "Line # ON" state. */
+  .diff-col-no { width: 38px; }
   .diff-no { font-size: 10px; padding: 1px 4px 1px 2px; }
   .diff-table { font-size: 12px; }
   .diff-file-head { top: -10px; }
@@ -3189,6 +3215,40 @@ a.card-file:hover .card-file-mark {
 .diff-comment-cta-actions {
   display: flex;
   gap: 8px;
+}
+/* Narrow viewports: stack the label above the actions and let the actions
+   row wrap. Four buttons (Cancel / Peek HEAD / Copy lines / Add comment) at
+   ~85px each plus gaps total ~380px, overflowing a 375px phone by a hair —
+   wrapping is the smallest fix that keeps every button reachable without
+   horizontal panning. */
+@media (max-width: 768px) {
+  /* Pin spliced-row CONTENT to the visible left edge of .diff-body. With
+     Wrap OFF + Line # ON, the table can be 2000+px wide; the CTA and
+     editor cells inherit that width via colspan=4 and their interactive
+     buttons would drift off-screen with the table's right edge. Anchor
+     the inner flex container with position: sticky so it follows the
+     user's horizontal scroll, width-capped to the viewport.
+
+     Thread rows are NOT in this rule on purpose: a thread is read-only
+     informational content, no buttons to reach, and forcing the cell
+     width via the child div was making the whole table render at 800+px
+     even with Wrap ON (cell shrink-to-content was overriding table-layout:
+     fixed). Threads use their existing max-width to stay readable. */
+  .diff-row-comment-cta .diff-comment-cta,
+  .diff-row-editor      .diff-editor {
+    position: sticky;
+    left: 8px;
+    width: calc(100vw - 32px);
+    max-width: calc(100vw - 32px);
+  }
+  .diff-comment-cta {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .diff-comment-cta-actions {
+    flex-wrap: wrap;
+    justify-content: flex-end;
+  }
 }
 
 /* Multi-line thread range ribbon — analogous to the selection ribbon, but
@@ -3705,20 +3765,101 @@ a.card-file:hover .card-file-mark {
 /* slop-review: diff as a regular page, not a modal           */
 /* ———————————————————————————————————————————————————————— */
 
-/* When a diff page is mounted, main shouldn't add its outer padding.
-   `:has()` keeps the carve-out scoped — other pages keep the padding. */
+/* When a diff page is mounted, the whole document lays out as a single-
+   viewport flex column: body fills exactly 100dvh (no overshoot, no body
+   scroll-band below content), install-banner takes its natural height
+   above main, main fills the remainder. .diff-page then takes its share
+   from main. Without flex, `height: 100dvh` on .diff-page would extend
+   past the viewport bottom by the banner's height, hiding the symbol
+   panel's close button and other bottom-anchored controls. `:has()`
+   scopes the carve-out — other pages stay on the default padded layout. */
+body:has(.diff-page) {
+  min-height: 100dvh;
+  height: 100dvh;
+  display: flex;
+  flex-direction: column;
+}
 body:has(.diff-page) main {
-  padding: 0;
-  max-width: none;
+  flex: 1 1 auto;
+  width: 100%;                   /* explicit cross-axis clamp — flex-item */
+  min-width: 0;                  /*   default min-width:auto would let an */
+  min-height: 0;                 /*   intrinsic-wide cell (long hunk header) */
+  padding: 0;                    /*   grow main past body, so we set both */
+  max-width: 100%;               /*   width and max-width to 100% and floor */
+  display: flex;                 /*   min-width at 0 to allow the same */
+  flex-direction: column;        /*   shrink behavior on every link. */
 }
 
 .diff-page {
   position: relative;            /* containing block for the symbol panel */
-  height: calc(100dvh - 56px);   /* fill below the sticky app header */
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   background: var(--bg);
   overflow: hidden;              /* let .diff-body own the scroll */
+}
+/* Line-wrap toggle: when .no-wrap is on .diff-page, code cells preserve
+   whitespace strictly (no soft-wrapping of long lines), AND the table
+   widens to fit its longest line so .diff-body's overflow: auto can
+   provide horizontal scroll. table-layout switches from `fixed` (col
+   widths driven by colgroup) to `auto` (col widths driven by content)
+   because fixed-layout otherwise locks the table to its container width
+   regardless of how long any cell's content is. Without the class, the
+   default pre-wrap folds long lines so they fit the cell width — the
+   right default for narrow viewports. */
+.diff-page.no-wrap .diff-text,
+.diff-page.no-wrap .diff-line {
+  white-space: pre;
+  overflow-wrap: normal;
+  word-break: normal;
+}
+.diff-page.no-wrap .diff-table {
+  width: max-content;
+  min-width: 100%;
+  table-layout: auto;
+}
+/* No-wrap horizontal scroll is PER-FILE. .diff-body owns vertical scroll
+   (move between files); each .diff-file-body owns horizontal scroll
+   (read long lines within a file). Avoids dragging the threads-filter
+   strip and page-level chrome around when the user pans horizontally to
+   read a long line. */
+.diff-page.no-wrap .diff-body { overflow-x: hidden; }
+.diff-page.no-wrap .diff-file-body { overflow-x: auto; }
+
+/* Wrap toggle — native checkbox + label so the state is conveyed by the
+   checkbox tick rather than a button's active styling. accent-color paints
+   the box in the app's indigo when checked. On mobile, margin-right: auto
+   pushes it to the LEFT edge of the actions cluster while Overview stays
+   right, reclaiming the empty space the user pointed at. */
+.diff-wrap-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 4px;
+  font-family: var(--font-sans);
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--fg-soft);
+  cursor: pointer;
+  user-select: none;
+}
+.diff-wrap-toggle:hover { color: var(--ink); }
+.diff-wrap-toggle input[type="checkbox"] {
+  accent-color: var(--accent);
+  margin: 0;
+  cursor: pointer;
+}
+.diff-wrap-toggle:has(input:checked) { color: var(--ink); }
+@media (max-width: 768px) {
+  /* Only the *last* toggle gets the auto margin — that pushes the overview
+     link to the right edge while the toggles cluster at the left. Applying
+     margin-right: auto to every toggle would have the first one absorb all
+     free space and leave its siblings stranded mid-row. The adjacent-sibling
+     selector matches "any toggle that follows another toggle" — i.e. the
+     trailing one, regardless of how many we add later. */
+  .diff-wrap-toggle:last-of-type { margin-right: auto; }
 }
 
 /* Page-version body padding intentionally unchanged when the symbol panel
@@ -4380,4 +4521,22 @@ body:has(.diff-page) main {
 .install-banner-close:hover {
   background: color-mix(in srgb, var(--fg-muted) 14%, transparent);
   color: var(--ink);
+}
+
+/* iOS Safari auto-zooms whenever a focused input/textarea has font-size <
+   16px, and never reverses the zoom on blur — that's both the magnify-on-tap
+   and the band of bare --bg that lingers below the document once the keyboard
+   dismisses. Bump every composer input to the 16px threshold on touch widths
+   so the browser leaves the zoom alone. Lives at end-of-file so the cascade
+   beats the per-component rules (.diff-editor-input, .msg-edit-input,
+   .diff-thread-edit-input) that ship later in the stylesheet at the same
+   specificity. */
+@media (max-width: 720px) {
+  input[type=text], input[type=number], textarea,
+  .diff-editor-input,
+  .msg-edit-input,
+  .diff-thread-edit-input,
+  .thread-reply-input {
+    font-size: 16px;
+  }
 }
