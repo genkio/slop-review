@@ -489,6 +489,184 @@ export async function getHeadPreview(repoPath, commitSha, path, commitLine, cont
   }
 }
 
+// Symbol shape gate: bare identifiers only. Anything with punctuation,
+// whitespace, or zero/over-length is rejected before it reaches `git grep`,
+// which keeps the regex builders below safe to interpolate without escaping.
+const SYMBOL_RE = /^[A-Za-z_][A-Za-z0-9_]*$/
+
+export function isValidSymbol(s) {
+  return typeof s === 'string' && s.length > 0 && s.length <= 200 && SYMBOL_RE.test(s)
+}
+
+// Server-side language detection — mirrors `languageForPath` in
+// public/syntax.js. Kept in sync by hand (the server has no module
+// access to the client bundle). If you add a language here, mirror it
+// there too, and vice versa.
+function langForPath(path) {
+  if (!path) return null
+  const lower = path.toLowerCase()
+  const base = lower.split('/').pop() || ''
+  const ext = base.includes('.') ? base.split('.').pop() : ''
+  switch (ext) {
+    case 'ts': case 'tsx': case 'mts': case 'cts': case 'd': return 'typescript'
+    case 'js': case 'jsx': case 'mjs': case 'cjs':           return 'javascript'
+    case 'py': case 'pyi': return 'python'
+    case 'go':             return 'go'
+    case 'rs':             return 'rust'
+    case 'java': case 'kt': case 'scala': case 'cs': return 'java'
+    case 'c': case 'h': case 'cpp': case 'cc': case 'cxx': case 'hpp': case 'hxx': return 'c'
+    case 'sh': case 'bash': case 'zsh': case 'ksh': return 'bash'
+    default: return null
+  }
+}
+
+// Per-language "this line shape introduces NAME" matchers. Each entry is
+// `(name) => RegExp`; we pass the validated symbol through SYMBOL_RE so
+// interpolating it raw into the regex is safe (no escaping needed).
+//
+// A null entry means "no def heuristic for this language" — the search
+// still finds occurrences via `git grep -w`, but the no-def-shaped fallback
+// (first occurrence anywhere) wins instead of a structural definition.
+const DEF_PATTERNS = {
+  // TS / JS: function / class / interface / type / enum / const|let|var
+  // declarations at any indentation, with optional `export [default]`
+  // and `async` prefixes. Covers ~all top-level declaration shapes; misses
+  // method definitions inside classes (intentional — too easy to false-positive
+  // on call sites that happen to start a line).
+  typescript: (n) => new RegExp(
+    `^[\\t ]*(?:export[\\t ]+(?:default[\\t ]+)?)?(?:async[\\t ]+)?` +
+    `(?:function[\\t ]+${n}\\b` +
+    `|class[\\t ]+${n}\\b` +
+    `|interface[\\t ]+${n}\\b` +
+    `|type[\\t ]+${n}\\b` +
+    `|enum[\\t ]+${n}\\b` +
+    `|(?:const|let|var)[\\t ]+${n}\\b)`,
+  ),
+  // TODO(human): add a Python definition matcher.
+  //
+  // Decide which line shapes count as "introducing NAME" — at minimum
+  // `def NAME(...)` and `class NAME(...)`, but consider:
+  //   - `async def NAME(...)`
+  //   - `NAME = ...` at module level (broad; risks false positives on
+  //     assignments inside functions)
+  // Return a RegExp built around the validated NAME (no escaping needed).
+  // Use POSIX-style anchoring (`^[\t ]*`) and a trailing `\b` after NAME
+  // so `foo_bar` doesn't match when looking for `foo`. Mirror the TS
+  // shape above as a starting point.
+  python: null,
+
+  go: (n) => new RegExp(
+    `^(?:func[\\t ]+(?:\\([^)]*\\)[\\t ]+)?${n}\\b` +
+    `|type[\\t ]+${n}\\b` +
+    `|var[\\t ]+${n}\\b` +
+    `|const[\\t ]+${n}\\b)`,
+  ),
+  rust: (n) => new RegExp(
+    `^[\\t ]*(?:pub(?:\\([^)]*\\))?[\\t ]+)?(?:async[\\t ]+)?` +
+    `(?:fn[\\t ]+${n}\\b` +
+    `|struct[\\t ]+${n}\\b` +
+    `|enum[\\t ]+${n}\\b` +
+    `|trait[\\t ]+${n}\\b` +
+    `|impl[\\t ]+${n}\\b` +
+    `|mod[\\t ]+${n}\\b` +
+    `|type[\\t ]+${n}\\b` +
+    `|(?:const|static)[\\t ]+${n}\\b)`,
+  ),
+}
+DEF_PATTERNS.javascript = DEF_PATTERNS.typescript
+
+const REVIEW_PATHSPEC = ':(exclude).reviews/**'
+
+/**
+ * Find where `symbol` is *defined* across the repo at HEAD, then return
+ * a window of source lines centred on (a few above, many below) the
+ * winning def. Powers the symbol panel's header card — what the user
+ * dblclicks may not have its definition in the diff text at all, so a
+ * client-side regex over the current view misses it. We do the lookup
+ * here once on panel open, cache the result on the session.
+ *
+ * Strategy: `git grep -nwF` for the exact word, walk results in path/line
+ * order, score each line against the file's language def regex. First
+ * def-shaped hit wins; fallback to first occurrence anywhere if no
+ * language matched. The .reviews/ pathspec is excluded so review-thread
+ * JSON doesn't crowd the results when reviewing slop-review itself.
+ *
+ * Output shape:
+ *   { found: true, ref, path, line, lang, is_def, snippet: { start, end, lines, total_lines } }
+ *   { found: false, reason: 'no-matches' | 'invalid-symbol' }
+ */
+export async function findSymbolDefinition(repoPath, symbol, opts = {}) {
+  if (!isValidSymbol(symbol)) return { found: false, reason: 'invalid-symbol' }
+  const before = Math.max(0, Math.min(20,  Number(opts.before) || 5))
+  const after  = Math.max(0, Math.min(200, Number(opts.after)  || 40))
+
+  let grepOut
+  try {
+    const res = await git(repoPath, [
+      'grep', '-n', '-w', '-F', '--no-color', '-I',
+      '-e', symbol, 'HEAD',
+      '--', '.', REVIEW_PATHSPEC,
+    ])
+    grepOut = res.stdout
+  } catch (e) {
+    // `git grep` exits 1 when there are no matches — that's not an error.
+    // Anything else (128 for repo errors, signals, etc.) bubbles up.
+    if (e && (e.code === 1 || e.code === '1')) return { found: false, reason: 'no-matches' }
+    throw e
+  }
+
+  // Format: `HEAD:path:lineno:content` — content may itself contain ':',
+  // so we slice on the first three colons only.
+  let firstAny = null
+  let defHit   = null
+  for (const raw of grepOut.split('\n')) {
+    if (!raw) continue
+    const c1 = raw.indexOf(':')
+    if (c1 < 0) continue
+    const c2 = raw.indexOf(':', c1 + 1)
+    if (c2 < 0) continue
+    const c3 = raw.indexOf(':', c2 + 1)
+    if (c3 < 0) continue
+    const path = raw.slice(c1 + 1, c2)
+    const lineNo = Number(raw.slice(c2 + 1, c3))
+    const content = raw.slice(c3 + 1)
+    if (!Number.isFinite(lineNo) || lineNo < 1) continue
+    const lang = langForPath(path)
+    if (!firstAny) firstAny = { path, line: lineNo, lang }
+    const builder = DEF_PATTERNS[lang]
+    if (!builder) continue
+    const re = builder(symbol)
+    if (!re.test(content)) continue
+    defHit = { path, line: lineNo, lang }
+    break
+  }
+
+  const winner = defHit || firstAny
+  if (!winner) return { found: false, reason: 'no-matches' }
+
+  const start = Math.max(1, winner.line - before)
+  const end   = winner.line + after
+  const win = await getFileLines(repoPath, 'HEAD', winner.path, start, end)
+  if (win.missing || win.binary) {
+    return { found: false, reason: win.binary ? 'binary' : 'missing' }
+  }
+
+  return {
+    found: true,
+    ref: 'HEAD',
+    path: winner.path,
+    line: winner.line,
+    lang: winner.lang,
+    is_def: !!defHit,
+    snippet: {
+      start: win.start,
+      end: win.end,
+      lines: win.lines,
+      total_lines: win.total_lines,
+    },
+  }
+}
+
 /**
  * Get the per-commit diff. Returns the same `files[]` shape as the
  * full/local diff endpoints so the frontend renderer can consume any

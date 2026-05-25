@@ -1918,6 +1918,14 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
     }
     if (action === 'minimize') { minimizeActive(); return }
     if (action === 'restore')  { activateSession(sessionId); return }
+    if (action === 'toggle-def') {
+      const session = getSession(sessionId)
+      if (session && session.definition?.state === 'found') {
+        session.definitionExpanded = !session.definitionExpanded
+        renderSymbolPanel()
+      }
+      return
+    }
     // Match click in the active session's list.
     const matchEl = e.target.closest('[data-path][data-line][data-side]')
     if (matchEl) {
@@ -1998,6 +2006,13 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
       currentPath,
       jumpStack: [],
       currentAnchor: anchor,
+      // Server-fetched "where is this defined at HEAD" snippet. Stays
+      // 'loading' through the round trip and renders as a placeholder
+      // chip; settles to 'found' / 'missing' / 'invalid' / 'error' once
+      // /api/.../symbol-def replies. Collapsed by default — the user
+      // expands explicitly because long bodies can dominate the panel.
+      definition: { state: 'loading' },
+      definitionExpanded: false,
     }
     // Snapshot the diff-body scroll position before the panel renders so we
     // can restore it on close. With Wrap off + Line # on, long lines extend
@@ -2018,6 +2033,40 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
     root.classList.add('has-symbol-panel', 'disable-content-visibility')
     renderSymbolPanel()
     applySymbolHighlights()
+    fetchSymbolDefinition(session.id, symbol)
+  }
+
+  // Validate client-side first so we don't issue a round-trip for things
+  // the server will reject anyway (selections containing dots, whitespace,
+  // operators). Same shape gate the server uses.
+  const SYMBOL_RE = /^[A-Za-z_][A-Za-z0-9_]*$/
+
+  async function fetchSymbolDefinition(sessionId, symbol) {
+    if (!SYMBOL_RE.test(symbol)) {
+      setSessionDefinition(sessionId, { state: 'invalid' })
+      return
+    }
+    try {
+      const qs = new URLSearchParams({ name: symbol })
+      const data = await api(`/api/repos/${encodeURIComponent(repo.id)}/symbol-def?${qs}`)
+      if (data.found) {
+        setSessionDefinition(sessionId, { state: 'found', ...data })
+      } else {
+        setSessionDefinition(sessionId, { state: 'missing', reason: data.reason || null })
+      }
+    } catch {
+      setSessionDefinition(sessionId, { state: 'error' })
+    }
+  }
+
+  function setSessionDefinition(sessionId, definition) {
+    const session = getSession(sessionId)
+    if (!session) return  // session was closed before the fetch resolved
+    session.definition = definition
+    // Only re-render when *this* session is what the user is looking at;
+    // background fetches for parked sessions shouldn't reflow the active
+    // panel.
+    if (state.symbolPanel.activeId === sessionId) renderSymbolPanel()
   }
 
   function activateSession(id) {
@@ -2217,8 +2266,62 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
         `<button type="button" class="diff-symbol-minimize" data-action="minimize" title="Minimize (Esc)" aria-label="Minimize panel">−</button>` +
         `<button type="button" class="diff-symbol-close" data-action="close" aria-label="Close panel">×</button>` +
       `</header>` +
+      renderDefinitionHeader(session) +
       `<div class="diff-symbol-list">${listHtml}</div>` +
     `</section>`
+  }
+
+  // Collapsible "definition at HEAD" card pinned above the matches list.
+  // Four observable states:
+  //   loading  — in-flight fetch, shows a quiet spinner-pill placeholder
+  //   found    — clickable header with file:line, expandable to show the
+  //              snippet (line-numbered, syntax-highlighted via syntax.js)
+  //   missing  — terse "not found" chip; no expand
+  //   invalid  — symbol shape rejected client-side (had punctuation etc.)
+  //   error    — server 5xx; collapsed pill, no expand
+  // The 'is_def: false' subcase still renders as "found" but labels the
+  // anchor as "first occurrence" rather than "Defined in" so the user
+  // isn't misled when the heuristic regex didn't fire (e.g. methods inside
+  // classes, comments, languages with no DEF_PATTERN entry).
+  function renderDefinitionHeader(session) {
+    const def = session.definition
+    if (!def || def.state === 'invalid') return ''  // hide entirely — symbol selection wasn't a bare identifier
+
+    if (def.state === 'loading') {
+      return `<div class="diff-symbol-def is-loading"><span class="diff-symbol-def-spinner"></span>Looking up definition…</div>`
+    }
+    if (def.state === 'error') {
+      return `<div class="diff-symbol-def is-error">Definition lookup failed.</div>`
+    }
+    if (def.state === 'missing') {
+      return `<div class="diff-symbol-def is-missing">No definition found at HEAD.</div>`
+    }
+    // state === 'found'
+    const expanded = !!session.definitionExpanded
+    const loc      = `${def.path}:${def.line}`
+    const label    = def.is_def ? 'Defined in' : 'First occurrence in'
+    let bodyHtml = ''
+    if (expanded) {
+      const rows = def.snippet.lines.map((text, i) => {
+        const isAnchor = (def.snippet.start + i) === def.line
+        const lineHtml = highlightLine(text, def.lang)
+        return `<div class="diff-symbol-def-row${isAnchor ? ' is-anchor' : ''}">` +
+          `<code class="diff-symbol-def-code">${lineHtml || '&nbsp;'}</code>` +
+        `</div>`
+      }).join('')
+      const moreBelow = def.snippet.end < def.snippet.total_lines
+      bodyHtml = `<div class="diff-symbol-def-body">${rows}` +
+        (moreBelow ? `<div class="diff-symbol-def-truncated">… ${def.snippet.total_lines - def.snippet.end} more line${def.snippet.total_lines - def.snippet.end === 1 ? '' : 's'} in file</div>` : '') +
+      `</div>`
+    }
+    return `<div class="diff-symbol-def is-found${expanded ? ' is-expanded' : ''}">` +
+      `<button type="button" class="diff-symbol-def-head" data-action="toggle-def" aria-expanded="${expanded ? 'true' : 'false'}">` +
+        `<span class="diff-symbol-def-chevron" aria-hidden="true">${expanded ? '▾' : '▸'}</span>` +
+        `<span class="diff-symbol-def-label">${label}</span>` +
+        `<code class="diff-symbol-def-loc" title="${escapeHtml(loc)}">${escapeHtml(loc)}</code>` +
+      `</button>` +
+      bodyHtml +
+    `</div>`
   }
 
   function renderMinimizedSession(session) {

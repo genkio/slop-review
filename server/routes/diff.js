@@ -1,5 +1,6 @@
 import { loadState, findRepo } from '../state.js'
 import {
+  findSymbolDefinition,
   getBranchInfo,
   getCommits,
   getCommitDiff,
@@ -9,6 +10,7 @@ import {
   getLocalDiff,
   getOriginUrl,
   isValidSha,
+  isValidSymbol,
 } from '../git.js'
 import { parseRemoteUrl, getPullRequestUrl } from '../host.js'
 import {
@@ -151,6 +153,29 @@ export function registerDiffRoutes(app) {
       return c.json({ ref, path, ...out })
     } catch (e) {
       return c.json({ error: e.message || 'file-lines failed' }, 500)
+    }
+  })
+
+  // Find a symbol's definition across the repo at HEAD, return a window of
+  // surrounding lines. The client fires this once per symbol-panel session
+  // (on dblclick) and renders the snippet as a collapsible header above
+  // the in-diff matches. `name` is gated to bare identifiers — anything
+  // shaped wrong gets a 400 rather than running grep.
+  app.get('/api/repos/:id/symbol-def', async (c) => {
+    const { repo, error } = await withRepo(c)
+    if (error) return error
+    const name = c.req.query('name')
+    if (!name) return c.json({ error: 'name required' }, 400)
+    if (!isValidSymbol(name)) return c.json({ error: 'invalid symbol' }, 400)
+    const beforeRaw = c.req.query('before')
+    const afterRaw  = c.req.query('after')
+    const before = beforeRaw != null ? Number(beforeRaw) : undefined
+    const after  = afterRaw  != null ? Number(afterRaw)  : undefined
+    try {
+      const out = await findSymbolDefinition(repo.path, name, { before, after })
+      return c.json(out)
+    } catch (e) {
+      return c.json({ error: e.message || 'symbol-def failed' }, 500)
     }
   })
 

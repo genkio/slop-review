@@ -2875,6 +2875,115 @@ a.card-file:hover .card-file-mark {
   box-shadow: inset 3px 0 0 0 color-mix(in srgb, var(--lane-explain) 65%, transparent);
 }
 
+/* "Defined in / first occurrence in" card pinned above the matches list.
+   Three structural states (.is-loading, .is-missing/.is-error, .is-found)
+   share the outer container so layout doesn't jump as the fetch settles.
+   The found-state header is a button so keyboard users can toggle expand
+   with Enter/Space — semantically a disclosure widget. The body, when
+   expanded, renders as a tight line-numbered code block; the anchor line
+   gets a left-edge ribbon mirroring the in-diff hit-ribbon idiom. */
+.diff-symbol-def {
+  flex: 0 0 auto;
+  border-bottom: 1px solid var(--hairline);
+  font-family: var(--font-sans);
+  font-size: 11px;
+  color: var(--fg-muted);
+  background: var(--bg-deep);
+}
+.diff-symbol-def.is-loading,
+.diff-symbol-def.is-missing,
+.diff-symbol-def.is-error {
+  padding: 8px 14px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.diff-symbol-def-spinner {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  border: 1.5px solid var(--hairline);
+  border-top-color: var(--lane-explain);
+  animation: diff-symbol-def-spin 700ms linear infinite;
+  flex: 0 0 auto;
+}
+@keyframes diff-symbol-def-spin {
+  to { transform: rotate(360deg); }
+}
+.diff-symbol-def-head {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+}
+.diff-symbol-def-head:hover { background: color-mix(in srgb, var(--lane-explain) 5%, transparent); }
+.diff-symbol-def-head:focus-visible {
+  outline: 2px solid var(--lane-explain);
+  outline-offset: -2px;
+}
+.diff-symbol-def-chevron {
+  font-size: 12px;
+  color: var(--lane-explain);
+  width: 10px;
+  flex: 0 0 auto;
+  line-height: 1;
+}
+.diff-symbol-def-label {
+  color: var(--fg-muted);
+  flex: 0 0 auto;
+}
+.diff-symbol-def-loc {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--ink);
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+.diff-symbol-def-body {
+  max-height: 320px;
+  overflow: auto;
+  padding: 6px 0 8px;
+  background: var(--card);
+  border-top: 1px solid var(--hairline);
+}
+.diff-symbol-def-row {
+  display: flex;
+  align-items: flex-start;
+  padding: 0 14px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.45;
+  /* `pre` (not `nowrap`) so leading whitespace survives — `nowrap` collapses
+     runs of spaces along with line breaks, flattening indentation. */
+  white-space: pre;
+}
+.diff-symbol-def-row.is-anchor {
+  background: color-mix(in srgb, var(--lane-explain) 8%, transparent);
+  box-shadow: inset 3px 0 0 0 color-mix(in srgb, var(--lane-explain) 65%, transparent);
+}
+.diff-symbol-def-code {
+  color: var(--ink);
+  flex: 1 1 auto;
+  overflow: visible;
+}
+.diff-symbol-def-truncated {
+  padding: 6px 14px 0;
+  color: var(--fg-muted);
+  font-family: var(--font-sans);
+  font-size: 10px;
+  font-style: italic;
+}
+
 .diff-symbol-list {
   flex: 1 1 auto;
   overflow: auto;
