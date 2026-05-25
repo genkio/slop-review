@@ -3852,6 +3852,12 @@ body:has(.diff-page) main {
   cursor: pointer;
 }
 .diff-wrap-toggle:has(input:checked) { color: var(--ink); }
+/* Desktop default (wrap off, linenums on) already matches the optimal reading
+   mode on a wide viewport, and the toggles add visual noise to the actions
+   cluster. Mirror of .diff-view-toggle's hide-on-mobile rule above. */
+@media (min-width: 769px) {
+  .diff-wrap-toggle { display: none; }
+}
 @media (max-width: 768px) {
   /* Only the *last* toggle gets the auto margin — that pushes the overview
      link to the right edge while the toggles cluster at the left. Applying
