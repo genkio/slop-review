@@ -1,6 +1,7 @@
 import { readFile, writeFile, rename, chmod, mkdir, readdir, unlink } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
+import { createHash } from 'node:crypto'
 
 // All comments authored on the developer's behalf (via the slop-review
 // web UI's create-thread + reply flows) carry this role marker as their
@@ -190,5 +191,11 @@ export async function listThreadsWithState(repoPath, branchId) {
     state: deriveState(t),
     last_comment_at: t.comments?.[t.comments.length - 1]?.posted_at || t.created_at || null,
     file_name: fileNameFor(t),
+    // SHA-256 of the file path, pre-computed on the server so the client
+    // can synthesize GitHub PR deep-links (`#diff-<sha>R<line>`) without
+    // touching WebCrypto. SubtleCrypto requires a secure context, so it
+    // is unavailable when slop-review is reached over a LAN IP from a
+    // mobile device. Server-side Node `crypto` has no such constraint.
+    path_sha256: t.file ? createHash('sha256').update(t.file).digest('hex') : null,
   }))
 }

@@ -1,5 +1,5 @@
 import { api } from './api.js'
-import { escapeHtml, inlineCode, relTime, toast, copyToClipboard, formatLineRange } from './util.js'
+import { escapeHtml, inlineCode, relTime, toast, copyToClipboard, formatLineRange, buildForgeDeepLinkFromSha } from './util.js'
 import { languageForPath, highlightLine } from './syntax.js'
 
 export function makeModal(innerHtml, opts = {}) {
@@ -252,7 +252,7 @@ function renderHeadPreviewBody(data, { path, line }) {
  * re-aim its scroll (the diff page jumps to the new anchor).
  */
 export function openThreadModal(threadId, opts = {}) {
-  const { repoId, getThread, onChanged, onRead, onClose, onNavigate, threadOrder } = opts
+  const { repoId, getThread, onChanged, onRead, onClose, onNavigate, threadOrder, prInfo } = opts
   if (!repoId || !getThread) {
     toast('Cannot open thread (missing context)')
     return
@@ -359,8 +359,26 @@ export function openThreadModal(threadId, opts = {}) {
     // to consume slack and push itself + the position label to the right
     // edge. One row instead of three (was: head + filename + sub) so the
     // meta block doesn't waste vertical space.
+    //
+    // The file:line label upgrades to a forge deep-link when prInfo
+    // resolved a GitHub PR for the branch (same destination as the CTA
+    // "GitHub" button). URL is synthesized synchronously from the
+    // server-attached `thread.path_sha256`, so the rendered `<a>` has a
+    // real href: hover preview, middle-click, copy-link-address all work
+    // as a regular external link.
+    const forgeUrl = buildForgeDeepLinkFromSha({
+      host: prInfo?.host,
+      prUrl: prInfo?.pr_url,
+      pathSha256: thread.path_sha256,
+      lineStart: thread.line,
+      lineEnd: thread.line_end || thread.line,
+      side: thread.side || 'new',
+    })
+    const subLabelEl = forgeUrl
+      ? `<a href="${escapeHtml(forgeUrl)}" class="thread-modal-sub-label" target="_blank" rel="noopener noreferrer">${escapeHtml(subLabel)}${sideTagHtml}</a>`
+      : `<span class="thread-modal-sub-label">${escapeHtml(subLabel)}${sideTagHtml}</span>`
     const subHtml = `<div class="sub">
-      <span class="thread-modal-sub-label">${escapeHtml(subLabel)}${sideTagHtml}</span>
+      ${subLabelEl}
       ${filenameBtn}
       ${positionHtml}
     </div>`

@@ -4375,6 +4375,10 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
     openThreadModal(tid, {
       repoId: repo.id,
       getThread: (id) => state.threads.find((t) => t.id === id),
+      // Lets the modal upgrade its file:line sub-label into a forge
+      // deep-link (same URL the CTA "GitHub" button produces). Null
+      // when no PR/host is resolved; the modal degrades to plain text.
+      prInfo: state.prInfo,
       // View-scoped order: threads belonging to the current view (no
       // on-open swap any more — see above), in (file, line, id) document
       // order. The modal's prev/next and "N of M" position label stay

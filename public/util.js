@@ -227,3 +227,27 @@ export async function buildForgeDeepLink({ host, prUrl, path, lineStart, lineEnd
   }
 }
 
+/**
+ * Sync variant for callers that already have the SHA-256 of `path`
+ * pre-computed (e.g. server-attached `thread.path_sha256`). Avoids the
+ * SubtleCrypto round-trip, which matters because SubtleCrypto is gated
+ * on a secure context. When slop-review is opened over a LAN IP from a
+ * mobile device, `crypto.subtle` is undefined, so the async path fails
+ * with "Cannot read properties of undefined (reading 'digest')". Same
+ * URL shape as the async version, just skips the hash step.
+ */
+export function buildForgeDeepLinkFromSha({ host, prUrl, pathSha256, lineStart, lineEnd, side }) {
+  if (!host || !prUrl || !pathSha256) return null
+  switch (host) {
+    case 'github': {
+      const prefix = side === 'old' ? 'L' : 'R'
+      const lineSpec = lineStart === lineEnd
+        ? `${prefix}${lineStart}`
+        : `${prefix}${lineStart}-${prefix}${lineEnd}`
+      return `${prUrl}/files#diff-${pathSha256}${lineSpec}`
+    }
+    default:
+      return null
+  }
+}
+
