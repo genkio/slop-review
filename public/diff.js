@@ -2823,6 +2823,19 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
       return
     }
 
+    // Sibling of data-show-first-thread for the resolved walk. Always starts
+    // at the first resolved thread (no resume cursor): revisiting closed
+    // work isn't a task-tracking activity, so picking up "where I left off
+    // among the resolved" isn't a useful concept.
+    if (e.target.closest('[data-show-first-resolved-thread]')) {
+      if (window.getSelection?.()?.toString().trim()) return
+      e.preventDefault(); e.stopPropagation()
+      const order = computeResolvedThreadOrderInCurrentView()
+      if (order.length === 0) return
+      openThread(order[0], { threadOrder: order })
+      return
+    }
+
     // Bulk-delete: drop the last reply from every thread with >1 comment.
     // Stays inside the diff page (not modals.js) because the action is
     // host-state-coupled (state.threads, repo.id, loadThreads).
@@ -3571,8 +3584,9 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
 
     if (!hasThreads && !hasReviewedPill) return ''
 
-    let threadsPill = ''
-    let repliesPill = ''
+    let threadsPill  = ''
+    let resolvedPill = ''
+    let repliesPill  = ''
     if (hasThreads) {
       let revieweeMsgs = 0
       for (const t of threads) {
@@ -3599,26 +3613,37 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
       const totalTitle = resumePos > 0
         ? `Resume unresolved thread ${resumePos} of ${unresolvedOrder.length}`
         : 'Open the first unresolved thread'
-      // Drop the → button entirely when nothing's outstanding — the pill
-      // keeps its is-all-resolved tint as the visual cue. Inline thread-
-      // body clicks remain the way to revisit resolved threads.
+      // Drop the → button entirely when nothing's outstanding. Inline
+      // thread-body clicks remain the way to revisit resolved threads.
       const totalLinkBtn = unresolvedOrder.length > 0
         ? `<button type="button" class="state-pill-link" data-show-first-thread ` +
           `aria-label="${escapeHtml(totalTitle)}" title="${escapeHtml(totalTitle)}">→</button>`
         : ''
-      // Green-tint the threads pill when every thread in this view is
-      // closed — same resolved-predicate as unresolvedThreadCountFor so
-      // the visual signal can't disagree with the reviewed-gate logic.
-      const allResolved = threads.every((t) => (t.state || 'awaiting') === 'resolved')
-      const threadsPillClass = `state-pill is-count${allResolved ? ' is-all-resolved' : ''}`
       // Label tracks the *action* (Resume walks unresolved only), not the
       // raw total — keeps the headline and the → button telling the same
       // story. Total count is still discoverable via the per-file pills
       // in the diff body and the inline thread row state ribbons. The
       // wrapper `title=` keeps the total one hover away for power users.
-      const totalTooltip = `${threads.length} thread${threads.length === 1 ? '' : 's'} total in this view`
-      const openLabel = `${unresolvedOrder.length} open thread${unresolvedOrder.length === 1 ? '' : 's'}`
-      threadsPill = `<span class="${threadsPillClass}" title="${escapeHtml(totalTooltip)}">${openLabel}${totalLinkBtn}</span>`
+      // Zero-count pills are hidden entirely (consistent with the resolved
+      // and reviewed pills below): no count, no pill.
+      if (unresolvedOrder.length > 0) {
+        const totalTooltip = `${threads.length} thread${threads.length === 1 ? '' : 's'} total in this view`
+        const openLabel = `${unresolvedOrder.length} open`
+        threadsPill = `<span class="state-pill is-count" title="${escapeHtml(totalTooltip)}">${openLabel}${totalLinkBtn}</span>`
+      }
+
+      // Sibling pill for the resolved walk. Symmetric to the open one but
+      // stateless: no resume cursor (revisiting closed work isn't task-
+      // tracked). Hidden when there's nothing resolved in this view.
+      const resolvedOrder = computeResolvedThreadOrderInCurrentView()
+      if (resolvedOrder.length > 0) {
+        const resolvedTitle = `Walk ${resolvedOrder.length} resolved thread${resolvedOrder.length === 1 ? '' : 's'} in this view`
+        const resolvedLinkBtn =
+          `<button type="button" class="state-pill-link" data-show-first-resolved-thread ` +
+          `aria-label="${escapeHtml(resolvedTitle)}" title="${escapeHtml(resolvedTitle)}">→</button>`
+        const resolvedLabel = `${resolvedOrder.length} resolved`
+        resolvedPill = `<span class="state-pill is-count" title="${escapeHtml(resolvedTitle)}">${resolvedLabel}${resolvedLinkBtn}</span>`
+      }
 
       // × inside the reviewee-replies pill triggers a bulk-delete of the
       // *last reply* of every multi-comment thread, scoped to the current
@@ -3627,10 +3652,12 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
       const repliesScopeText = isCommit
         ? 'Delete the last reply from every thread in this commit'
         : 'Delete the last reply from every thread'
-      const repliesClearBtn = revieweeMsgs > 0
-        ? `<button type="button" class="state-pill-x" data-clear-replies aria-label="${escapeHtml(repliesScopeText)}" title="${escapeHtml(repliesScopeText)}">×</button>`
-        : ''
-      repliesPill = `<span class="state-pill is-count">${revieweeMsgs} repl${revieweeMsgs === 1 ? 'y' : 'ies'}${repliesClearBtn}</span>`
+      // Same zero-gate as the open / resolved pills above.
+      if (revieweeMsgs > 0) {
+        const repliesClearBtn =
+          `<button type="button" class="state-pill-x" data-clear-replies aria-label="${escapeHtml(repliesScopeText)}" title="${escapeHtml(repliesScopeText)}">×</button>`
+        repliesPill = `<span class="state-pill is-count">${revieweeMsgs} repl${revieweeMsgs === 1 ? 'y' : 'ies'}${repliesClearBtn}</span>`
+      }
     }
 
     let reviewedPill = ''
@@ -3647,11 +3674,11 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
       reviewedPill = `<span class="state-pill is-count">${reviewedInView}/${totalFiles} reviewed${resetBtn}</span>`
     }
 
-    // Order: threads (resume action) → replies → reviewed.
-    // Threads leads because → is the most actionable affordance in the
-    // strip; reviewed trails because it's the progress indicator that
-    // the user glances at last.
-    return threadsPill + repliesPill + reviewedPill
+    // Order: open threads (resume) → resolved threads (revisit walk)
+    // → replies → reviewed. Open leads as the most actionable action;
+    // resolved sits next to it per the user-facing "open / resolved"
+    // pairing; reviewed trails as a passive progress indicator.
+    return threadsPill + resolvedPill + repliesPill + reviewedPill
   }
 
   /**
@@ -4474,6 +4501,16 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
     return computeThreadOrderInCurrentView().filter((id) => {
       const t = byId.get(id)
       return t && (t.state || 'awaiting') !== 'resolved'
+    })
+  }
+
+  // Symmetric to the unresolved variant: powers the "X resolved threads"
+  // pill in the controls strip. Same document order; opposite predicate.
+  function computeResolvedThreadOrderInCurrentView() {
+    const byId = new Map(state.threads.map((t) => [t.id, t]))
+    return computeThreadOrderInCurrentView().filter((id) => {
+      const t = byId.get(id)
+      return t && (t.state || 'awaiting') === 'resolved'
     })
   }
 

@@ -3234,6 +3234,20 @@ a.card-file:hover .card-file-mark {
      desktop (≈46) minus the 10px padding, plus breathing room. */
   .diff-review-banner { top: -10px; }
   .diff-body:has(> .diff-review-banner) .diff-file-head { top: 40px; }
+  /* Mobile: keep all pills on one horizontal line and scroll the cluster
+     instead of wrapping. Four pills on a narrow viewport otherwise blow
+     out to a second row that pushes the diff body down. Pills are forced
+     non-shrinkable so each stays fully readable; the row gets touch-style
+     horizontal scrolling. Scrollbar is suppressed visually (thin fade is
+     usable but visually noisy on a banner this short). */
+  .diff-review-right {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+  .diff-review-right::-webkit-scrollbar { display: none; }
+  .diff-review-right > .state-pill { flex: 0 0 auto; }
   /* Match the file-head's mobile sticky offsets so the warning still
      pins immediately below it: head's pinned bottom = head_top + head_h.
      Default mobile: -10 + 34 = 24. With banner: 40 + 34 = 74. */
@@ -3654,21 +3668,6 @@ a.card-file:hover .card-file-mark {
 .state-pill.is-count {
   color: var(--fg-muted);
   border-color: var(--hairline);
-}
-/* Threads pill turns green when every thread in the current view is
-   resolved — done-lane accent (mirrors button.thread-resolve and the
-   .diff-thread.state-resolved ribbon, so the whole "resolved" idiom
-   reads as one family across the page). The nested → link icon also
-   adopts the done tint at rest so it doesn't look orphaned inside the
-   green pill; hover still falls through to the .state-pill-link rule
-   below and flashes the accent color. */
-.state-pill.is-count.is-all-resolved {
-  color: var(--lane-done);
-  border-color: var(--lane-done);
-  background: color-mix(in srgb, var(--lane-done) 6%, transparent);
-}
-.state-pill.is-count.is-all-resolved .state-pill-link {
-  color: var(--lane-done);
 }
 /* Small inline icon buttons on state pills. Two variants share the same
    muted-resting shape (16px round-rect, fg-muted) and only diverge on
