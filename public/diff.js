@@ -689,9 +689,11 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
     <header class="diff-head">
       <div class="diff-head-left">
         <div class="diff-nav">
+          <button type="button" class="diff-nav-btn" data-first aria-label="First commit" title="Jump to first commit">«</button>
           <button type="button" class="diff-nav-btn" data-prev aria-label="Previous">‹</button>
           <span class="diff-position" data-position></span>
           <button type="button" class="diff-nav-btn" data-next aria-label="Next">›</button>
+          <button type="button" class="diff-nav-btn" data-last aria-label="Full diff" title="Jump to full diff">»</button>
         </div>
         <div class="diff-meta-block">
           <div class="diff-meta-line">
@@ -1564,6 +1566,11 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
 
   $('[data-prev]').addEventListener('click', () => goto(state.index - 1))
   $('[data-next]').addEventListener('click', () => goto(state.index + 1))
+  // First-commit + Full-diff shortcuts. `»` targets Full (state.commits.length),
+  // not maxIndex(): the Local view is its own thing and isn't really "the end".
+  // No-op when already at the target (matches prev/next click semantics).
+  $('[data-first]').addEventListener('click', () => goto(0))
+  $('[data-last]').addEventListener('click', () => goto(state.commits.length))
 
   // ------------------------------------------------------------------
   // Multi-line comment selection — click any gutter line number to begin,
@@ -3720,6 +3727,11 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
 
     $('[data-prev]').disabled = state.index <= 0
     $('[data-next]').disabled = state.index >= maxIndex()
+    // Bookend buttons disable when already pinned at the target. The
+    // Full-diff button stays active in the Local view, so the user has a
+    // one-click path back from Local without retracing through prev.
+    $('[data-first]').disabled = state.index <= 0
+    $('[data-last]').disabled  = state.index === state.commits.length
     $('[data-next]').title =
       state.index >= maxIndex() ? '' :
       state.index === state.commits.length - 1 ? 'Full diff →' :
@@ -3742,7 +3754,12 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
     }
 
     if (isFull) {
-      $('[data-position]').textContent = 'Full diff'
+      // Position label gets abbreviated on mobile so it fits next to the
+      // nav pill without forcing the meta block to wrap or truncate
+      // harder. Re-read viewport on every refresh: it's cheap and stays
+      // honest across DevTools-driven viewport flips.
+      const narrow = window.matchMedia('(max-width: 768px)').matches
+      $('[data-position]').textContent = narrow ? 'Full' : 'Full diff'
       const headSha = fd?.sha || branchInfo?.head_sha || ''
       shaEl.textContent     = 'FULL'
       shaEl.dataset.shaFull = headSha

@@ -3207,6 +3207,12 @@ a.card-file:hover .card-file-mark {
     padding: 10px 12px;
   }
   .diff-head-left { flex: 1 1 100%; }
+  /* Bookend nav buttons (« first / » last) are keyboard-shortcut style
+     affordances; mobile already has prev/next taps and no keyboard, so
+     hiding them reclaims ~52px of nav-pill width that the meta block can
+     spend on the branch name and commit count. */
+  .diff-nav-btn[data-first],
+  .diff-nav-btn[data-last] { display: none; }
   /* `space-between` was leaving the Copy button in the visual middle when
      the actions row had 3 children (toggle, Copy, Threads). Cluster them
      instead with a leading gap and flex-end alignment so the action group
