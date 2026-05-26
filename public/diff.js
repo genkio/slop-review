@@ -487,16 +487,19 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
 
   const isMobile = window.matchMedia('(max-width: 768px)').matches
   const maxIdx = commits.length + (hasLocal ? 1 : 0)
-  // Default wrap: on for mobile (narrow viewport, code would overflow), off
-  // for desktop (plenty of horizontal real estate, no-wrap reads more like
-  // an editor). Saved preference in localStorage overrides — if the user
-  // explicitly toggled either direction, honour that across sessions.
-  let initialWrap = isMobile
-  try {
-    const saved = localStorage.getItem('slop-review:wrap')
-    if (saved === 'true')  initialWrap = true
-    else if (saved === 'false') initialWrap = false
-  } catch {}
+  // Wrap default. Desktop is unconditionally on: the wrap toggle is hidden
+  // on desktop (see .diff-wrap-toggle hide rule in app.css), so any stored
+  // `false` from a past mobile session would otherwise leave a desktop user
+  // permanently no-wrap with no UI to escape. Mobile honors the saved
+  // preference so users who explicitly chose no-wrap on a phone keep it.
+  let initialWrap = true
+  if (isMobile) {
+    try {
+      const saved = localStorage.getItem('slop-review:wrap')
+      if (saved === 'true')  initialWrap = true
+      else if (saved === 'false') initialWrap = false
+    } catch {}
+  }
   // Same pattern for line-number visibility. Default hidden on mobile so
   // the narrow viewport hands all its horizontal space to code; default
   // shown on desktop where the gutter is useful for orientation. Whatever
@@ -825,6 +828,7 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
     document.removeEventListener('keydown', onKey)
     if (disposeOverviewNav) { try { disposeOverviewNav() } catch {}; disposeOverviewNav = null }
     if (flashTimer) { clearTimeout(flashTimer); flashTimer = null }
+    teardownAutoReviewObserver()
   }
   activeDispose = dispose
 
@@ -3120,12 +3124,132 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
     }
   }
 
+  // ------------------------------------------------------------------
+  // Auto-review-on-scroll observer. Watches each `.diff-file` section
+  // through an IntersectionObserver rooted at the scroll container. A
+  // section transitioning from "not above the viewport" to "fully above
+  // the viewport" is what we count as "user scrolled past it." On that
+  // edge, we collapse the file with scrollTop compensation (so the
+  // viewport content doesn't visibly jump) and call toggleFileReviewed
+  // to persist the mark. Always-on behavior: no user toggle.
+  //
+  // Lifecycle: torn down and rebuilt on each renderBody (since innerHTML
+  // wipes the .diff-file nodes the observer was holding), and torn down
+  // in the global dispose() path.
+  // ------------------------------------------------------------------
+  let autoReviewObserver = null
+  // Per-path prior "is above viewport" state. The IntersectionObserver
+  // fires once on observe() with the current state of every section, and
+  // we don't want that initial batch to mass-mark every file currently
+  // above a thread-anchored landing point. Seeding this map on the first
+  // fire (and only acting on transitions afterward) gives us "real scroll
+  // past" semantics.
+  let autoReviewWasAbove = new Map()
+
+  function teardownAutoReviewObserver() {
+    if (autoReviewObserver) {
+      try { autoReviewObserver.disconnect() } catch {}
+      autoReviewObserver = null
+    }
+    autoReviewWasAbove = new Map()
+  }
+
+  function setupAutoReviewObserver() {
+    teardownAutoReviewObserver()
+    const body = $('[data-body]')
+    if (!body) return
+    autoReviewObserver = new IntersectionObserver((entries) => {
+      for (const entry of entries) {
+        const section = entry.target
+        const path = section.dataset.path
+        if (!path) continue
+        const rootTop = entry.rootBounds?.top ?? 0
+        const isAbove = entry.boundingClientRect.bottom < rootTop
+        const was = autoReviewWasAbove.get(path)
+        autoReviewWasAbove.set(path, isAbove)
+        // Skip the seeding fire so a mid-page landing doesn't auto-mark
+        // every section already above the viewport.
+        if (was === undefined) continue
+        // Only act on the "was below or visible, now fully above" edge.
+        // Scrolling back up (above to visible) is a no-op: the user is
+        // re-reading, not finishing.
+        if (!was && isAbove && shouldAutoMarkReviewed(path)) {
+          autoCollapseOffscreen(section, body)
+          toggleFileReviewed(path)
+        }
+      }
+    }, { root: body, threshold: 0 })
+    body.querySelectorAll('.diff-file[data-path]').forEach((s) => autoReviewObserver.observe(s))
+  }
+
+  /**
+   * Collapse a file section that lives above the current viewport, then
+   * shrink body.scrollTop by the same delta. The file is off-screen above
+   * us: collapsing it (display:none on .diff-file-body) yanks every
+   * visible row upward by the body's height. Subtracting the delta from
+   * scrollTop cancels the shift, so the user sees no jump. They'll see
+   * the file as collapsed only when they scroll back up.
+   *
+   * Skips if already collapsed (idempotent: the observer can re-fire
+   * across renderBody rebuilds even though we seed `was` from undefined).
+   */
+  function autoCollapseOffscreen(section, body) {
+    const path = section.dataset.path
+    if (!path || state.collapsedPaths.has(path)) return
+    const before = section.getBoundingClientRect().height
+    state.collapsedPaths.add(path)
+    section.classList.add('is-collapsed')
+    const after = section.getBoundingClientRect().height
+    const delta = before - after
+    if (delta > 0) body.scrollTop = Math.max(0, body.scrollTop - delta)
+    // Mirror the click-handler's a11y attribute updates so the chevron's
+    // expanded/collapsed state is honest for screen readers.
+    const btn = section.querySelector('.diff-file-toggle')
+    if (btn) {
+      btn.setAttribute('aria-expanded', 'false')
+      btn.setAttribute('aria-label', `Expand file ${path}`)
+    }
+  }
+
+  /**
+   * Gate for the auto-mark-on-scroll path. Mirrors the rules enforced by
+   * the header-click handler at `[data-toggle-collapse]`, except we fail
+   * silently here (no toast). The click handler's toasts exist because
+   * the user invoked the gesture and expects feedback when it refuses;
+   * the scroll path is ambient, so a barrage of toasts as the user
+   * scrolls past blocked files would be noise.
+   *
+   * Return true iff every gate passes:
+   *   1. The current view supports reviewed marks (Full or Commit, not
+   *      Local). Local has no stable blob to pin a mark against.
+   *   2. The file is not already in state.reviewed (no-op otherwise).
+   *   3. There are no unresolved threads on this file
+   *      (unresolvedThreadCountFor returns 0).
+   *   4. In commit view, the file's blob at this commit equals its blob
+   *      at HEAD: `state.diff.files[*].is_unchanged_since_commit !==
+   *      false`. Full + Local payloads leave this flag undefined; strict
+   *      `=== false` is the guard.
+   */
+  function shouldAutoMarkReviewed(path) {
+    if (!path) return false
+    if (state.reviewed.has(path)) return false
+    const isFull   = isFullIndex(state.index)
+    const isCommit = isCommitIndex(state.index)
+    if (!isFull && !isCommit) return false
+    if (unresolvedThreadCountFor(path) > 0) return false
+    if (isCommit) {
+      const file = state.diff?.files?.find((f) => f.path === path)
+      if (file && file.is_unchanged_since_commit === false) return false
+    }
+    return true
+  }
+
   /**
    * Targeted DOM mutation for one file's reviewed/unreviewed transition.
    * Just flips `.is-reviewed` on the section (drives the green-wash
    * header tint) and refreshes the review banner so the "N of T
    * remaining" summary stays in sync. Collapse class is owned by the
-   * header click handler — not touched here.
+   * header click handler, not touched here.
    */
   function applyReviewedToggleDom(path, becomingReviewed) {
     const section = root.querySelector(`.diff-file[data-path="${cssEscape(path)}"]`)
@@ -3648,8 +3772,15 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
     $('[data-headline]').textContent = c.headline || ''
     $('[data-author]').textContent   = '@' + (c.author || 'unknown')
     $('[data-when]').textContent     = c.authored_at ? relTime(c.authored_at) : ''
+    // Per-commit-only "later changes" counter: number of files whose blob
+    // at this commit no longer matches HEAD. is_unchanged_since_commit is
+    // only populated on commit-diff payloads (see server/git.js), and
+    // strict `=== false` is the flagged shape; undefined means "not
+    // applicable" (Full/Local diffs).
+    const laterCount = (fd?.files || []).filter((f) => f.is_unchanged_since_commit === false).length
+    const laterSuffix = laterCount > 0 ? ` (${laterCount} has later changes)` : ''
     $('[data-stats]').textContent    =
-      `+${c.additions ?? 0} −${c.deletions ?? 0} in ${c.changed_files ?? 0} file${(c.changed_files ?? 0) === 1 ? '' : 's'}`
+      `+${c.additions ?? 0} −${c.deletions ?? 0} in ${c.changed_files ?? 0} file${(c.changed_files ?? 0) === 1 ? '' : 's'}${laterSuffix}`
   }
 
   function renderBody() {
@@ -3785,6 +3916,10 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
     // innerHTML wipe cleared any stale selection ribbons + CTA row;
     // re-apply from state.commentSelection. No-op when null.
     applyCommentSelection()
+    // The innerHTML swap above wiped the .diff-file nodes the auto-review
+    // observer was holding. Re-attach (or stay torn down if the feature
+    // is off). No-op cost when off.
+    setupAutoReviewObserver()
   }
 
   function preserveScrollTo(el, target) {
