@@ -30,7 +30,8 @@ Options:
   -p, --port <n>      Port to bind (default: first free port in 9410-9419, then any free port)
       --host <h>      Hostname to bind (default: 0.0.0.0)
       --no-open       Don't auto-open the browser
-      --carbonyl [<p>]  Open with the carbonyl terminal browser instead of the
+      --carbonyl [<p>], --c [<p>]
+                      Open with the carbonyl terminal browser instead of the
                       default browser. With no argument, resolves \`carbonyl\`
                       from PATH (e.g. \`brew install genkio/tap/carbonyl\`).
                       Pass <p> to override with a binary or a directory
@@ -56,9 +57,15 @@ const hostArg = takeArg('--host') || '0.0.0.0'
 // explicit binary or directory, useful for dev builds outside the standard
 // PATH. The check `!next.startsWith('-')` is what disambiguates the two
 // forms: it treats `--carbonyl --no-open` as bare, not as a path argument.
+// `--c` is the short alias for muscle memory; both spellings accept the
+// same optional path argument.
 let carbonylArg = null
 let useCarbonyl = false
-const carbonylIdx = args.indexOf('--carbonyl')
+const carbonylIdx = (() => {
+  const long = args.indexOf('--carbonyl')
+  if (long >= 0) return long
+  return args.indexOf('--c')
+})()
 if (carbonylIdx >= 0) {
   useCarbonyl = true
   const next = args[carbonylIdx + 1]
