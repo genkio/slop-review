@@ -135,16 +135,34 @@ the display rule for that variant.
 
 **Symptom:** subtle background washes (selection highlights, info
 boxes) that read clearly in a browser come out as plain bg in
-carbonyl.
+carbonyl. Concrete case: `.diff-add` / `.diff-del` use
+`color-mix(in srgb, var(--lane-*) 12%, transparent)` to tint
+added/removed rows. In carbonyl those rows render identical to
+context, so the only diff cue left is the `+` / `-` marker
+column, which makes whole-line scans for "what changed here"
+impossible.
 
-**Why:** a 5-8% mix against a high-luminance neutral falls inside
+**Why:** a 5-15% mix against a high-luminance neutral falls inside
 the per-cell quantization step, so the cell paints as the
 underlying surface.
 
-**Fix:** for anything that has to survive carbonyl, either bump
-the mix percentage to ~20%+, or replace `color-mix` with a literal
-low-alpha hex (`rgba(...) ` round-trips through carbonyl more
-predictably than `color-mix`). Not yet hit, but expected.
+**Fix:** hardcode solid hex tints in `carbonyl.css`. Two softer
+fixes were tried first and neither held up: bumping the
+percentage to 30% kept the wash transparent, and rewriting as
+`color-mix(... 30%, var(--card))` (mix against an opaque var
+instead of `transparent`) ALSO downsampled to bg. Carbonyl
+appears to flatten any subtle wash on a wide row, regardless of
+whether the source is technically opaque. The only thing that
+read was literal hex (`#c8edd1` light-mode green, `#f7c8c8`
+light-mode red, with `prefers-color-scheme: dark` overrides for
+the dark theme). The intra-line highlights (`.diff-intra-add` /
+`.diff-intra-del`) get bumped a notch harder so within-line diffs
+still pop against the now-saturated row wash.
+
+The takeaway is broader than the diff rows: for any wash that
+has to survive carbonyl, skip `color-mix` entirely and just
+write the hex. `rgba(..., a)` is probably also safer than
+`color-mix` but hasn't been needed yet.
 
 ### 5. Static elements lose their text after a heavy repaint
 

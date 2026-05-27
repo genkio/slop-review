@@ -197,6 +197,33 @@
   padding-bottom: 50px;
 }
 
+/* Add / del row wash.
+   Base uses color-mix(in srgb, var(--lane-*) 12%, transparent),
+   the canonical quirk-#3 case: low-opacity-over-transparent
+   composites to a near-bg tint that drops below carbonyl's
+   quantization threshold, so deleted and added rows render the
+   same as context. (color-mix against --card was also tried and
+   didn't survive the downsample either -- carbonyl chromium
+   appears to flatten any subtle wash on a wide row.)
+   Fix: hardcode solid hex tints, picked to read clearly after
+   carbonyl's half-block downsample without drowning the inline
+   syntax-token colors. Light/dark are split via prefers-color-
+   scheme so the carbonyl host's theme detection (chromium default
+   = light) still flips correctly when the user runs a dark
+   terminal that sets COLORTERM/theme hints.
+   The intra-line highlights get a more saturated tint so within-
+   line diffs still pop against the row wash. */
+.is-carbonyl .diff-add   { background: #c8edd1; }   /* light green */
+.is-carbonyl .diff-del   { background: #f7c8c8; }   /* light red */
+.is-carbonyl .diff-intra-add { background: #86d99a; }
+.is-carbonyl .diff-intra-del { background: #ef9a9a; }
+@media (prefers-color-scheme: dark) {
+  .is-carbonyl .diff-add   { background: #1f3a25; }
+  .is-carbonyl .diff-del   { background: #3a1f1f; }
+  .is-carbonyl .diff-intra-add { background: #2d6b3b; }
+  .is-carbonyl .diff-intra-del { background: #6b2d2d; }
+}
+
 
 /* File-status badge.
    The base .diff-file-status is an 18x18 chip with white M/A/D/R/C
