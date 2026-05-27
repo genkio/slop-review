@@ -3,6 +3,7 @@ import { execFileSync, spawn } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
 import { createServer } from 'node:net'
+import { statSync } from 'node:fs'
 
 // ----------------------------------------------------------------------
 // CLI for slop-review. Run inside a git repo — the cwd is auto-bootstrapped
@@ -26,10 +27,15 @@ review target automatically. Review threads are stored in <repo>/.reviews/
 (add it to .gitignore to keep them local-only).
 
 Options:
-  -p, --port <n>   Port to bind (default: first free port in 9410-9419, then any free port)
-      --host <h>   Hostname to bind (default: 0.0.0.0)
-      --no-open    Don't auto-open the browser
-  -h, --help       Show this help
+  -p, --port <n>      Port to bind (default: first free port in 9410-9419, then any free port)
+      --host <h>      Hostname to bind (default: 0.0.0.0)
+      --no-open       Don't auto-open the browser
+      --carbonyl [<p>]  Open with the carbonyl terminal browser instead of the
+                      default browser. With no argument, resolves \`carbonyl\`
+                      from PATH (e.g. \`brew install genkio/tap/carbonyl\`).
+                      Pass <p> to override with a binary or a directory
+                      containing one.
+  -h, --help          Show this help
 `)
   process.exit(0)
 }
@@ -44,7 +50,39 @@ function takeArg(name) {
 
 const portArg = takeArg('--port') || takeArg('-p')
 const hostArg = takeArg('--host') || '0.0.0.0'
-const noOpen = args.includes('--no-open')
+// --carbonyl is a hybrid flag: bare `--carbonyl` opts into the terminal
+// browser and resolves the binary via PATH (works with the homebrew install
+// at `genkio/tap/carbonyl`). `--carbonyl <p>` overrides that with an
+// explicit binary or directory, useful for dev builds outside the standard
+// PATH. The check `!next.startsWith('-')` is what disambiguates the two
+// forms: it treats `--carbonyl --no-open` as bare, not as a path argument.
+let carbonylArg = null
+let useCarbonyl = false
+const carbonylIdx = args.indexOf('--carbonyl')
+if (carbonylIdx >= 0) {
+  useCarbonyl = true
+  const next = args[carbonylIdx + 1]
+  if (next && !next.startsWith('-')) {
+    carbonylArg = next
+    args.splice(carbonylIdx, 2)
+  } else {
+    args.splice(carbonylIdx, 1)
+  }
+}
+const noOpenIdx = args.indexOf('--no-open')
+const noOpen = noOpenIdx >= 0
+if (noOpen) args.splice(noOpenIdx, 1)
+
+// Fail loud on anything left over so typos like `--arbonyl` surface
+// immediately instead of silently dropping through to the default-browser
+// branch. Positional args (URLs, repo paths, etc.) aren't a thing here:
+// slop bootstraps from cwd, so any remaining token is necessarily an
+// unrecognized flag.
+if (args.length > 0) {
+  console.error(`slop-review: unknown argument${args.length === 1 ? '' : 's'}: ${args.join(', ')}`)
+  console.error(`Run \`slop-review --help\` for usage.`)
+  process.exit(1)
+}
 
 // 1. Verify cwd is inside a git repo, and resolve to the worktree root so
 //    `.reviews/` always sits next to the user's `.git/`.
@@ -117,18 +155,57 @@ await start({ port, hostname: hostArg })
 
 // 4. Auto-open the browser. Localhost works regardless of bind host since
 //    the server is listening on 0.0.0.0 and we're on the same machine.
+//
+//    Carbonyl branch: launch the terminal browser foregrounded in this
+//    process group with stdio inherited (it needs the TTY for rendering and
+//    keyboard input). The slop server keeps running in the same process,
+//    sharing the terminal. The default-browser branch stays detached/silent
+//    so the user can keep using their shell.
 if (!noOpen) {
   const url = `http://localhost:${port}/`
-  const cmd =
-    process.platform === 'darwin' ? 'open' :
-    process.platform === 'win32'  ? 'cmd'  :
-                                    'xdg-open'
-  const cmdArgs = process.platform === 'win32' ? ['/c', 'start', '', url] : [url]
-  try {
-    const child = spawn(cmd, cmdArgs, { stdio: 'ignore', detached: true })
-    child.on('error', () => {})  // swallow — fall back to manual click
-    child.unref()
-  } catch {
-    // fall through silently — the URL is already printed by the server
+  if (useCarbonyl) {
+    let binary
+    if (carbonylArg) {
+      binary = carbonylArg
+      try {
+        const stat = statSync(binary)
+        if (stat.isDirectory()) binary = join(binary, 'carbonyl')
+      } catch {
+        console.error(`slop-review: --carbonyl path not found: ${carbonylArg}`)
+        process.exit(1)
+      }
+    } else {
+      // Bare `--carbonyl`: let spawn resolve `carbonyl` via PATH. The error
+      // handler below upgrades ENOENT into a friendly "install via brew"
+      // hint so users know how to get the binary on PATH.
+      binary = 'carbonyl'
+    }
+    const child = spawn(binary, [url], { stdio: 'inherit' })
+    child.on('error', (err) => {
+      if (err.code === 'ENOENT' && !carbonylArg) {
+        console.error(`slop-review: \`carbonyl\` not found on PATH.`)
+        console.error(`Install via \`brew install genkio/tap/carbonyl\`, or pass --carbonyl <path>.`)
+        process.exit(1)
+      }
+      console.error(`slop-review: failed to launch carbonyl (${binary}): ${err.message}`)
+    })
+    // Tie slop's lifetime to carbonyl's. When the user quits the browser
+    // (Ctrl+C in the carbonyl pane), the server should go down with it so
+    // a single quit drops the whole stack -- otherwise slop lingers as an
+    // orphan and the user has to hunt it down with a second Ctrl+C.
+    child.on('exit', (code) => process.exit(code ?? 0))
+  } else {
+    const cmd =
+      process.platform === 'darwin' ? 'open' :
+      process.platform === 'win32'  ? 'cmd'  :
+                                      'xdg-open'
+    const cmdArgs = process.platform === 'win32' ? ['/c', 'start', '', url] : [url]
+    try {
+      const child = spawn(cmd, cmdArgs, { stdio: 'ignore', detached: true })
+      child.on('error', () => {})  // swallow, fall back to manual click
+      child.unref()
+    } catch {
+      // fall through silently. The URL is already printed by the server
+    }
   }
 }

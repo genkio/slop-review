@@ -33,7 +33,7 @@ npx slop-review
 
 That's it. The cwd is auto-bootstrapped as the review target, the server picks a free port (default range 9410-9419), and your browser opens. Review threads are stored in `<repo>/.reviews/` — add it to that repo's `.gitignore` if you want them local-only.
 
-Flags: `--port <n>`, `--host <h>`, `--no-open`, `-h`.
+Flags: `--port <n>`, `--host <h>`, `--no-open`, `--carbonyl [<path>]` (see [Carbonyl integration](#carbonyl-integration)), `-h`.
 
 Prerequisites: Node ≥ 20, `git` on `PATH`. No runtime dependencies — the server runs on `node:http` + the standard library only, so `npx slop-review` doesn't pull a tree of transitive packages onto your machine.
 
@@ -61,6 +61,55 @@ Cold-launching `npx slop-review` first tries to resume the last view you were on
 Rationale: feature-branch review is "walk forward from base", so first-commit is the natural entry. The on-base path uses an empty-tree merge-base fallback that can synthesize the whole repo history, where the latest commit is more useful than the dawn of the project. The Full diff is always a Shift+→ keystroke away from any commit view.
 
 Resume behavior: each time you navigate between views (Shift+→/←, the prev/next buttons, or a fresh hash URL), the current view is stamped under `state.config.repo_ui_state.<repoId>.last_view:<branchId>` in `~/.config/slop-review/state.json` as `full`, `local`, or `commit:<sha>`. On the next cold launch slop-review reads that value and rehydrates — unless the saved commit no longer exists (force-push, rebase, garbage-collected sha), in which case the table's smart-default rules kick in. Per-branch scoping means switching branches doesn't carry the wrong sha across.
+
+## Carbonyl integration
+
+slop-review renders in any browser, but it also runs fully inside a terminal via [Carbonyl](https://github.com/fathyb/carbonyl) (a Chromium-based browser that paints into the TTY). Pass `--carbonyl` to launch Carbonyl instead of your default GUI browser:
+
+```bash
+# Install Carbonyl once (macOS, prebuilt via the genkio/tap homebrew tap):
+brew install genkio/tap/carbonyl
+
+# Then opt in per-launch:
+slop-review --carbonyl
+```
+
+Bare `--carbonyl` resolves the `carbonyl` binary from `PATH`, which is the path the homebrew install above sets up. For a dev build or a custom install location, pass an explicit binary or a directory containing one:
+
+```bash
+slop-review --carbonyl ~/code/carbonyl/dist
+slop-review --carbonyl ~/code/carbonyl/dist/carbonyl
+```
+
+The Carbonyl process inherits the slop-review terminal, so you get a single-pane terminal review loop with no extra window switch. Quitting Carbonyl (Ctrl+C) tears the slop-review server down with it.
+
+### Keybindings
+
+slop-review's diff view is fully keyboard-driven. The same bindings work in a regular browser and in Carbonyl, except for the two modifier-based chords noted below. Carbonyl's chromium fork strips Ctrl/Cmd/Shift before forwarding keydown events to the page, so any binding that requires a modifier needs a substitute keystroke.
+
+| Key                | Action                                             | Carbonyl           |
+|--------------------|----------------------------------------------------|--------------------|
+| `j` / `k`          | Move cursor down / up one line                     | yes                |
+| `J` / `K`          | Move cursor down / up five lines                   | yes                |
+| `c` / `C`          | Open comment editor on new-side / old-side line    | yes                |
+| `v` / `V`          | Start visual-line selection (new / old side)       | yes                |
+| `y` / `Y`          | Copy permalink to cursor line (new / old side)     | yes                |
+| `o` / `O`          | Open the cursor line in the forge (new / old side) | yes                |
+| `r`                | Toggle the cursor row's file as reviewed           | yes                |
+| `n` / `N`          | Jump to next / previous thread in view             | yes                |
+| `d`                | Delete the thread under the cursor                 | yes                |
+| `p`                | Peek HEAD for the cursor row (commit view only)    | yes                |
+| `e`                | Expand context lines around the cursor's hunk      | yes                |
+| `Enter`            | Commit visual-line selection / confirm modal       | yes                |
+| `Escape`           | Cancel selection, minimize panel, close modal      | yes                |
+| `Backspace`        | Pop the active symbol-panel jump-stack frame       | yes                |
+| `Cmd/Ctrl+Enter`   | Submit the comment editor                          | use `;;` instead   |
+| `Shift+←` / `Shift+→` | Step to previous / next commit (or local / full) | use the « / » buttons in the diff header |
+| `←` / `→`          | Previous / next thread inside the thread modal     | yes                |
+
+`;;` (two semicolons within 400ms while the editor is focused) is implemented by `public/carbonyl-key-shim.js`: it detects the double-tap, splices the first `;` back out of the textarea, and dispatches a synthetic `Cmd+Enter` so the editor's existing submit handler fires unchanged. The shim is loaded unconditionally but only triggers on Carbonyl's modifier-stripped event signature, so in a regular browser it's a complete no-op.
+
+If you genuinely want a literal `;;` in a comment body, pause >400ms between the two characters (or type `; ;` with a space and edit it out).
 
 ## AI agent integration
 

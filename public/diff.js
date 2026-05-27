@@ -1596,21 +1596,25 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
     // Three intents, gated by where the user tapped and whether the gutter
     // is currently rendered:
     //   1. Tap on .diff-no    -> CTA  (always; desktop AND mobile-with-Line#)
-    //   2. Tap on .diff-text  -> CTA  (mobile only, AND Line # is OFF)
-    //   3. Tap on .diff-text  -> symbol panel  (mobile only, AND Line # is ON)
-    // Desktop falls through to no-op on text taps so mouse text selection
-    // and the existing dblclick-for-symbol gesture keep working unchanged.
+    //   2. Tap on .diff-text  -> CTA  (Line # is OFF, no gutter cells)
+    //   3. Tap on .diff-text  -> symbol panel  (mobile, Line # is ON)
+    // Desktop with gutter falls through to no-op on text taps so mouse text
+    // selection and the existing dblclick-for-symbol gesture keep working.
     const isMobile = window.matchMedia('(max-width: 768px)').matches
     let gutter = e.target.closest?.('.diff-no[data-line][data-side][data-path]')
     if (!gutter) {
       const textCell = e.target.closest?.('.diff-text[data-line][data-side][data-path]')
-      if (!textCell || !isMobile) return
+      if (!textCell) return
       if (_hideGutter) {
-        // (2) Line # OFF on mobile — text taps stand in for the missing
-        // gutter and open the CTA.
+        // (2) Line # OFF: gutter never rendered, so .diff-text is the only
+        // line-addressable cell. Keyed off the render-time flag (not live
+        // `isMobile`), so a viewport change after page load (e.g. a tmux
+        // pane zoom in the carbonyl terminal browser) does not strand text
+        // taps. The DOM stays as it was rendered; trusting `_hideGutter`
+        // keeps line comments reachable regardless of current pane size.
         gutter = textCell
-      } else {
-        // (3) Line # ON on mobile — text taps open the symbol panel for
+      } else if (isMobile) {
+        // (3) Line # ON on mobile: text taps open the symbol panel for
         // the identifier under the tap point. caretRangeFromPoint resolves
         // the coords; getWordAtTap walks the text node for word bounds.
         const word = getWordAtTap(e)
@@ -1619,6 +1623,8 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
           const anchor = { path: textCell.dataset.path, line: textCell.dataset.line, side: textCell.dataset.side }
           openSymbolPanel(word, textCell.dataset.path, anchor)
         }
+        return
+      } else {
         return
       }
     }
