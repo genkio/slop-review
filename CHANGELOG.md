@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.20.0](https://github.com/genkio/slop-review/compare/v0.19.0...v0.20.0) (2026-05-27)
+
+
+### Features
+
+* expand context ([1476417](https://github.com/genkio/slop-review/commit/1476417c56417b930c2f8338ec9edcada4f0a6d8))
+* find symbol definition ([d51f3f0](https://github.com/genkio/slop-review/commit/d51f3f01ea3a91b0c5337448ffd638d0a100e657))
+* mark reviewed on scroll ([fdc462e](https://github.com/genkio/slop-review/commit/fdc462ef2656eeb3e71a72abf0054f8c13b6edd3))
+* quick nav to head and tail ([e0de466](https://github.com/genkio/slop-review/commit/e0de466a6f4439ebecd7354c7b3291b8531a166e))
+* render forge deep-link in thread modal ([d2b09fe](https://github.com/genkio/slop-review/commit/d2b09fe46f6be90871c417fe0117fe8388ae6904))
+* render in carbonyl ([901c483](https://github.com/genkio/slop-review/commit/901c48316e1e44163a2e6d6a54444f726d9a0202))
+* walk resolved threads ([38d206d](https://github.com/genkio/slop-review/commit/38d206d56f556d21c60ee82433af41da2629d6e2))
+
+
+### Bug Fixes
+
+* carbonyl diff row wash ([4587a7e](https://github.com/genkio/slop-review/commit/4587a7e3a2e7ed9d56046a308e2ccc3562c2f9d3))
+* carbonyl quirks ([56c481c](https://github.com/genkio/slop-review/commit/56c481c6afa8829d27ff6aaf2c6d60c29a9c1d4a))
+
 ## [0.19.0](https://github.com/genkio/slop-review/compare/v0.18.0...v0.19.0) (2026-05-19)
 
 
