@@ -1,0 +1,330 @@
+/* ============================================================
+ * Carbonyl-only overrides. Activated by `?carbonyl=1` (set on
+ * launch by bin/slop-review.js), which puts `is-carbonyl` on
+ * <html> via the inline script in index.html. Every rule here
+ * is gated on `.is-carbonyl` so a regular browser load sees an
+ * empty rule set.
+ *
+ * Carbonyl rasterizes a chromium frame down to the terminal's
+ * character grid via U+2584 half-blocks, which makes the page
+ * sensitive to typographic and color choices that work fine in
+ * a real browser:
+ *
+ *   - Small (<13px) and thin (<500) text dissolves under the
+ *     downsample. Bump font-size and font-weight where labels
+ *     have to remain legible.
+ *   - The carbonyl chromium fork font-fallback chain misses
+ *     macOS system fonts (SF, Menlo); a generic `monospace`
+ *     lands on a fontconfig-discoverable face that renders.
+ *   - color-mix(in srgb, X 5..8%, transparent) decays to a near-
+ *     bg tint that vanishes after quantization. Promote subtle
+ *     washes to plain transparent or to a higher-opacity hex.
+ *   - The 768px mobile breakpoint always fires (carbonyl CSS
+ *     viewport is roughly cols * 7px wide, which is <768 for
+ *     any reasonable terminal width). Mobile rules that hide
+ *     desktop chrome (Wrap/Line# toggles, view-mode switcher)
+ *     leave behind empty banners we have to fill or collapse.
+ *
+ * See docs/carbonyl-quirks.md for the running log behind each
+ * decision.
+ * ============================================================ */
+
+/* Typography baseline.
+   Mono everywhere: carbonyl rasterized cell grid IS monospace,
+   so painting variable-width sans on top of it always introduces
+   half-cell gaps. Pinning to monospace lines glyphs up with the
+   terminal cells they have to land in. */
+.is-carbonyl,
+.is-carbonyl body {
+  font-family: monospace;
+  font-size: 13px;
+}
+.is-carbonyl :where(button, input, select, textarea, code, pre) {
+  font-family: monospace;
+}
+
+/* Button vertical sizing.
+   The body line-height of 1.55 inflates every base button by 8-10
+   extra CSS px relative to its glyph, which carbonyl downsamples
+   into a visibly chunky padding-bottom. Drop button line-height
+   to 1.2 globally in carbonyl: still leaves a tiny bit of vertical
+   breathing inside taller buttons (modal Cancel / Add comment),
+   but the toggle/nav pills (already explicitly line-height: 1
+   below) collapse to one glyph-row. Textareas keep the relaxed
+   1.55 for readability. */
+.is-carbonyl button {
+  line-height: 1.2;
+}
+
+/* Header / banner repaint stability.
+   The diff-head sits at the top of the flex column, NOT sticky.
+   That's fine on the first paint, but after the user scrolls
+   .diff-body by enough lines (cursor stepping past the viewport
+   bottom, file heads sticking, etc.) carbonyl re-emits the
+   surrounding elements and the header's inline runs collapse
+   the same way the keymap-hint footer does, leaving empty
+   pills with no text. Same effect hits the static install
+   banner above it. Promote both to their own paint layer via
+   position: sticky / fixed. `top: 0` keeps the visual location
+   identical to the static layout. Same trick as the hint bar
+   (see further down): a non-static container is what makes
+   carbonyl keep the inline glyphs alive across repaints. */
+.is-carbonyl #install-banner:not([hidden]) {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+}
+.is-carbonyl .diff-head {
+  position: sticky;
+  top: 0;
+  z-index: 4;
+}
+
+/* Header pill.
+   The prev/next pill labels render at 11px in the base styles,
+   which is below carbonyl reliable-rasterization threshold.
+   Bump up and lock to ink color so the "1 of 2" counter and the
+   chevrons survive the downsample. Heights are auto so the pill
+   collapses to the line-height of the glyph; the base 26x26
+   square left ~10px of unused vertical space, which carbonyl
+   reads as a tall padded pill. */
+.is-carbonyl .diff-nav-btn {
+  font-size: 14px;
+  line-height: 1;
+  font-weight: 600;
+  color: var(--ink);
+  width: auto;
+  height: auto;
+  min-width: 22px;
+  padding: 2px 6px;
+}
+.is-carbonyl .diff-nav {
+  padding: 0 4px;
+}
+.is-carbonyl .diff-position {
+  font-size: 13px;
+  line-height: 1;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+/* Sha / headline / meta line.
+   The mono sha is fine, but .diff-headline ships with a variable-
+   font axis (font-variation-settings: opsz/SOFT) that carbonyl
+   chromium ignores; mono+ink keeps it readable. The sub-meta line
+   is 10px in base, raise to 12px. */
+.is-carbonyl .diff-headline {
+  font-family: monospace;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ink);
+}
+.is-carbonyl .diff-meta-sub {
+  font-size: 12px;
+  color: var(--fg-soft);
+}
+.is-carbonyl .diff-sha {
+  font-size: 13px;
+}
+
+/* Wrap / Line # toggle row.
+   At base, .diff-wrap-toggle uses font-size: 12px with
+   color: var(--fg-soft) (#3f3f46 light / #a1a1aa dark). After
+   carbonyl downsample those grays anti-alias close enough to
+   the page bg that the "Wrap"/"Line #" labels read as blank
+   pills next to the checkboxes. Promote to ink + 13px so the
+   label always renders. */
+.is-carbonyl .diff-wrap-toggle {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink);
+  gap: 8px;
+}
+.is-carbonyl .diff-wrap-toggle input[type="checkbox"] {
+  width: 14px;
+  height: 14px;
+}
+
+/* Overview link.
+   The slot rendered by overview-nav.js wraps a link styled at
+   13px/.fg-muted. Carbonyl swallows the muted color; restore. */
+.is-carbonyl .overview-nav-slot a,
+.is-carbonyl .overview-nav-slot button {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+/* Review banner / view-mode toggle.
+   The summary banner holds the Split/Inline view-mode toggle.
+   Base CSS hides the toggle via the 768px mobile rule, leaving
+   an empty 46px strip; that empty strip used to be collapsed
+   here. Restore both the banner and the toggle so terminal
+   users can flip between split and inline (carbonyl is wide
+   enough to show split for most files even at 99 cols).
+   The toggle buttons render with the same nested-inline-flex
+   pattern that broke the keymap-hint, so they need the same
+   paint-layer rescue: the banner is already `position: sticky`
+   via the base stylesheet, but the toggle itself isn't, so
+   promote each <button> to `display: inline-block` plus a
+   `transform: translateZ(0)` to force its own composited
+   layer. */
+.is-carbonyl .diff-view-toggle {
+  display: inline-flex;
+}
+.is-carbonyl .diff-view-toggle button {
+  display: inline-block;
+  font-size: 13px;
+  line-height: 1;
+  font-weight: 600;
+  color: var(--ink);
+  padding: 5px 10px;
+  transform: translateZ(0);
+}
+.is-carbonyl .diff-view-toggle button.active {
+  color: #ffffff;
+}
+
+/* Diff body padding.
+   Carbonyl pixels are scarce. Trim diff-body padding so each
+   half-block row carries more content. Padding-bottom is bumped
+   above the hint footer's height so the scroller never lands
+   diff text underneath the fixed hint bar (carbonyl emits the
+   text from the obscured row regardless of stacking, which would
+   read as a stray code line below the hint). The hint footer
+   sets its own height to one terminal row (14 CSS px). */
+.is-carbonyl .diff-body {
+  padding: 8px;
+  padding-bottom: 50px;
+}
+
+
+/* File-status badge.
+   The base .diff-file-status is an 18x18 chip with white M/A/D/R/C
+   on a lane-colored background. Carbonyl rounds that down to a
+   chunky colored square next to the path. Strip the chip styling
+   in carbonyl and render the glyph as plain bracketed text so the
+   row reads as `[m] src/foo.rs` instead of a smudge + path. The
+   lane color stays as the text color so modified vs added vs
+   removed remain visually distinct. */
+.is-carbonyl .diff-file-status {
+  display: inline;
+  width: auto;
+  height: auto;
+  background: transparent;
+  color: var(--fg-muted);
+  font-family: monospace;
+  font-size: 13px;
+  font-weight: 600;
+  padding: 0;
+  text-transform: lowercase;
+}
+.is-carbonyl .diff-file-status::before { content: "["; }
+.is-carbonyl .diff-file-status::after  { content: "]"; }
+.is-carbonyl .diff-file-status[data-status="added"]    { color: var(--lane-done); }
+.is-carbonyl .diff-file-status[data-status="removed"]  { color: var(--lane-removed); }
+.is-carbonyl .diff-file-status[data-status="modified"],
+.is-carbonyl .diff-file-status[data-status="changed"]  { color: var(--lane-review); }
+.is-carbonyl .diff-file-status[data-status="renamed"],
+.is-carbonyl .diff-file-status[data-status="copied"]   { color: var(--lane-explain); }
+
+/* Hunk expand button.
+   .diff-expand-btn renders the `▲` glyph inside a 22x18 colored
+   chip; in carbonyl the chip stays visible as a smudge but the
+   `▲` glyph drops under the cell-quantization threshold. Replace
+   the visual: drop the chip background, hide the inner glyph, and
+   render `[↑]` (per-hunk, expand context above) or `[↓]` (the
+   `.is-full` down-expand at end-of-file, expand context below)
+   via ::before so the affordance stays text-addressable. The
+   arrows survive carbonyl's rasterization where the original
+   filled triangles didn't, because they're full-cell glyphs in
+   the monospace font instead of sub-cell shapes inside a chip. */
+.is-carbonyl .diff-expand-btn,
+.is-carbonyl .diff-expand-btn-slot {
+  width: auto;
+  height: auto;
+  padding: 0 2px;
+  margin-right: 6px;
+}
+.is-carbonyl .diff-expand-btn {
+  background: transparent;
+  color: transparent;   /* hide the original ▲/▼ glyph; ::before redraws */
+  font-family: monospace;
+  font-size: 13px;
+  font-weight: 600;
+  opacity: 1;
+}
+.is-carbonyl .diff-expand-btn::before {
+  content: "[\2191]";       /* up arrow: expand context up */
+  color: var(--accent);
+}
+.is-carbonyl .diff-expand-btn.is-full {
+  width: auto;
+  height: auto;
+  padding: 2px 8px;
+}
+.is-carbonyl .diff-expand-btn.is-full::before {
+  content: "[\2193]";       /* down arrow: expand context down (end-of-file) */
+}
+
+/* Banner close X.
+   The install banner dismiss button is a 16px Unicode glyph
+   over a 1px hairline border. Carbonyl renders it as a single
+   pixel. Bump to a clearly tappable label. */
+.is-carbonyl .install-banner-close {
+  font-size: 16px;
+  font-weight: 700;
+  line-height: 1;
+  color: var(--ink);
+}
+
+/* Keymap hint footer (the "which-key" bar revealed by `j`).
+   Base markup wraps each entry in nested inline-flex containers:
+   `<span class="diff-keymap-item"><kbd>j</kbd><kbd>k</kbd>
+   <span class="diff-keymap-label">move</span></span>` repeated 6
+   times across one row. In carbonyl, only the leftmost glyph of
+   that nested run survives the rasterization. Every CSS-only
+   workaround attempted (font bump, chip removal, white-space:nowrap
+   over the whole bar, even a pure-text `::before content:` string
+   that hides the real children) bottomed out at the same single-
+   glyph render, which is consistent with carbonyl emitting at
+   most one text-run per inline flow box.
+   Fix: flatten the markup from JS (carbonyl-key-shim.js) into a
+   single flat text node with spans wrapping each key character.
+   The shim runs after every `renderKeymapHint()` via a
+   MutationObserver and is a no-op in a real browser. CSS here
+   just dresses the flattened bar: monospace, ink text, accent
+   highlight on the key spans. */
+.is-carbonyl .diff-keymap-hint:not([hidden]) {
+  /* position: fixed remains the only way to keep the inline
+     glyphs from collapsing under carbonyl's text emitter
+     (quirk #6). Carbonyl ignores stacking when emitting text,
+     so the diff body's last row's text leaks through the fixed
+     hint into whatever terminal cell it computes to. Workaround:
+     make the hint two terminal rows tall (28 CSS px) and push
+     its TEXT to the bottom row via padding-top. The hint text
+     now lands on the actual last row of the terminal; any leak
+     from the diff body lands on the row ABOVE the hint text,
+     which is the hint's own padding (bg-deep) so it reads as
+     a quieter visual artefact than text right under the label. */
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 10;
+  display: block;
+  font-size: 13px;
+  line-height: 14px;
+  height: 28px;
+  color: var(--ink);
+  padding: 14px 8px 0;
+  box-sizing: border-box;
+  font-family: monospace;
+  background: var(--bg-deep);
+  border-top: 1px solid var(--hairline);
+  white-space: nowrap;
+  overflow: hidden;
+}
+.is-carbonyl .diff-keymap-hint .cb-key {
+  color: var(--accent);
+  font-weight: 700;
+}

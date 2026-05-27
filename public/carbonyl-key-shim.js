@@ -105,4 +105,87 @@
   document.addEventListener('keyup', (e) => {
     if (isBroken(e)) e.stopImmediatePropagation()
   }, true)
+
+  // ----- Keymap-hint flatten (carbonyl-only) -----------------
+  // Carbonyl text-emit drops every glyph after the first when
+  // the hint bar uses nested inline-flex items (a chain of
+  // `<span><kbd>j</kbd><kbd>k</kbd><span>move</span></span>`
+  // wrappers). No pure-CSS workaround restores them; even a
+  // pseudo-element `content:` string with all real children
+  // display:none rendered as a single character.
+  // Workaround, gated on the `is-carbonyl` class so a real
+  // browser never sees it: after every render of the hint bar
+  // (slop calls `hint.innerHTML = ...` whenever the cursor moves
+  // or modes change), walk the items, build a flat text string,
+  // and replace the bar's children with that one text node plus
+  // <span class="cb-key"> wrappers around each key character.
+  // A single inline run with no nested inline-flex boxes survives
+  // carbonyl's rasterization intact.
+  const HINT_SEL = '.diff-keymap-hint'
+  const FLAT_MARK = 'data-cb-flat'
+  function isCarbonyl () {
+    return document.documentElement.classList.contains('is-carbonyl')
+  }
+  function flattenHint (hint) {
+    if (!hint || hint.hidden) return
+    if (hint.getAttribute(FLAT_MARK) === '1') return
+    const items = hint.querySelectorAll('.diff-keymap-item')
+    if (items.length === 0) return
+    // Build a flat fragment with span-wrapped key characters so
+    // the keys can be accent-tinted while the labels stay ink.
+    // The whole bar is `position: fixed` (see carbonyl.css); that
+    // detaches it into its own paint layer in the carbonyl
+    // compositor, which is what lets the row of inline glyphs
+    // emit fully instead of dropping after the first. Without
+    // position:fixed, even a flat text node would lose every
+    // glyph past the leftmost; with it, span-wrapped keys round-
+    // trip too.
+    const frag = document.createDocumentFragment()
+    items.forEach((item, idx) => {
+      if (idx > 0) frag.appendChild(document.createTextNode('   '))
+      const keys = [...item.querySelectorAll('kbd')]
+      keys.forEach((kbd, ki) => {
+        if (ki > 0) frag.appendChild(document.createTextNode('/'))
+        const span = document.createElement('span')
+        span.className = 'cb-key'
+        span.textContent = kbd.textContent
+        frag.appendChild(span)
+      })
+      const label = item.querySelector('.diff-keymap-label')?.textContent || ''
+      if (label) frag.appendChild(document.createTextNode(' ' + label))
+    })
+    // Tag before swapping so the observer reentry early-exits.
+    hint.setAttribute(FLAT_MARK, '1')
+    hint.replaceChildren(frag)
+  }
+  function installHintObserver () {
+    if (!isCarbonyl()) return
+    const main = document.getElementById('main') || document.body
+    // Observe the slop main container for the hint bar appearing
+    // and for content swaps. childList catches the initial render,
+    // subtree catches inner innerHTML updates that slop performs.
+    const obs = new MutationObserver((muts) => {
+      for (const m of muts) {
+        if (m.target.matches?.(HINT_SEL)) {
+          m.target.removeAttribute(FLAT_MARK)
+          flattenHint(m.target)
+          continue
+        }
+        for (const node of m.addedNodes) {
+          if (node.nodeType !== 1) continue
+          const hint = node.matches?.(HINT_SEL) ? node : node.querySelector?.(HINT_SEL)
+          if (hint) flattenHint(hint)
+        }
+      }
+    })
+    obs.observe(main, { childList: true, subtree: true })
+    // Initial flatten in case the bar was already rendered (and
+    // the hidden attribute is the only thing in our way).
+    flattenHint(document.querySelector(HINT_SEL))
+  }
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', installHintObserver, { once: true })
+  } else {
+    installHintObserver()
+  }
 })()

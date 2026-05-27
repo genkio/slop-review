@@ -5,7 +5,19 @@
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <title>NO SLOP!</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🐛</text></svg>">
+  <script>
+    // Set `is-carbonyl` on <html> before app.css resolves so the carbonyl
+    // overrides cascade in their natural order without a flash of broken
+    // styles. The launcher (bin/slop-review.js) appends `?carbonyl=1` when
+    // it spawns the terminal browser; we read the URL query exactly once
+    // here. Any later SPA navigation preserves the query string (slop
+    // routes off the hash), so the class survives without rehydration.
+    if (new URLSearchParams(location.search).has('carbonyl')) {
+      document.documentElement.classList.add('is-carbonyl')
+    }
+  </script>
   <link rel="stylesheet" href="/app.css">
+  <link rel="stylesheet" href="/carbonyl.css">
 </head>
 <body>
   <div id="install-banner" hidden></div>

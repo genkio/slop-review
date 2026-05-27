@@ -162,7 +162,13 @@ await start({ port, hostname: hostArg })
 //    sharing the terminal. The default-browser branch stays detached/silent
 //    so the user can keep using their shell.
 if (!noOpen) {
-  const url = `http://localhost:${port}/`
+  // Carbonyl gets a `?carbonyl=1` query so the page can self-identify and
+  // load the carbonyl-only CSS shim (see public/carbonyl.css). Hash routing
+  // preserves the query across SPA navigation, and a full reload keeps it
+  // too, so a single launch-time flag is enough; no UA sniff needed.
+  const url = useCarbonyl
+    ? `http://localhost:${port}/?carbonyl=1`
+    : `http://localhost:${port}/`
   if (useCarbonyl) {
     let binary
     if (carbonylArg) {

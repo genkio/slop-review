@@ -2157,6 +2157,13 @@ a.card-file:hover .card-file-mark {
   cursor: pointer;             /* whole header is the click target for collapse/expand */
   user-select: none;           /* dragging-to-select on the path bar shouldn't toggle */
 }
+/* The file-head is now itself the focusable button (role="button"
+   tabindex="0"), so the previous chevron sub-button's outline ring
+   moves onto the header. */
+.diff-file-head:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
 /* When a review banner is sitting at the visual top, file heads stack
    below it instead of fighting for the same y. The math: banner border
    + padding + content height ≈ 46px; subtract the body's 16px
@@ -2197,37 +2204,6 @@ a.card-file:hover .card-file-mark {
 }
 .diff-file { position: relative; }   /* sentinel anchors here */
 
-/* Chevron indicator. Glyph comes from CSS so the JS render stays
-   stateless — flip via parent's `.is-collapsed` class. Down-triangle
-   when expanded (matches the "open" reading direction); right-triangle
-   when collapsed (the standard tree/disclosure idiom). */
-/* Disclosure widget — rendered as a real <button> so keyboard nav
-   (Tab + Enter/Space) and link-hint extensions like Vimium can target
-   it directly. Native button styling is reset to keep the chevron
-   visually identical to the prior <span>. The header itself still
-   carries data-toggle-collapse for mouse clicks on the path/stats. */
-.diff-file-toggle {
-  display: inline-block;
-  width: 10px;
-  flex: 0 0 10px;
-  font-size: 9px;
-  line-height: 1;
-  color: var(--fg-muted);
-  text-align: center;
-  padding: 0;
-  margin: 0;
-  border: 0;
-  background: transparent;
-  cursor: pointer;
-  font-family: inherit;
-}
-.diff-file-toggle::before { content: "▾"; }
-.diff-file.is-collapsed .diff-file-toggle::before { content: "▸"; }
-.diff-file-toggle:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 2px;
-  border-radius: 2px;
-}
 .diff-file-status {
   display: inline-grid;
   place-content: center;
