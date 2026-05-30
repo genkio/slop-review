@@ -2,8 +2,9 @@ import { readFile, writeFile, rename, chmod, mkdir } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import { dirname, join, resolve, basename } from 'node:path'
 import { homedir } from 'node:os'
-import { createHash, randomBytes } from 'node:crypto'
+import { randomBytes } from 'node:crypto'
 import { SEED, STATE_VERSION } from './seed.js'
+import { deriveRepoId } from '../core/repo-id.js'
 
 // state.json lives in the user's config dir, not next to the package
 // source. This makes the package installable via `npx slop-review` without
@@ -17,13 +18,6 @@ export const STATE_FILE =
   process.env.SLOP_REVIEW_STATE_FILE || join(CONFIG_DIR, 'state.json')
 
 let bootstrappedLogged = false
-
-function deriveRepoId(absPath) {
-  const base =
-    basename(absPath).replace(/[^A-Za-z0-9_-]+/g, '-').replace(/^-+|-+$/g, '') || 'repo'
-  const hash = createHash('sha1').update(absPath).digest('hex').slice(0, 8)
-  return `${base}_${hash}`
-}
 
 export async function loadState() {
   let state

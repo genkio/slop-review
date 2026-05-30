@@ -38,20 +38,12 @@ export function newThreadId() {
   return `thread_${r}`
 }
 
-/**
- * Sanitize a branch name for use as a directory: anything outside
- * [A-Za-z0-9_-] collapses to `-`, leading/trailing dashes trimmed,
- * capped at 80 chars. Must stay in lockstep with the client's
- * `sanitizeBranchId` in public/util.js.
- */
-export function sanitizeBranchId(branch) {
-  if (!branch) return ''
-  let s = String(branch)
-    .replace(/[^A-Za-z0-9_-]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-  if (s.length > 80) s = s.slice(0, 80)
-  return s
-}
+// sanitizeBranchId now lives in the shared core (core/ids.js) and is
+// re-exported here so server-side importers (routes/threads.js,
+// routes/diff.js, overview.js) keep importing it from this module. The
+// client (public/util.js) re-exports the same definition, so the two
+// copies that used to be kept "in lockstep" by comment are now one.
+export { sanitizeBranchId } from '../core/ids.js'
 
 export function branchDir(repoPath, branchId) {
   return join(reviewsRoot(repoPath), branchId)

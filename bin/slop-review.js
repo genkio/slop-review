@@ -30,6 +30,10 @@ Options:
   -p, --port <n>      Port to bind (default: first free port in 9410-9419, then any free port)
       --host <h>      Hostname to bind (default: 0.0.0.0)
       --no-open       Don't auto-open the browser
+      --tui           Render in a native terminal UI, in-process: no browser,
+                      no HTTP server. Mutually exclusive with --carbonyl.
+      --serve         With --tui, also keep the HTTP server live so a browser
+                      or agent can attach to the same review.
       --carbonyl [<p>], --c [<p>]
                       Open with the carbonyl terminal browser instead of the
                       default browser. With no argument, resolves \`carbonyl\`
@@ -80,6 +84,27 @@ const noOpenIdx = args.indexOf('--no-open')
 const noOpen = noOpenIdx >= 0
 if (noOpen) args.splice(noOpenIdx, 1)
 
+// --tui selects the native terminal UI: run the diff viewer in-process,
+// bind no socket, open no browser. Mutually exclusive with --carbonyl (you
+// pick one front-end). Spliced before the unknown-arg check below.
+const tuiIdx = args.indexOf('--tui')
+const useTui = tuiIdx >= 0
+if (useTui) args.splice(tuiIdx, 1)
+if (useTui && useCarbonyl) {
+  console.error('slop-review: choose one front-end: --tui or --carbonyl, not both')
+  process.exit(1)
+}
+// --serve keeps the HTTP server live alongside the TUI so a browser/agent can
+// attach to the same review. Only meaningful with --tui (the default path
+// already runs the server). Bare --tui binds no socket.
+const serveIdx = args.indexOf('--serve')
+const serve = serveIdx >= 0
+if (serve) args.splice(serveIdx, 1)
+if (serve && !useTui) {
+  console.error('slop-review: --serve is only valid together with --tui')
+  process.exit(1)
+}
+
 // Fail loud on anything left over so typos like `--arbonyl` surface
 // immediately instead of silently dropping through to the default-browser
 // branch. Positional args (URLs, repo paths, etc.) aren't a thing here:
@@ -103,6 +128,17 @@ try {
   console.error(`slop-review: not a git repository: ${process.cwd()}`)
   console.error(`Run inside a git checkout, or run \`git init\` first.`)
   process.exit(1)
+}
+
+// Native TUI front-end (bare --tui): run in-process against the resolved repo
+// and exit when the user quits. No port, no server, no browser; the alt-screen
+// TUI owns the terminal. The `--tui --serve` hybrid falls through to the
+// server-start path below and launches the TUI in place of opening a browser.
+if (useTui && !serve) {
+  process.env.SLOP_REVIEW_REPO = repoRoot
+  const { run } = await import(join(PACKAGE_ROOT, 'tui', 'app.js'))
+  await run({ repoPath: repoRoot })
+  process.exit(0)
 }
 
 // 2. Pick a port. If --port is given, use it (fail loudly if taken). Otherwise
@@ -159,6 +195,15 @@ process.env.SLOP_REVIEW_PORT = String(port)
 
 const { start } = await import(join(PACKAGE_ROOT, 'server', 'index.js'))
 await start({ port, hostname: hostArg })
+
+// `--tui --serve`: the HTTP server above stays live (a browser or agent can
+// attach to the same .reviews/ store) and the native TUI runs in this same
+// process. Quitting the TUI exits the process, taking the server down with it.
+if (useTui) {
+  const { run } = await import(join(PACKAGE_ROOT, 'tui', 'app.js'))
+  await run({ repoPath: repoRoot, serveUrl: `http://localhost:${port}` })
+  process.exit(0)
+}
 
 // 4. Auto-open the browser. Localhost works regardless of bind host since
 //    the server is listening on 0.0.0.0 and we're on the same machine.

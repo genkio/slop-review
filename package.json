@@ -16,8 +16,10 @@
   },
   "files": [
     "bin",
+    "core",
     "server",
     "public",
+    "tui",
     "skills"
   ],
   "engines": {

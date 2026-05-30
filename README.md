@@ -33,7 +33,7 @@ npx slop-review
 
 That's it. The cwd is auto-bootstrapped as the review target, the server picks a free port (default range 9410-9419), and your browser opens. Review threads are stored in `<repo>/.reviews/` — add it to that repo's `.gitignore` if you want them local-only.
 
-Flags: `--port <n>`, `--host <h>`, `--no-open`, `--carbonyl [<path>]` (see [Carbonyl integration](#carbonyl-integration)), `-h`.
+Flags: `--port <n>`, `--host <h>`, `--no-open`, `--tui` / `--tui --serve` (see [Terminal UI](#terminal-ui-tui)), `--carbonyl [<path>]` (see [Carbonyl integration](#carbonyl-integration)), `-h`.
 
 Prerequisites: Node ≥ 20, `git` on `PATH`. No runtime dependencies — the server runs on `node:http` + the standard library only, so `npx slop-review` doesn't pull a tree of transitive packages onto your machine.
 
@@ -61,6 +61,39 @@ Cold-launching `npx slop-review` first tries to resume the last view you were on
 Rationale: feature-branch review is "walk forward from base", so first-commit is the natural entry. The on-base path uses an empty-tree merge-base fallback that can synthesize the whole repo history, where the latest commit is more useful than the dawn of the project. The Full diff is always a Shift+→ keystroke away from any commit view.
 
 Resume behavior: each time you navigate between views (Shift+→/←, the prev/next buttons, or a fresh hash URL), the current view is stamped under `state.config.repo_ui_state.<repoId>.last_view:<branchId>` in `~/.config/slop-review/state.json` as `full`, `local`, or `commit:<sha>`. On the next cold launch slop-review reads that value and rehydrates — unless the saved commit no longer exists (force-push, rebase, garbage-collected sha), in which case the table's smart-default rules kick in. Per-branch scoping means switching branches doesn't carry the wrong sha across.
+
+## Terminal UI (TUI)
+
+slop-review ships a native terminal UI: a hand-rolled, zero-dependency renderer that runs the review loop entirely in your terminal (no browser, no Chromium). It is the recommended terminal experience and supersedes the Carbonyl path below.
+
+```bash
+slop-review --tui            # in-process TUI, binds no socket
+slop-review --tui --serve    # TUI plus a live HTTP server so a browser/agent can attach to the same review
+```
+
+The TUI shares one core with the web app: the diff parser, syntax tokenizer, file ordering, and all review actions (threads, reviewed marks, overview) live in `core/` and feed both front-ends. A thread created or resolved in the TUI shows up identically in the browser (and vice versa), because both write the same `<repo>/.reviews/` store.
+
+### Keys
+
+| Key | Action |
+|-----|--------|
+| `j` `k` `J` `K` `g` `G` `Ctrl-d`/`Ctrl-u` | move cursor / scroll |
+| `[` `]` (or `Shift+←`/`→`) | switch view: commits, Full, Local |
+| `c` / `C` | comment on the cursor line (new / old side); multi-line editor, `Ctrl-S` or `Ctrl-D` submits, `Enter` is a newline |
+| `v` | visual-line select, then `c` to comment on the range |
+| `a` | reply to the thread on the cursor line |
+| `x` / `d` | resolve-toggle / delete the thread (delete confirms) |
+| `r` | toggle the cursor file reviewed (Full / commit views) |
+| `n` / `N` | jump to next / previous thread |
+| `e` | expand context above the hunk |
+| `o` | open the cursor line in the forge (GitHub PR) |
+| `*` | look up a symbol's definition |
+| `y` / `Y` | copy the line ref (new / old) to the clipboard via OSC52 |
+| `p` | peek the cursor line at HEAD (commit views) |
+| `b` | branch overview pane (codex / claude) |
+| `q` / `Ctrl-C` | quit |
+
+Colors use truecolor when `$COLORTERM` advertises it and fall back to xterm-256 otherwise.
 
 ## Carbonyl integration
 

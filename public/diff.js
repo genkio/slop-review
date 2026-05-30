@@ -2,7 +2,15 @@ import { api } from './api.js'
 import { escapeHtml, inlineCode, relTime, copyToClipboard, toast, buildForgeDeepLink } from './util.js'
 import { openThreadModal, confirmRemoveComment, makeModal, openHeadPreviewModal } from './modals.js'
 import { languageForPath, highlightLine } from './syntax.js'
-import { intraLineSegments } from './intra-line-diff.js'
+import { parsePatch, pairRows } from '../core/patch.js'
+import { keymapItems } from '../core/keymap.js'
+import { compareForReview, STATUS_GLYPH, RELATIONSHIP_LABELS } from '../core/diff-order.js'
+import {
+  isFullIndex as coreIsFullIndex,
+  isCommitIndex as coreIsCommitIndex,
+  isLocalIndex as coreIsLocalIndex,
+  computeVisibleFiles as coreComputeVisibleFiles,
+} from '../core/view.js'
 import { ROUTES } from './routes.js'
 import { setupOverviewNav } from './overview-nav.js'
 import { store } from './store.js'
@@ -55,74 +63,9 @@ function saveCachedDiff(sha, data) {
   }
 }
 
-/**
- * Parse a unified-diff `patch` string (one file's worth) into hunks.
- * Resilient to: missing hunk-line counts, blank context lines without
- * the leading space, `\ No newline at end of file` markers, and patches
- * with preamble before the first `@@`.
- */
-export function parsePatch(patch) {
-  if (!patch) return []
-  const lines = patch.split('\n')
-  const hunks = []
-  let cur = null
-
-  for (const line of lines) {
-    if (line.startsWith('@@')) {
-      if (cur) hunks.push(cur)
-      const m = line.match(/^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@(.*)$/)
-      if (!m) { cur = null; continue }
-      cur = {
-        oldStart: +m[1], oldLines: m[2] != null ? +m[2] : 1,
-        newStart: +m[3], newLines: m[4] != null ? +m[4] : 1,
-        header:   m[5].replace(/^\s+/, ''),
-        rows:     [],
-        _oldNo:   +m[1],
-        _newNo:   +m[3],
-      }
-      continue
-    }
-    if (!cur) continue
-    const c = line[0]
-    if (c === '-')      cur.rows.push({ kind: 'del',     oldNo: cur._oldNo++, newNo: null,         text: line.slice(1) })
-    else if (c === '+') cur.rows.push({ kind: 'add',     oldNo: null,         newNo: cur._newNo++, text: line.slice(1) })
-    else if (c === ' ') cur.rows.push({ kind: 'context', oldNo: cur._oldNo++, newNo: cur._newNo++, text: line.slice(1) })
-    else if (c === '\\') {/* ignore */}
-    else if (line === '') cur.rows.push({ kind: 'context', oldNo: cur._oldNo++, newNo: cur._newNo++, text: '' })
-  }
-  if (cur) hunks.push(cur)
-  for (const h of hunks) annotateIntraLine(h.rows)
-  return hunks
-}
-
-/**
- * Walk a hunk's rows, find each (del[i], add[i]) position-paired pair,
- * and stamp `_intraLeft` / `_intraRight` segment arrays onto the rows
- * when the lines are similar enough to be worth within-line highlighting.
- * Mutates rows in place. The split + inline renderers both consult these
- * stamps; rows without them fall back to whole-line wash.
- */
-function annotateIntraLine(rows) {
-  let dels = []
-  let adds = []
-  const flush = () => {
-    const max = Math.min(dels.length, adds.length)
-    for (let i = 0; i < max; i++) {
-      const seg = intraLineSegments(dels[i].text, adds[i].text)
-      if (!seg) continue
-      dels[i]._intraLeft  = seg.left
-      adds[i]._intraRight = seg.right
-    }
-    dels = []
-    adds = []
-  }
-  for (const row of rows) {
-    if      (row.kind === 'del') dels.push(row)
-    else if (row.kind === 'add') adds.push(row)
-    else                          flush()
-  }
-  flush()
-}
+// parsePatch + pairRows (and the private annotateIntraLine) now live in the
+// shared core (core/patch.js), imported at the top of this file. The HTML
+// rendering of those rows stays here (renderLineCell, below).
 
 function renderLineCell(row, language, side) {
   const segs = side === 'left' ? row._intraLeft : row._intraRight
@@ -137,30 +80,6 @@ function renderLineCell(row, language, side) {
     if (s.kind === 'eq') return html
     return `<span class="diff-intra-${s.kind}">${html}</span>`
   }).join('')
-}
-
-function pairRows(rows) {
-  const out = []
-  let dels = []
-  let adds = []
-  const flush = () => {
-    const max = Math.max(dels.length, adds.length)
-    for (let i = 0; i < max; i++) {
-      out.push({
-        kind:  dels[i] && adds[i] ? 'change' : dels[i] ? 'del' : 'add',
-        left:  dels[i] || null,
-        right: adds[i] || null,
-      })
-    }
-    dels = []; adds = []
-  }
-  for (const row of rows) {
-    if (row.kind === 'del') dels.push(row)
-    else if (row.kind === 'add') adds.push(row)
-    else { flush(); out.push({ kind: 'context', left: row, right: row }) }
-  }
-  flush()
-  return out
 }
 
 function hunkHeaderRow(hunk, ctx = {}) {
@@ -277,30 +196,9 @@ function renderHunkInline(hunk, path, sha, language, expandCtx = null) {
   return hunkHeaderRow(hunk, expandCtx || {}) + body
 }
 
-function compareForReview(a, b, priorities) {
-  const pa = priorities?.[a.path]
-  const pb = priorities?.[b.path]
-  if (!pa && !pb) return (a.path || '').localeCompare(b.path || '')
-  if (!pa) return 1
-  if (!pb) return -1
-  const refDelta     = (pb.ref_count    || 0) - (pa.ref_count    || 0)
-  if (refDelta     !== 0) return refDelta
-  const statusDelta  = (pa.status_rank  || 0) - (pb.status_rank  || 0)
-  if (statusDelta  !== 0) return statusDelta
-  const supportDelta = (pa.support_rank || 0) - (pb.support_rank || 0)
-  if (supportDelta !== 0) return supportDelta
-  return (a.path || '').localeCompare(b.path || '')
-}
-
-const STATUS_GLYPH = { added: 'A', removed: 'D', modified: 'M', renamed: 'R', copied: 'C', changed: 'M' }
-
-// Relationship chip glyphs + labels (filter mode, on non-anchor files).
-// Arrow points FROM the dependent TO the dependency.
-const RELATIONSHIP_LABELS = {
-  'imports':     { arrow: '→', text: 'imports',     verb: 'imports' },
-  'imported-by': { arrow: '←', text: 'imported by', verb: 'imported by' },
-  'circular':    { arrow: '↔', text: 'circular',    verb: 'circular import with' },
-}
+// compareForReview, STATUS_GLYPH, and RELATIONSHIP_LABELS now live in the
+// shared core (core/diff-order.js), imported at the top of this file, so the
+// browser file list and the TUI file list order and label files identically.
 
 // How many lines a single expand-button click pulls in. Matches GitHub's
 // default behavior (their button is "expand 20 lines"); a multi-step
@@ -861,102 +759,27 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
   const IS_MAC = typeof navigator !== 'undefined' && /Mac/i.test(navigator.platform || navigator.userAgent || '')
   const SUBMIT_MOD = IS_MAC ? '⌘' : 'Ctrl'
 
+  // Thin browser adapter over the shared keymap cascade (core/keymap.js).
+  // Each ctx field reproduces, 1:1, the DOM/state read that used to gate
+  // its branch inline; the priority order, item list, and labels all live
+  // in core now so the future TUI's footer is driven by the same source.
+  // The gate helpers (cursorThreadId / rowHeadPreviewTarget / findExpand
+  // Target) are side-effect-free reads, so computing every field eagerly
+  // here is behavior-identical to the old lazy short-circuit.
   function getKeymapItems () {
-    // Confirmation modal (e.g. Delete thread) — highest priority because
-    // it sits on top of everything else and steals user attention. The
-    // predicate matches ANY backdrop with a `[data-confirm]` button, so
-    // future destructive dialogs (clear reviewed marks, etc.) pick this
-    // hint up automatically.
-    if (document.querySelector('.modal-backdrop [data-confirm]')) {
-      return [
-        { keys: ['↵'],   label: 'confirm' },
-        { keys: ['Esc'], label: 'cancel' },
-      ]
-    }
-    // Editor open — cursor nav is suppressed by the input-field guard
-    // while typing, so only submit/cancel are actionable from inside the
-    // textarea. Editor presence is the DOM-truth signal; checked BEFORE
-    // the comment-selection branch because the selection is still set
-    // while the editor is open (it clears on close).
-    if ($('[data-body] .diff-row-editor')) {
-      return [
-        { keys: [SUBMIT_MOD, '↵'], label: 'submit' },
-        { keys: ['Esc'],           label: 'cancel' },
-      ]
-    }
-    if (state.commentSelection) {
-      // Visual-line mode (entered via V, or via mouse gutter click). `c`
-      // and Enter both commit — surface `c` because it's the vim-canonical
-      // verb. Enter stays wired but un-advertised: showing both would
-      // crowd the bar without teaching anything new (Enter is universally
-      // intuitive). y/o stay live too but advertised at top-level only.
-      return [
-        { keys: ['c'],     label: 'add comment' },
-        { keys: ['Esc'],   label: 'cancel' },
-        { keys: ['j','k'], label: 'extend ↕' },
-      ]
-    }
-    // `copy` is the default (new side, or whatever side exists on a
-    // single-sided row). `Y copy old` and `O open GitHub (old)` are
-    // surfaced only when the cursor row actually has an old side —
-    // newly-created files, pure-add rows, and inline-view add rows have
-    // no old side, so advertising those keys would be misleading.
-    // Old-side variants (C, V, Y, O) are intentionally absent from the
-    // hint bar — they take too much horizontal space relative to how
-    // often they're used. The bindings themselves stay live (the onKey
-    // handler reads e.key directly), they're just unadvertised — same
-    // pattern as J/K's 5-line jump.
-    const items = [
-      { keys: ['j','k'], label: 'move' },
-      { keys: ['c'],     label: 'comment' },
-      { keys: ['v'],     label: 'multi-line' },
-      { keys: ['y'],     label: 'copy' },
-    ]
-    // `r` toggles the cursor row's file between reviewed and unreviewed.
-    // Local view has no stable blob to pin the mark against (see the
-    // click handler at diff.js:1922), so the binding — and its hint —
-    // are scoped to Full and Commit views. Always shown in those views
-    // (no cursor-presence gate) because the action is file-level, not
-    // line-level; pressing `r` with no cursor is a documented no-op.
-    if (isFullIndex(state.index) || isCommitIndex(state.index)) {
-      items.push({ keys: ['r'], label: 'toggle reviewed' })
-    }
-    // Forge bindings — only surface when `state.prInfo` has resolved a
-    // host we can build URLs for. Same gate as the CTA forge button
-    // (diff.js:1001) so the two hint surfaces agree on "forge available
-    // right now?" — when prInfo is null, neither shows it. Old-side `O`
-    // is live but un-hinted (see comment above the items array).
-    const prInfo = state.prInfo
-    if (prInfo?.host === 'github' && prInfo?.pr_url) {
-      items.push({ keys: ['o'], label: 'open GitHub' })
-    }
-    // n — jump to next thread in view. Surfaced only when at least one
-    // thread is currently rendered (view filter + non-collapsed file).
-    // Capital `N` (prev thread) is live but unadvertised — same pattern
-    // as J/K's 5-line jump and C/V/Y/O's old-side variants — to keep the
-    // bar uncluttered. Reads the DOM (not state.threads) so the count
-    // honors per-file collapse and the current view filter for free.
-    const body = $('[data-body]')
-    if (body?.querySelector('.diff-file:not(.is-collapsed) tr.diff-row-thread')) {
-      items.push({ keys: ['n'], label: 'next thread' })
-    }
-    // Cursor-dependent: only surface `d` when there's actually a thread
-    // to delete on the current line, so the hint bar never advertises a
-    // no-op. revealKeymapHint() runs after every j/k, so this stays
-    // accurate as the cursor moves through the diff.
-    if (cursorThreadId()) items.push({ keys: ['d'], label: 'delete thread' })
-    // `p` peek-HEAD shares the same cursor-dependent treatment: surfaced
-    // only when the cursor row has a new-side line on a file with later
-    // changes (in commit view). The triple gate matches the `p` key
-    // handler exactly via rowHeadPreviewTarget, so the bar never lies.
     const cursor = $('[data-body] tr.diff-row.is-cursor')
-    if (cursor && rowHeadPreviewTarget(cursor)) items.push({ keys: ['p'], label: 'peek HEAD' })
-    // e — surface only when the cursor has a reachable target (▲ above
-    // its hunk, or ▼ when in the last hunk). Single key, single hint;
-    // the smart-fallback inside findExpandTarget keeps the user from
-    // needing a second binding.
-    if (findExpandTarget()) items.push({ keys: ['e'], label: 'expand' })
-    return items
+    return keymapItems({
+      confirmModalOpen:     !!document.querySelector('.modal-backdrop [data-confirm]'),
+      editorOpen:           !!$('[data-body] .diff-row-editor'),
+      commentSelection:     !!state.commentSelection,
+      viewSupportsReviewed: isFullIndex(state.index) || isCommitIndex(state.index),
+      forgeAvailable:       state.prInfo?.host === 'github' && !!state.prInfo?.pr_url,
+      hasVisibleThread:     !!$('[data-body]')?.querySelector('.diff-file:not(.is-collapsed) tr.diff-row-thread'),
+      cursorHasThread:      !!cursorThreadId(),
+      cursorHasPeekTarget:  !!(cursor && rowHeadPreviewTarget(cursor)),
+      hasExpandTarget:      !!findExpandTarget(),
+      submitMod:            SUBMIT_MOD,
+    })
   }
   function renderKeymapHint () {
     const hint = $('[data-keymap-hint]')
@@ -2985,9 +2808,11 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
     }
   })
 
-  const isFullIndex   = (idx) => idx === state.commits.length
-  const isCommitIndex = (idx) => idx >= 0 && idx < state.commits.length
-  const isLocalIndex  = (idx) => state.hasLocal && idx === state.commits.length + 1
+  // Thin wrappers binding the shared core/view.js index-space predicates to
+  // this view's state, so all call sites below stay `isFullIndex(state.index)`.
+  const isFullIndex   = (idx) => coreIsFullIndex(idx, state.commits.length)
+  const isCommitIndex = (idx) => coreIsCommitIndex(idx, state.commits.length)
+  const isLocalIndex  = (idx) => coreIsLocalIndex(idx, state.commits.length, state.hasLocal)
   const maxIndex      = ()    => state.commits.length + (state.hasLocal ? 1 : 0)
 
   async function goto(idx) {
@@ -3021,26 +2846,11 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
     return n
   }
 
+  // Delegates to the shared core/view.js computeVisibleFiles(state); kept as a
+  // zero-arg local so existing call sites are unchanged. The store `state`
+  // exposes the diff/filter/index/commits fields the core function reads.
   function computeVisibleFiles() {
-    const all = state.diff?.files || []
-    const filter = state.filter
-    // Single-file thread-context filter (from `?file=…&thread=…` URLs).
-    // Works across all views (Full / per-commit / Local) because the
-    // thread's anchor is view-independent at the path level.
-    if (filter?.kind === 'file' && filter.path) {
-      return all.filter((f) => f.path === filter.path)
-    }
-    if (!isFullIndex(state.index)) return all
-    const priorities = state.diff?.priorities
-    const filterAnchor = filter?.kind === 'related' ? filter.anchor : null
-    if (filterAnchor && priorities) {
-      const p = priorities[filterAnchor]
-      const set = new Set([filterAnchor, ...(p?.incoming || []), ...(p?.outgoing || [])])
-      return all.filter((f) => set.has(f.path))
-    }
-    // Reviewed files are NOT filtered out — they render with `is-reviewed`
-    // + `is-collapsed` so only the header shows. User can click to expand.
-    return all
+    return coreComputeVisibleFiles(state)
   }
 
   // Fetch + apply the reviewed set for `sha` into state. No renderBody().

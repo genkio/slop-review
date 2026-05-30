@@ -2,6 +2,7 @@ import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import { readFile } from 'node:fs/promises'
 import { join, normalize, isAbsolute } from 'node:path'
+import { languageForPath } from '../core/syntax.js'
 
 const pExecFile = promisify(execFile)
 
@@ -498,27 +499,11 @@ export function isValidSymbol(s) {
   return typeof s === 'string' && s.length > 0 && s.length <= 200 && SYMBOL_RE.test(s)
 }
 
-// Server-side language detection — mirrors `languageForPath` in
-// public/syntax.js. Kept in sync by hand (the server has no module
-// access to the client bundle). If you add a language here, mirror it
-// there too, and vice versa.
-function langForPath(path) {
-  if (!path) return null
-  const lower = path.toLowerCase()
-  const base = lower.split('/').pop() || ''
-  const ext = base.includes('.') ? base.split('.').pop() : ''
-  switch (ext) {
-    case 'ts': case 'tsx': case 'mts': case 'cts': case 'd': return 'typescript'
-    case 'js': case 'jsx': case 'mjs': case 'cjs':           return 'javascript'
-    case 'py': case 'pyi': return 'python'
-    case 'go':             return 'go'
-    case 'rs':             return 'rust'
-    case 'java': case 'kt': case 'scala': case 'cs': return 'java'
-    case 'c': case 'h': case 'cpp': case 'cc': case 'cxx': case 'hpp': case 'hxx': return 'c'
-    case 'sh': case 'bash': case 'zsh': case 'ksh': return 'bash'
-    default: return null
-  }
-}
+// Language detection is the shared core/syntax.js `languageForPath` (a
+// superset of the hand-kept copy that used to live here). DEF_PATTERNS only
+// has entries for ts/js/go/rust/python, so the extra languages the shared
+// version recognizes (json/yaml/markdown/css/ini, Dockerfile, etc.) change
+// no def-detection behavior; they only enrich the `lang` label on snippets.
 
 // Per-language "this line shape introduces NAME" matchers. Each entry is
 // `(name) => RegExp`; we pass the validated symbol through SYMBOL_RE so
@@ -631,7 +616,7 @@ export async function findSymbolDefinition(repoPath, symbol, opts = {}) {
     const lineNo = Number(raw.slice(c2 + 1, c3))
     const content = raw.slice(c3 + 1)
     if (!Number.isFinite(lineNo) || lineNo < 1) continue
-    const lang = langForPath(path)
+    const lang = languageForPath(path)
     if (!firstAny) firstAny = { path, line: lineNo, lang }
     const builder = DEF_PATTERNS[lang]
     if (!builder) continue

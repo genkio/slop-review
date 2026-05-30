@@ -3,22 +3,16 @@ import {
   findSymbolDefinition,
   getBranchInfo,
   getCommits,
-  getCommitDiff,
   getFileLines,
-  getFullDiff,
   getHeadPreview,
-  getLocalDiff,
   getOriginUrl,
   isValidSha,
   isValidSymbol,
 } from '../git.js'
 import { parseRemoteUrl, getPullRequestUrl } from '../host.js'
-import {
-  computePrioritiesAtSha,
-  computePrioritiesForWorktree,
-} from '../diff-priorities.js'
 import { readReviewed, writeReviewed, clearReviewed } from '../reviewed.js'
 import { sanitizeBranchId } from '../reviews.js'
+import { loadFullDiff, loadCommitDiff, loadLocalDiff } from '../../core/actions.js'
 
 async function withRepo(c) {
   const state = await loadState()
@@ -76,20 +70,10 @@ export function registerDiffRoutes(app) {
   app.get('/api/repos/:id/commits/:sha/diff', async (c) => {
     const { repo, error } = await withRepo(c)
     if (error) return error
-    const sha = c.req.param('sha')
-    if (!isValidSha(sha)) return c.json({ error: 'invalid sha' }, 400)
     try {
-      const diff = await getCommitDiff(repo.path, sha)
-      // Same importance-ordering the Full diff already enjoys — reference
-      // count first, then status / support / path. The reference graph is
-      // built from each file's content at THIS commit's SHA, so imports
-      // that didn't yet exist (or were since refactored) don't pollute
-      // the ranking. Failure-soft: null priorities means the client
-      // falls back to the server's existing file order.
-      diff.priorities = await computePrioritiesAtSha(repo.path, diff.sha, diff.files)
-      return c.json(diff)
+      return c.json(await loadCommitDiff(repo.path, c.req.param('sha')))
     } catch (e) {
-      return c.json({ error: e.message || 'commit diff failed' }, 500)
+      return c.json({ error: e.message || 'commit diff failed' }, e.status || 500)
     }
   })
 
@@ -182,16 +166,10 @@ export function registerDiffRoutes(app) {
   app.get('/api/repos/:id/diff', async (c) => {
     const { repo, error } = await withRepo(c)
     if (error) return error
-    const info = await getBranchInfo(repo.path)
-    if (!info.merge_base_sha || !info.head_sha) {
-      return c.json({ error: 'no merge base / head sha — branch state unsuitable for full diff' }, 409)
-    }
     try {
-      const diff = await getFullDiff(repo.path, info.merge_base_sha, info.head_sha)
-      diff.priorities = await computePrioritiesAtSha(repo.path, diff.sha, diff.files)
-      return c.json(diff)
+      return c.json(await loadFullDiff(repo.path))
     } catch (e) {
-      return c.json({ error: e.message || 'full diff failed' }, 500)
+      return c.json({ error: e.message || 'full diff failed' }, e.status || 500)
     }
   })
 
@@ -199,11 +177,9 @@ export function registerDiffRoutes(app) {
     const { repo, error } = await withRepo(c)
     if (error) return error
     try {
-      const diff = await getLocalDiff(repo.path)
-      diff.priorities = await computePrioritiesForWorktree(repo.path, diff.files)
-      return c.json(diff)
+      return c.json(await loadLocalDiff(repo.path))
     } catch (e) {
-      return c.json({ error: e.message || 'local diff failed' }, 500)
+      return c.json({ error: e.message || 'local diff failed' }, e.status || 500)
     }
   })
 

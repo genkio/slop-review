@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { intraLineSegments } from '../public/intra-line-diff.js'
+import { intraLineSegments } from '../core/intra-line-diff.js'
 
 function reconstruct(segs) {
   return segs.map((s) => s.text).join('')

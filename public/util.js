@@ -1,3 +1,13 @@
+import { forgeDeepLink } from '../core/forge.js'
+
+// Several pure helpers moved into the shared core and are re-exported here so
+// the SPA's many importers keep importing them from ./util.js unchanged:
+//   relTime, formatLineRange -> core/format.js
+//   the forge URL shape      -> core/forge.js (as buildForgeDeepLinkFromSha)
+// (sanitizeBranchId is likewise re-exported from core/ids.js further down.)
+export { relTime, formatLineRange } from '../core/format.js'
+export const buildForgeDeepLinkFromSha = forgeDeepLink
+
 const HTML_ESCAPES = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }
 export function escapeHtml(s) {
   return String(s ?? '').replace(/[&<>"']/g, (c) => HTML_ESCAPES[c])
@@ -16,17 +26,6 @@ export function inlineCode(s) {
   })
   out = out.replace(/`([^`\n]+)`/g, '<code>$1</code>')
   return out
-}
-
-export function relTime(iso) {
-  if (!iso) return ''
-  const d = new Date(iso)
-  const diff = (Date.now() - d.getTime()) / 1000
-  if (diff < 60) return 'just now'
-  if (diff < 3600) return Math.floor(diff / 60) + 'm ago'
-  if (diff < 86400) return Math.floor(diff / 3600) + 'h ago'
-  if (diff < 86400 * 7) return Math.floor(diff / 86400) + 'd ago'
-  return d.toISOString().slice(0, 10)
 }
 
 /**
@@ -153,35 +152,11 @@ export function homePath(absPath, home) {
   return absPath
 }
 
-/**
- * Format a thread's anchor line range for display. Returns `42` for a
- * single-line thread (line_end null / equal to line) and `42–45` for a
- * multi-line one. Used by the thread modal's subtitle. Threads created
- * before the multi-line feature shipped carry no `line_end` at all —
- * `undefined` collapses to the single-line case, so legacy data renders
- * unchanged.
- */
-export function formatLineRange(thread) {
-  const start = thread?.line
-  const end = thread?.line_end
-  if (start == null) return ''
-  if (end == null || end === start) return String(start)
-  return `${start}–${end}`
-}
-
-/**
- * Sanitize a branch name into a filesystem-safe directory name. SPEC §5:
- * anything outside `[A-Za-z0-9_-]` collapses to `-`, leading/trailing `-`
- * stripped, capped at 80 chars. Must stay in lockstep with the server's
- * sanitization (server/reviews.js) so the `<repo>/.reviews/<branch_id>/`
- * paths the client constructs match what the server reads/writes.
- */
-export function sanitizeBranchId(branch) {
-  if (!branch) return ''
-  let s = String(branch).replace(/[^A-Za-z0-9_-]+/g, '-').replace(/^-+|-+$/g, '')
-  if (s.length > 80) s = s.slice(0, 80)
-  return s
-}
+// sanitizeBranchId now lives in the shared core (core/ids.js) and is
+// re-exported here so existing importers (diff.js, pages/diff.js) keep
+// working unchanged. The specifier resolves to /core/ids.js in the browser
+// (served by the /core/ static mount) and to ../core/ids.js on disk in Node.
+export { sanitizeBranchId } from '../core/ids.js'
 
 /**
  * SHA-256 hex digest of a UTF-8 string. Used by the forge deep-link
@@ -209,45 +184,14 @@ export async function sha256Hex(text) {
  * highlights as a span. The `(file, side)` anchor invariant on slop-review
  * selections (no straddling the seam) maps 1:1 to GitHub's prefix.
  */
+// Async variant: computes the path hash via SubtleCrypto (browser), then
+// defers the URL shape to the shared core builder. `buildForgeDeepLinkFromSha`
+// (re-exported above as core's forgeDeepLink) is the sync variant for callers
+// that already hold `path_sha256` (e.g. server-attached on threads).
 export async function buildForgeDeepLink({ host, prUrl, path, lineStart, lineEnd, side }) {
   if (!host || !prUrl || !path) return null
-  switch (host) {
-    case 'github': {
-      const hash = await sha256Hex(path)
-      const prefix = side === 'old' ? 'L' : 'R'
-      const lineSpec = lineStart === lineEnd
-        ? `${prefix}${lineStart}`
-        : `${prefix}${lineStart}-${prefix}${lineEnd}`
-      return `${prUrl}/files#diff-${hash}${lineSpec}`
-    }
-    // GitLab / Bitbucket: not yet implemented. Returning null hides the
-    // button rather than producing a guess that 404s on the user.
-    default:
-      return null
-  }
-}
-
-/**
- * Sync variant for callers that already have the SHA-256 of `path`
- * pre-computed (e.g. server-attached `thread.path_sha256`). Avoids the
- * SubtleCrypto round-trip, which matters because SubtleCrypto is gated
- * on a secure context. When slop-review is opened over a LAN IP from a
- * mobile device, `crypto.subtle` is undefined, so the async path fails
- * with "Cannot read properties of undefined (reading 'digest')". Same
- * URL shape as the async version, just skips the hash step.
- */
-export function buildForgeDeepLinkFromSha({ host, prUrl, pathSha256, lineStart, lineEnd, side }) {
-  if (!host || !prUrl || !pathSha256) return null
-  switch (host) {
-    case 'github': {
-      const prefix = side === 'old' ? 'L' : 'R'
-      const lineSpec = lineStart === lineEnd
-        ? `${prefix}${lineStart}`
-        : `${prefix}${lineStart}-${prefix}${lineEnd}`
-      return `${prUrl}/files#diff-${pathSha256}${lineSpec}`
-    }
-    default:
-      return null
-  }
+  if (host !== 'github') return null
+  const pathSha256 = await sha256Hex(path)
+  return forgeDeepLink({ host, prUrl, pathSha256, lineStart, lineEnd, side })
 }
 

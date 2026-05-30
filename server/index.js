@@ -10,6 +10,7 @@ import { shutdownAllOverviewJobs } from './overview.js'
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const PROJECT_ROOT = join(__dirname, '..')
 const PUBLIC_DIR_REL = relative(process.cwd(), join(PROJECT_ROOT, 'public')) || '.'
+const CORE_DIR_REL = relative(process.cwd(), join(PROJECT_ROOT, 'core')) || '.'
 
 const DEFAULT_PORT = 9410
 
@@ -76,6 +77,22 @@ export async function start({ port = DEFAULT_PORT, hostname = '0.0.0.0' } = {}) 
   registerDiffRoutes(app)
   registerThreadRoutes(app)
   registerOverviewRoutes(app)
+
+  // Serve the shared core/ modules under /core/ so the browser SPA can
+  // `import` the very files the Node server and TUI import. Registered
+  // BEFORE the public catch-all and gated to the /core/ prefix: a non-core
+  // path returns without writing, so the request falls through to the
+  // public mount below (middlewares run in registration order and only a
+  // response-ending handler stops the chain). Without the prefix gate this
+  // root-anchored mount would expose the whole package tree.
+  const coreStatic = serveStatic({
+    root: CORE_DIR_REL,
+    rewriteRequestPath: (path) => path.replace(/^\/core\//, '/'),
+  })
+  app.use('/*', async (c) => {
+    if (!c._url.pathname.startsWith('/core/')) return
+    await coreStatic(c)
+  })
 
   app.use(
     '/*',
