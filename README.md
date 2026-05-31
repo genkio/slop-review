@@ -22,7 +22,7 @@ https://github.com/user-attachments/assets/3058c57d-74b0-4bba-9c99-73cca13925f0
 
 - **Vim-style keybindings with a context-aware hint bar.** Single-letter verbs drive line-level review actions (comment, copy, deep-link, delete) without leaving the keyboard. A which-key-style hint bar reveals on the first keypress and re-renders on every state change — showing only the keys that are actually live for the current cursor row and mode. Hidden hints are strict no-ops, so the bar never advertises a key that does nothing.
 
-- **No GitHub round-trip.** Inline comments live as plain JSON under `<repo>/.reviews/`, so the whole review loop happens offline against your working tree. Add the directory to `.gitignore` to keep threads local, or commit it to share them with collaborators.
+- **Terminal-only review loop via Carbonyl.** Pass `--carbonyl` (short: `--c`) and slop-review renders its diff UI straight into the TTY via [Carbonyl](https://github.com/fathyb/carbonyl), a Chromium fork that paints into the terminal, so the whole review loop stays in one pane beside your editor and agent with no browser and no context switch. Every keybinding carries over (a shim covers the few modifier chords Carbonyl strips); see [Carbonyl integration](#carbonyl-integration).
 
 ## Getting started
 
