@@ -88,9 +88,15 @@ function commentHtml(c, interactive = false) {
     ? `<button type="button" class="msg-edit" data-edit-comment data-comment-id="${escapeHtml(c.id)}" aria-label="Edit comment" title="Edit comment">✎</button>` +
       `<button type="button" class="msg-remove" data-remove-comment data-comment-id="${escapeHtml(c.id)}" aria-label="Remove comment" title="Remove comment">×</button>`
     : ''
+  // Synced GitHub comments carry a permalink; turn the timestamp into a link
+  // back to the comment on GitHub. Local comments render a plain timestamp.
+  const when = escapeHtml(relTime(c.posted_at || c.created_at))
+  const whenHtml = c.github_url
+    ? `<a class="msg-when" href="${escapeHtml(c.github_url)}" target="_blank" rel="noopener noreferrer" title="Open this comment on GitHub">${when}</a>`
+    : `<span class="msg-when">${when}</span>`
   return `
     <div class="msg" data-comment-id="${escapeHtml(c.id)}">
-      <div class="msg-head"><span class="msg-who">${escapeHtml(c.user)}</span><span class="msg-when">${escapeHtml(relTime(c.posted_at || c.created_at))}</span>${actions}</div>
+      <div class="msg-head"><span class="msg-who">${escapeHtml(c.user)}</span>${whenHtml}${actions}</div>
       <div class="msg-body" data-body>${inlineCode(c.body)}</div>
     </div>`
 }
@@ -377,8 +383,19 @@ export function openThreadModal(threadId, opts = {}) {
     const subLabelEl = forgeUrl
       ? `<a href="${escapeHtml(forgeUrl)}" class="thread-modal-sub-label" target="_blank" rel="noopener noreferrer">${escapeHtml(subLabel)}${sideTagHtml}</a>`
       : `<span class="thread-modal-sub-label">${escapeHtml(subLabel)}${sideTagHtml}</span>`
+    // "GitHub" badge for threads pulled in by `slop --sync` (those carry a
+    // github_thread_id). Once the developer edits a synced thread locally,
+    // `locally_modified` flips and sync stops touching it, so the badge goes
+    // muted + "(edited)" to signal it has diverged from GitHub.
+    const githubBadge = thread.github_thread_id
+      ? `<span class="thread-github-badge${thread.locally_modified ? ' is-modified' : ''}" title="${thread.locally_modified
+          ? 'Synced from GitHub, then edited locally; future syncs skip it'
+          : 'Synced from a GitHub PR review thread'}">GitHub${thread.locally_modified ? ' (edited)' : ''}</span>`
+      : ''
+
     const subHtml = `<div class="sub">
       ${subLabelEl}
+      ${githubBadge}
       ${filenameBtn}
       ${positionHtml}
     </div>`

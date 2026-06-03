@@ -37,7 +37,35 @@
   // handler sees it. We keep the original target around so the synthetic
   // keydown can be dispatched from the same node, which preserves
   // bubble-path handlers (textarea-scoped editor shortcuts, etc.).
+  // Carbonyl forwards arrow keys with `windows_key_code` populated (so
+  // `e.keyCode` is 37-40) but leaves `e.key === ''`, and arrows emit NO
+  // keypress event. So the keydown-swallow + keypress-rehydrate path below
+  // (which recovers `e.key` for printable keys) can't reach them, and every
+  // `e.key`-based arrow binding (the thread modal's Left/Right thread nav)
+  // silently misses. Map the arrow key codes back to a proper `e.key` here and
+  // re-dispatch. In a real browser arrow keydowns always carry `e.key`, so
+  // `keyMissing` is false and this stays a no-op.
+  const NAV_KEYS = { 37: 'ArrowLeft', 38: 'ArrowUp', 39: 'ArrowRight', 40: 'ArrowDown' }
   document.addEventListener('keydown', (e) => {
+    if (e.__cbShim) return  // our own synthetic re-dispatch; let it reach the page
+    const code = e.keyCode || e.which || 0
+    const keyMissing = !e.key || e.key === 'Unidentified'
+    if (keyMissing && NAV_KEYS[code]) {
+      e.stopImmediatePropagation()
+      const ev = new KeyboardEvent('keydown', {
+        key: NAV_KEYS[code],
+        code: NAV_KEYS[code],
+        shiftKey: e.shiftKey, ctrlKey: e.ctrlKey, altKey: e.altKey, metaKey: e.metaKey,
+        bubbles: true, cancelable: true,
+      })
+      ev.__cbShim = true
+      ;(e.target || document).dispatchEvent(ev)
+      // Mirror a handler's preventDefault back onto the original so the arrow's
+      // native default (scroll) is suppressed only when the synthetic was
+      // actually consumed.
+      if (ev.defaultPrevented) e.preventDefault()
+      return
+    }
     if (isBroken(e)) {
       pendingTarget = e.target || document
       e.stopImmediatePropagation()

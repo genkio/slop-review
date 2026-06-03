@@ -31,15 +31,18 @@ export function parseHash() {
   const query = parseQuery(queryPart)
   const file     = query.file     || null
   const threadId = query.thread   || null
+  // One-shot resume hint set by `slop --sync --browser/--carbonyl`: after the
+  // diff mounts, open the first unresolved thread's modal (see renderDiffView).
+  const resume   = query.resume === '1'
 
   // Bare `#/` is the only non-diff path left — alias to the full diff so
   // bookmarks against the pre-collapse threads/overview homepages keep
   // landing somewhere useful.
-  if (parts.length === 0) return { kind: 'diff', variant: 'full', file, threadId }
+  if (parts.length === 0) return { kind: 'diff', variant: 'full', file, threadId, resume }
   if (parts[0] === 'diff') {
-    if (parts.length === 1) return { kind: 'diff', variant: 'full', file, threadId }
-    if (parts[1] === 'local') return { kind: 'diff', variant: 'local', file, threadId }
-    if (SHA_RE.test(parts[1])) return { kind: 'diff', variant: 'commit', sha: parts[1], file, threadId }
+    if (parts.length === 1) return { kind: 'diff', variant: 'full', file, threadId, resume }
+    if (parts[1] === 'local') return { kind: 'diff', variant: 'local', file, threadId, resume }
+    if (SHA_RE.test(parts[1])) return { kind: 'diff', variant: 'commit', sha: parts[1], file, threadId, resume }
   }
   return { kind: 'unknown' }
 }

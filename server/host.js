@@ -92,3 +92,106 @@ export async function getPullRequestUrl(repoPath, branch, host) {
   prCache.set(key, url)
   return url
 }
+
+const GH_GRAPHQL_TIMEOUT = 20000
+const GH_MAXBUF = 32 * 1024 * 1024
+
+/**
+ * The PR number for the current branch, or null when there's no open PR
+ * (or `gh` is unavailable). `gh pr view` with no positional arg resolves the
+ * PR associated with the checked-out branch, the same resolution
+ * getPullRequestUrl relies on, just asking for the number instead of the url.
+ */
+export async function getPrNumber(repoPath) {
+  if (!repoPath) return null
+  try {
+    const { stdout } = await pExecFile(
+      'gh', ['pr', 'view', '--json', 'number'],
+      { cwd: repoPath, timeout: GH_TIMEOUT, encoding: 'utf8' }
+    )
+    const data = JSON.parse(stdout)
+    return Number.isInteger(data?.number) ? data.number : null
+  } catch {
+    return null
+  }
+}
+
+// Resolution status for a review thread (isResolved) is exposed ONLY by the
+// GraphQL API; the REST pulls/comments endpoint can't tell a resolved thread
+// from an open one. So sync fetches PullRequestReviewThread nodes directly.
+// Anchor fields (path/line/diffSide/etc.) live on the thread itself in the
+// current schema, which is why we don't need to dig into each comment to find
+// where the thread is pinned.
+const REVIEW_THREADS_QUERY = `
+query($owner: String!, $repo: String!, $number: Int!, $cursor: String) {
+  repository(owner: $owner, name: $repo) {
+    pullRequest(number: $number) {
+      reviewThreads(first: 100, after: $cursor) {
+        pageInfo { hasNextPage endCursor }
+        nodes {
+          id
+          isResolved
+          isOutdated
+          path
+          line
+          startLine
+          originalLine
+          originalStartLine
+          diffSide
+          subjectType
+          comments(first: 100) {
+            nodes {
+              databaseId
+              author { login }
+              body
+              createdAt
+              url
+            }
+          }
+        }
+      }
+    }
+  }
+}`
+
+/**
+ * Fetch every PullRequestReviewThread on a PR via the GraphQL API, paginating
+ * the thread connection. Returns the raw node objects; the sync layer
+ * (server/sync.js) filters to unresolved + maps them onto slop threads.
+ *
+ * Comments are capped at the first 100 per thread: a single review thread
+ * effectively never exceeds that, and going deeper would mean a second
+ * paginated connection per thread for a case that doesn't occur in practice.
+ *
+ * Throws on a hard gh failure (bad auth, network, GraphQL error) so the caller
+ * surfaces it rather than silently syncing zero threads. `-f` passes the query
+ * plus string vars raw; `-F number=N` coerces to the GraphQL Int.
+ */
+export async function fetchReviewThreads(repoPath, owner, repo, number) {
+  const out = []
+  let cursor = null
+  // Runaway backstop: 100 pages x 100 threads = 10k, far beyond any real PR.
+  for (let page = 0; page < 100; page++) {
+    const args = [
+      'api', 'graphql',
+      '-f', `query=${REVIEW_THREADS_QUERY}`,
+      '-f', `owner=${owner}`,
+      '-f', `repo=${repo}`,
+      '-F', `number=${number}`,
+    ]
+    if (cursor) args.push('-f', `cursor=${cursor}`)
+    const { stdout } = await pExecFile('gh', args, {
+      cwd: repoPath,
+      timeout: GH_GRAPHQL_TIMEOUT,
+      maxBuffer: GH_MAXBUF,
+      encoding: 'utf8',
+    })
+    const data = JSON.parse(stdout)
+    const conn = data?.data?.repository?.pullRequest?.reviewThreads
+    if (!conn) break
+    for (const node of conn.nodes || []) if (node) out.push(node)
+    if (!conn.pageInfo?.hasNextPage || !conn.pageInfo?.endCursor) break
+    cursor = conn.pageInfo.endCursor
+  }
+  return out
+}

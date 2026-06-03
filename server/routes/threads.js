@@ -19,6 +19,16 @@ import { getBranchInfo } from '../git.js'
 // against this same literal to decide "developer posted last → awaiting".
 const DEVELOPER_USER = 'reviewer'
 
+// Synced-thread guard. Threads pulled from GitHub via `slop --sync` carry a
+// `github_thread_id`; the instant the developer mutates one locally (reply,
+// edit, delete a comment, resolve/unresolve) we flip `locally_modified` so the
+// next sync leaves it untouched instead of overwriting or deleting it. Marking
+// a thread read (last_read_at) deliberately does NOT count: merely opening a
+// thread shouldn't freeze it against future syncs.
+function markSyncedThreadModified(thread) {
+  if (thread?.github_thread_id) thread.locally_modified = true
+}
+
 async function withRepoAndBranch(c) {
   const state = await loadState()
   const repo = findRepo(state, c.req.param('id'))
@@ -113,6 +123,7 @@ export function registerThreadRoutes(app) {
     const comment = { id: `${tid}_${n}`, user, body: text, posted_at: now }
     thread.comments = [...(thread.comments || []), comment]
     thread.last_read_at = now    // user-authored reply implies they've seen prior context
+    markSyncedThreadModified(thread)
     await writeThread(repo.path, branchId, thread)
     const threads = await listThreadsWithState(repo.path, branchId)
     return c.json({ ok: true, comment, branch, branch_id: branchId, threads })
@@ -137,6 +148,7 @@ export function registerThreadRoutes(app) {
     const idx = (thread.comments || []).findIndex((m) => m.id === cid)
     if (idx < 0) return c.json({ error: 'comment not found' }, 404)
     thread.comments[idx] = { ...thread.comments[idx], body: text }
+    markSyncedThreadModified(thread)
     await writeThread(repo.path, branchId, thread)
     const threads = await listThreadsWithState(repo.path, branchId)
     return c.json({ ok: true, comment: thread.comments[idx], branch, branch_id: branchId, threads })
@@ -155,6 +167,7 @@ export function registerThreadRoutes(app) {
       const threads = await listThreadsWithState(repo.path, branchId)
       return c.json({ ok: true, deleted: 'thread', branch, branch_id: branchId, threads })
     } else {
+      markSyncedThreadModified(thread)
       await writeThread(repo.path, branchId, thread)
       const threads = await listThreadsWithState(repo.path, branchId)
       return c.json({ ok: true, deleted: 'comment', branch, branch_id: branchId, threads })
@@ -197,6 +210,7 @@ export function registerThreadRoutes(app) {
     const thread = await readThread(repo.path, branchId, tid)
     if (!thread) return c.json({ error: 'thread not found' }, 404)
     thread.resolved_at = new Date().toISOString()
+    markSyncedThreadModified(thread)
     await writeThread(repo.path, branchId, thread)
     const threads = await listThreadsWithState(repo.path, branchId)
     return c.json({ ok: true, branch, branch_id: branchId, threads })
@@ -209,6 +223,7 @@ export function registerThreadRoutes(app) {
     const thread = await readThread(repo.path, branchId, tid)
     if (!thread) return c.json({ error: 'thread not found' }, 404)
     thread.resolved_at = null
+    markSyncedThreadModified(thread)
     await writeThread(repo.path, branchId, thread)
     const threads = await listThreadsWithState(repo.path, branchId)
     return c.json({ ok: true, branch, branch_id: branchId, threads })

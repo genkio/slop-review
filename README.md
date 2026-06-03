@@ -24,6 +24,8 @@ https://github.com/user-attachments/assets/3058c57d-74b0-4bba-9c99-73cca13925f0
 
 - **Terminal-only review loop via Carbonyl.** Pass `--carbonyl` (short: `--c`) and slop-review renders its diff UI straight into the TTY via [Carbonyl](https://github.com/fathyb/carbonyl), a Chromium fork that paints into the terminal, so the whole review loop stays in one pane beside your editor and agent with no browser and no context switch. Every keybinding carries over (a shim covers the few modifier chords Carbonyl strips); see [Carbonyl integration](#carbonyl-integration).
 
+- **One-way GitHub review-thread sync.** Run `slop --sync` to pull the *unresolved* review threads from the current branch's GitHub PR into local slop threads on the full diff, authored by whoever wrote them on GitHub. Re-running mirrors GitHub: new replies flow in, threads resolved on GitHub are deleted locally, and any thread you've edited / replied-to / resolved locally is flagged and skipped so your local work is never clobbered. See [GitHub review-thread sync](#github-review-thread-sync).
+
 ## Getting started
 
 ```bash
@@ -33,7 +35,7 @@ npx slop-review
 
 That's it. The cwd is auto-bootstrapped as the review target, the server picks a free port (default range 9410-9419), and your browser opens. Review threads are stored in `<repo>/.reviews/` — add it to that repo's `.gitignore` if you want them local-only.
 
-Flags: `--port <n>`, `--host <h>`, `--no-open`, `--carbonyl [<path>]` (see [Carbonyl integration](#carbonyl-integration)), `-h`.
+Flags: `--port <n>`, `--host <h>`, `--no-open`, `--carbonyl [<path>]` (see [Carbonyl integration](#carbonyl-integration)), `--sync` / `--browser` (see [GitHub review-thread sync](#github-review-thread-sync)), `-h`.
 
 Prerequisites: Node ≥ 20, `git` on `PATH`. No runtime dependencies — the server runs on `node:http` + the standard library only, so `npx slop-review` doesn't pull a tree of transitive packages onto your machine.
 
@@ -110,6 +112,25 @@ slop-review's diff view is fully keyboard-driven. The same bindings work in a re
 `;;` (two semicolons within 400ms while the editor is focused) is implemented by `public/carbonyl-key-shim.js`: it detects the double-tap, splices the first `;` back out of the textarea, and dispatches a synthetic `Cmd+Enter` so the editor's existing submit handler fires unchanged. The shim is loaded unconditionally but only triggers on Carbonyl's modifier-stripped event signature, so in a regular browser it's a complete no-op.
 
 If you genuinely want a literal `;;` in a comment body, pause >400ms between the two characters (or type `; ;` with a space and edit it out).
+
+## GitHub review-thread sync
+
+`slop --sync` is a one-shot, one-directional mirror: it pulls the **unresolved** review threads from the GitHub pull request for your current branch and writes them as local slop review threads, then exits (no server, no browser). It uses the `gh` CLI for auth and data (via the GraphQL API, the only place GitHub exposes thread *resolved* state), so you need `gh` installed and logged in. A non-GitHub origin or a branch with no open PR is a no-op.
+
+```bash
+slop --sync
+```
+
+Semantics:
+
+- **Anchoring.** GitHub review threads live on the PR "Files" tab, so they land on slop's **Full diff** (`view: "full"`). GitHub's `RIGHT` / `LEFT` diff side maps to slop's `new` / `old`, and multi-line threads keep their range. File-level (whole-file) GitHub comments have no line anchor and are reported as skipped.
+- **Authorship.** Synced comments keep the GitHub author's login as the `user` (not slop's `reviewer` / `reviewee` role markers), the thread shows a **GitHub** badge in the UI, and each comment's timestamp links back to the original comment on GitHub.
+- **Mirror on re-run.** Each sync refreshes existing synced threads (new GitHub replies appear), **deletes** local threads whose GitHub counterpart was resolved, and **creates** newly-opened ones.
+- **Local edits win.** The moment you edit, reply to, delete a comment from, or resolve a synced thread in the UI, it's flagged `locally_modified` and every later sync **skips** it, never overwriting or deleting your local work. The badge goes muted to show it has diverged.
+- **One direction only.** Sync never writes back to GitHub.
+- **Open straight into review.** Chain `--browser` or `--carbonyl` (e.g. `slop --sync --browser`) to launch the UI the moment the sync finishes, landing on the full diff with the first unresolved thread's modal already open (the same walk as the counts-strip "Resume unresolved thread" button). Plain `slop --sync` just prints the summary and exits.
+
+Each run prints a short summary: threads created / updated / deleted / skipped, plus the GitHub unresolved total.
 
 ## AI agent integration
 

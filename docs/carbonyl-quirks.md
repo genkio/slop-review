@@ -295,6 +295,31 @@ glyph (preferred, picks up the current font color and renders
 cleanly at cell-aligned positions) or guard the SVG with
 `.is-carbonyl ... { display: none; }` plus a textual fallback.
 
+### 10. Arrow keys arrive with `e.key === ''` (and no keypress to rehydrate)
+
+**Symptom:** inside the thread modal, Left/Right arrow keys don't step
+between threads the way they do in a browser. More broadly, any binding
+that switches on `e.key === 'ArrowLeft'` / `'ArrowRight'` never fires in
+carbonyl.
+
+**Why:** carbonyl's chromium fork forwards arrow keys with
+`windows_key_code` populated (so `e.keyCode` is 37-40) but leaves
+`e.key === ''`. Unlike printable keys, arrows emit no `keypress` event, so
+the keydown-swallow + keypress-rehydrate path in `carbonyl-key-shim.js`
+(which recovers `e.key` for ordinary keys) can't reach them. The keydown
+lands on the page with an empty `key`, and every `e.key`-based binding misses.
+
+**Fix:** in `carbonyl-key-shim.js`, a capture-phase keydown handler maps the
+arrow key codes (37-40) back to `ArrowLeft` / `ArrowUp` / `ArrowRight` /
+`ArrowDown` and re-dispatches a synthetic keydown carrying the proper
+`e.key`. A handler's `preventDefault` is mirrored onto the original so native
+scroll is suppressed only when something consumed the arrow. In a real
+browser arrow keydowns always carry `e.key`, so the path is a no-op there.
+
+**Watch out:** Shift+Arrow (the diff page's commit nav) still can't work in
+carbonyl because the fork strips Shift entirely, so that nav stays on the
+« / » header buttons. Only plain arrows are recovered here.
+
 ## Iteration loop
 
 When tweaking carbonyl styling:

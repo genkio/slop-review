@@ -144,6 +144,12 @@ export async function renderDiffPage(parsed = { variant: 'full' }, isCurrent = (
   // On the base branch with only local changes → land on local view.
   if (branchInfo.on_base && hasLocal) initialIndex = commits.length + (hasLocal ? 1 : 0)
 
+  // `?resume=1` (from `slop --sync --browser/--carbonyl`) is an opinionated
+  // open: always land on the Full diff, where synced GitHub threads live, so
+  // the resume step in renderDiffView has them in view regardless of the
+  // saved last-view or smart default resolved above.
+  if (parsed.resume) initialIndex = commits.length
+
   // Thread context: when `?file=…&thread=…` is in the hash, the diff
   // view filters to that one file and surfaces a "← Back to thread"
   // affordance. When only `?thread=…` is present, the diff view
@@ -152,6 +158,7 @@ export async function renderDiffPage(parsed = { variant: 'full' }, isCurrent = (
   // and bookmark all route the user to the same focused view.
   const singleFile      = parsed.file || null
   const threadContextId = parsed.threadId || null
+  const resumeThreads   = !!parsed.resume
 
   if (!isCurrent()) return
   await renderDiffView({
@@ -164,6 +171,7 @@ export async function renderDiffPage(parsed = { variant: 'full' }, isCurrent = (
     hasLocal,
     singleFile,
     threadContextId,
+    resumeThreads,
     isCurrent,
   })
 }

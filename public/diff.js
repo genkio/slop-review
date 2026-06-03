@@ -480,7 +480,7 @@ export function disposeDiffView() {
  * to await it for navigation; it's awaited mainly so `scrollToAnchor`
  * fires on the freshly-rendered DOM.
  */
-export async function renderDiffView({ repo, branch, branchId, branchInfo, commits, initialIndex = 0, hasLocal = false, scrollToAnchor = null, singleFile = null, threadContextId = null, isCurrent = () => true }) {
+export async function renderDiffView({ repo, branch, branchId, branchInfo, commits, initialIndex = 0, hasLocal = false, scrollToAnchor = null, singleFile = null, threadContextId = null, resumeThreads = false, isCurrent = () => true }) {
   if (!isCurrent()) return
   // Tear down any previous diff view's listeners before we re-mount.
   disposeDiffView()
@@ -2783,6 +2783,12 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
       return
     }
 
+    // Real links inside the diff (e.g. a synced comment's GitHub permalink on
+    // its timestamp) navigate on their own. Let the default action proceed,
+    // but stop propagation so the global click handler doesn't also fire a
+    // toast or treat it as a diff interaction.
+    if (e.target.closest('a[href]')) { e.stopPropagation(); return }
+
     // Handle data-show-thread BEFORE any other case + bubbling: the global
     // click handler in events.js can't open the thread (no repoId/getThread
     // context at that level), so we own it here where we have state.threads
@@ -2808,19 +2814,11 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
     if (e.target.closest('[data-show-first-thread]')) {
       if (window.getSelection?.()?.toString().trim()) return
       e.preventDefault(); e.stopPropagation()
-      // Resume is *unresolved-only* — the button surfaces outstanding work,
-      // not the full backlog. Cursor pointing at a resolved thread (user
-      // resolved it then closed the modal) falls through to "first
-      // unresolved", which matches the user's intent: walk the next thing
-      // that needs attention. Inline `.diff-thread-body` clicks still use
-      // the unfiltered order, so revisiting a resolved thread is one click
-      // away on the diff itself.
-      const order = computeUnresolvedThreadOrderInCurrentView()
-      if (order.length === 0) return  // button is hidden in this case; guard anyway
-      const cursor = getResumeCursor()
-      const resumeId = cursor && order.includes(cursor) ? cursor : null
-      const target = resumeId || order[0]
-      if (target) openThread(target, { threadOrder: order })
+      // Resume is *unresolved-only*: the button surfaces outstanding work, not
+      // the full backlog. See resumeUnresolvedWalk for the cursor/first-thread
+      // fallback. Inline `.diff-thread-body` clicks still use the unfiltered
+      // order, so revisiting a resolved thread is one click away on the diff.
+      resumeUnresolvedWalk()
       return
     }
 
@@ -4227,12 +4225,27 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
           const sideTag = idx === 0 && thread.side === 'old'
             ? '<span class="diff-thread-side">(old)</span>'
             : ''
+          // "GitHub" badge on the first comment only (thread-level cue, same
+          // slotting as the `(old)` side tag): marks a thread synced in by
+          // `slop --sync`, going muted once it's been edited locally.
+          const githubTag = idx === 0 && thread.github_thread_id
+            ? `<span class="thread-github-badge${thread.locally_modified ? ' is-modified' : ''}" title="${thread.locally_modified
+                ? 'Synced from GitHub, then edited locally; future syncs skip it'
+                : 'Synced from a GitHub PR review thread'}">GitHub${thread.locally_modified ? ' (edited)' : ''}</span>`
+            : ''
+          // Synced GitHub comments carry a permalink; the timestamp links back
+          // to the comment on GitHub. Local comments stay a plain timestamp.
+          const when = escapeHtml(relTime(c.posted_at || c.created_at))
+          const whenHtml = c.github_url
+            ? `<a class="diff-thread-when" href="${escapeHtml(c.github_url)}" target="_blank" rel="noopener noreferrer" title="Open this comment on GitHub">${when}</a>`
+            : `<span class="diff-thread-when">${when}</span>`
           return `
         <div class="diff-thread-comment" data-comment-id="${escapeHtml(c.id)}">
           <div class="diff-thread-meta">
             <span class="diff-thread-user">@${escapeHtml(c.user)}</span>
-            <span class="diff-thread-when">${escapeHtml(relTime(c.posted_at || c.created_at))}</span>
+            ${whenHtml}
             ${sideTag}
+            ${githubTag}
             <button type="button" class="diff-thread-edit" data-edit-comment data-comment-id="${escapeHtml(c.id)}" data-thread-id="${escapeHtml(thread.id)}" aria-label="Edit comment" title="Edit comment">✎</button>
             <button type="button" class="diff-thread-remove" data-remove-comment data-comment-id="${escapeHtml(c.id)}" data-thread-id="${escapeHtml(thread.id)}" aria-label="Remove comment" title="Remove comment">×</button>
           </div>
@@ -4515,6 +4528,22 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
     })
   }
 
+  // Open the unresolved-thread walk: the resume cursor if it's still
+  // unresolved and in view, else the first unresolved thread in document
+  // order. Shared by the counts-strip Resume button (data-show-first-thread)
+  // and the `?resume=1` deep link that `slop --sync --browser/--carbonyl`
+  // lands on. Returns true if a modal was opened.
+  function resumeUnresolvedWalk() {
+    const order = computeUnresolvedThreadOrderInCurrentView()
+    if (order.length === 0) return false
+    const cursor = getResumeCursor()
+    const resumeId = cursor && order.includes(cursor) ? cursor : null
+    const target = resumeId || order[0]
+    if (!target) return false
+    openThread(target, { threadOrder: order })
+    return true
+  }
+
   /**
    * Aim the diff at a thread's anchor cell. Reuses the existing one-shot
    * `scrollToAnchor` + `maybeScrollToAnchor` machinery so reviewed-file
@@ -4665,6 +4694,21 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
     history.replaceState(null, '', next)
   }
 
+  // Drop `?resume=…` from the hash without a history entry. The resume hint is
+  // a one-shot from `slop --sync --browser/--carbonyl`; consume it on the
+  // initial mount so a later refresh doesn't reopen the walk.
+  function stripResumeQuery() {
+    const hash = location.hash
+    const qIdx = hash.indexOf('?')
+    if (qIdx < 0) return
+    const pathPart  = hash.slice(0, qIdx)
+    const queryPart = hash.slice(qIdx + 1)
+    const kept = queryPart.split('&').filter((p) => p && !p.startsWith('resume=')).join('&')
+    const next = kept ? `${pathPart}?${kept}` : pathPart
+    if (next === hash) return
+    history.replaceState(null, '', next)
+  }
+
   // ------------------------------------------------------------------
   // Threads: initial fetch and post-mutation refresh
   // ------------------------------------------------------------------
@@ -4752,5 +4796,12 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
 
   if (pendingThreadOpen && !isStale()) {
     openThread(pendingThreadOpen)
+  } else if (resumeThreads && !isStale()) {
+    // `slop --sync --browser/--carbonyl` deep-links here with ?resume=1:
+    // surface the first unresolved thread on the full diff, the same walk the
+    // counts-strip Resume button drives. Strip the one-shot param first so a
+    // later refresh doesn't reopen it (openThread re-adds ?thread=).
+    stripResumeQuery()
+    resumeUnresolvedWalk()
   }
 }

@@ -57,6 +57,8 @@ Sidecars in the same directory:
   "created_at":    "2026-05-09T10:00:00Z",
   "last_read_at":  "2026-05-09T11:30:00Z",     // developer controls; don't touch
   "resolved_at":   null,                       // ISO timestamp when resolved; null = open. DON'T touch
+  "github_thread_id": null,                    // (sync-only) GitHub GraphQL node id; present only on threads pulled in by `slop --sync`. DON'T touch
+  "locally_modified": false,                   // (sync-only) flips true once you edit/reply/resolve a synced thread; sync then skips it. DON'T hand-edit
   "comments": [
     {
       "id":        "thread_a1b2c3d4_1",        // <thread.id>_<N>, where N is 1-indexed
@@ -81,6 +83,7 @@ Sidecars in the same directory:
 - **`comments[]`** is append-only — never mutate or reorder existing entries.
 - **`line_end`**: `null` (or absent / equal to `line`) for a single-line anchor; set to the inclusive end line for a multi-line range. The server caps the range at 500 lines.
 - **`anchor_text`**: only modify when relocating an anchor onto a resolving commit (see the reviewee workflow below).
+- **`github_thread_id` / `locally_modified` (sync-only).** Threads created by `slop --sync` (which mirrors a GitHub PR's *unresolved* review threads into `.reviews/`) carry these two extra fields. `github_thread_id` is the GitHub GraphQL node id sync matches on across runs; `locally_modified` starts `false`, and the web UI flips it `true` the instant the developer edits, replies to, deletes a comment from, or (un)resolves the thread. A `locally_modified` thread is skipped by every later sync (never refreshed or deleted), so local edits always win. **Don't hand-edit either field.** The comments on a synced thread carry the GitHub author's login as `user` (not the `reviewer` / `reviewee` role markers), and they anchor on `view: "full"`. Each synced comment also carries a `github_url` permalink back to the comment on GitHub.
 
 ---
 

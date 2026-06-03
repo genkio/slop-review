@@ -36,6 +36,13 @@ Options:
                       from PATH (e.g. \`brew install genkio/tap/carbonyl\`).
                       Pass <p> to override with a binary or a directory
                       containing one.
+      --sync          Sync unresolved GitHub PR review threads for the current
+                      branch into local review threads, then exit (requires the
+                      \`gh\` CLI). One-directional: GitHub -> local.
+      --browser       Chain after --sync to open the UI in your default browser
+                      once the sync finishes, landing on the full diff with the
+                      first unresolved thread surfaced (like --carbonyl, but the
+                      GUI browser).
   -h, --help          Show this help
 `)
   process.exit(0)
@@ -80,6 +87,19 @@ const noOpenIdx = args.indexOf('--no-open')
 const noOpen = noOpenIdx >= 0
 if (noOpen) args.splice(noOpenIdx, 1)
 
+// `--sync` is a one-shot mode handled below (after the git-repo guard, before
+// the port dance). Consume it here so the unknown-arg check doesn't reject it.
+const syncIdx = args.indexOf('--sync')
+const doSync = syncIdx >= 0
+if (doSync) args.splice(syncIdx, 1)
+
+// `--browser` is the GUI-browser counterpart to `--carbonyl` for the
+// open-after-sync flow. On its own it matches the default launch (the browser
+// opens anyway); its real job is opting `--sync` into opening afterwards.
+const browserIdx = args.indexOf('--browser')
+const useBrowser = browserIdx >= 0
+if (useBrowser) args.splice(browserIdx, 1)
+
 // Fail loud on anything left over so typos like `--arbonyl` surface
 // immediately instead of silently dropping through to the default-browser
 // branch. Positional args (URLs, repo paths, etc.) aren't a thing here:
@@ -103,6 +123,36 @@ try {
   console.error(`slop-review: not a git repository: ${process.cwd()}`)
   console.error(`Run inside a git checkout, or run \`git init\` first.`)
   process.exit(1)
+}
+
+// --sync is a one-shot: pull unresolved GitHub PR review threads into
+// <repo>/.reviews/ and (by default) exit, without binding a port. Placed after
+// the git-repo guard (so it shares the same repoRoot resolution) and before
+// the port logic. When chained with --browser or --carbonyl it keeps the
+// process alive afterwards, so the normal server-start + open path below
+// launches the UI straight into the synced threads.
+if (doSync) {
+  const { runSync, formatSyncStats } = await import(join(PACKAGE_ROOT, 'server', 'sync.js'))
+  const openAfterSync = useBrowser || useCarbonyl
+  try {
+    const result = await runSync(repoRoot, { log: (m) => process.stdout.write(`${m}\n`) })
+    if (result.status === 'ok') {
+      process.stdout.write(`${formatSyncStats(result.stats)}\n`)
+    } else if (result.status === 'no-pr') {
+      // "no PR for this branch" is benign (nothing to sync): stdout, no error.
+      process.stdout.write(`slop-review: ${result.message}\n`)
+    } else {
+      // Hard usage problem (not-github / no-gh / detached): never open.
+      console.error(`slop-review: ${result.message}`)
+      process.exit(1)
+    }
+  } catch (e) {
+    console.error(`slop-review: sync failed: ${e.message}`)
+    process.exit(1)
+  }
+  // Plain `--sync` ends here; chained with --browser/--carbonyl it falls
+  // through to start the server and open the resume view.
+  if (!openAfterSync) process.exit(0)
 }
 
 // 2. Pick a port. If --port is given, use it (fail loudly if taken). Otherwise
@@ -173,9 +223,12 @@ if (!noOpen) {
   // load the carbonyl-only CSS shim (see public/carbonyl.css). Hash routing
   // preserves the query across SPA navigation, and a full reload keeps it
   // too, so a single launch-time flag is enough; no UA sniff needed.
+  // When opening as the tail of `--sync`, deep-link to the full diff with the
+  // first unresolved thread surfaced (?resume=1, consumed by the diff page).
+  const syncHash = doSync ? '#/diff?resume=1' : ''
   const url = useCarbonyl
-    ? `http://localhost:${port}/?carbonyl=1`
-    : `http://localhost:${port}/`
+    ? `http://localhost:${port}/?carbonyl=1${syncHash}`
+    : `http://localhost:${port}/${syncHash}`
   if (useCarbonyl) {
     let binary
     if (carbonylArg) {
