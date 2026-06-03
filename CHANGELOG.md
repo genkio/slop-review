@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.21.0](https://github.com/genkio/slop-review/compare/v0.20.0...v0.21.0) (2026-06-03)
+
+
+### Features
+
+* keyboard controls for the thread modal ([45579fe](https://github.com/genkio/slop-review/commit/45579fecb3ade23968129172be0c1c0171b1a77b))
+* one-way github review thread sync ([3a2525b](https://github.com/genkio/slop-review/commit/3a2525b7e829ab5135d8c1ee830fe8fff3285212))
+
 ## [0.20.0](https://github.com/genkio/slop-review/compare/v0.19.0...v0.20.0) (2026-05-27)
 
 
