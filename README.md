@@ -1,8 +1,13 @@
 # slop-review
 
-A local PR-review loop for developer ↔ LLM. Run it inside any git repo to leave inline review comments on the diff, then ask an LLM (Claude Code, Cursor, Codex, etc.) to act as reviewer or reviewee via the bundled skill. Comments live as JSON files under `<repo>/.reviews/` — no GitHub API, no clipboard handoff, no running server required for agent workflows.
+[![npm version](https://img.shields.io/npm/v/slop-review)](https://www.npmjs.com/package/slop-review)
+[![npm downloads](https://img.shields.io/npm/dm/slop-review)](https://www.npmjs.com/package/slop-review)
+[![node](https://img.shields.io/node/v/slop-review)](https://nodejs.org)
+[![dependencies](https://img.shields.io/badge/dependencies-0-brightgreen)](package.json)
 
-The UI is a single diff page: pick the full branch diff, the local working-copy diff, or any individual commit; threads and the LLM-generated branch overview both open as modals from the diff header. Agent replies land in the JSON files directly — refresh or reopen a thread to see them.
+Local PR-review loop for you and your LLM. Run it in any git repo: leave inline comments on the diff, then hand the threads to an LLM (Claude Code, Cursor, Codex, etc.) acting as reviewer or reviewee via the bundled skill. Comments are JSON files under `<repo>/.reviews/` - no clipboard handoff, no running server required for the agent loop.
+
+One diff page: pick the full branch diff, the local working-copy diff, or any single commit. Threads and the LLM-generated branch overview both open as modals from the header. Agent replies land in the JSON directly - refresh or reopen a thread to see them.
 
 # Demo
 
@@ -10,21 +15,21 @@ https://github.com/user-attachments/assets/3058c57d-74b0-4bba-9c99-73cca13925f0
 
 ## Highlights
 
-- **Per-file blob-keyed reviewed marks, with HEAD peek for later-changed files.** Click a file's header to mark it reviewed (also collapses it). The mark is keyed by the file's blob SHA at marking time, so a later push that modifies *that one file* silently invalidates only its mark — every untouched file stays green. Marking from a per-commit view is gated to "no later changes" (the file's blob at the commit must equal its blob at HEAD), so you never persist a sign-off against content you weren't actually looking at. When the gate fires, you can peek what the file looks like at HEAD without leaving the commit view — a focused window centered on your cursor's line, walked through the diff between this commit and HEAD so intervening inserts/deletes don't drift you off the line you meant.
+- **Blob-keyed "reviewed" marks, with HEAD peek.** Click a file header to mark it reviewed (also collapses it). The mark is keyed to that file's blob SHA at marking time, so a later push that touches *one* file invalidates only its mark - every untouched file stays green. Marking from a per-commit view is gated to "no later changes", so you never sign off on content you weren't looking at. When the gate fires, `p` peeks the file at HEAD without leaving the commit view - a focused window centered on your cursor line, walked through the commit-to-HEAD diff so intervening edits don't drift you off it.
 
-- **Importance-ordered files in every diff view.** Both the Full diff and per-commit diffs sort files by how central they are to the change set: how many *other changed files* import this one (reference count), then status (modified before added before removed), then source-vs-support (source files before tests / docs / fixtures), then path. You land on the structurally load-bearing edits first instead of alphabetical noise. Ported from [pi-slopchop](https://github.com/robzolkos/pi-slopchop) PR #2.
+- **Importance-ordered files in every diff.** Both the full diff and per-commit diffs sort files by how central they are to the change set: incoming reference count (how many *other changed files* import this one), then status (modified before added before removed), then source-before-support (source files before tests / docs / fixtures), then path. You land on the load-bearing edits first instead of alphabetical noise. Ported from [pi-slopchop](https://github.com/robzolkos/pi-slopchop) PR #2.
 
-- **LLM-in-the-loop review via a bundled skill.** The Claude Code skill at `skills/slop-review/SKILL.md` lets an agent play reviewer (leave inline comments) or reviewee (address open threads, edit source, reply) without any HTTP integration — it reads and writes the JSON files in `<repo>/.reviews/` directly.
+- **LLM-in-the-loop via a bundled skill.** The Claude Code skill at `skills/slop-review/SKILL.md` lets an agent play reviewer (leave inline comments) or reviewee (address open threads, edit source, reply) by reading and writing the `.reviews/` JSON directly - no HTTP integration.
 
-- **Three diff modes, one page.** Full diff (cumulative vs base), any individual commit, or the local working-copy diff — Shift+← / Shift+→ to step between them; comments are allowed in all three views.
+- **Three diff modes, one page.** Full diff (cumulative vs base), any single commit, or the local working-copy diff. `Shift+←` / `Shift+→` steps between them; comments work in all three.
 
-- **Cross-file symbol panel with multi-search parking.** Double-click any identifier in the diff and a side panel opens listing every occurrence across changed files, with the active row highlighted in-place. Open a second symbol and the first session minimizes into a right-edge strip — its match list and jump history preserved — so you can pivot between two or three concurrent searches without losing context. Esc minimizes; click a parked strip to restore.
+- **Cross-file symbol panel with multi-search parking.** Double-click any identifier in the diff to list every occurrence across changed files, active row highlighted in-place. Open a second symbol and the first parks into a right-edge strip - match list and jump history preserved - so you can pivot between concurrent searches without losing context. Esc parks; click a parked strip to restore.
 
-- **Vim-style keybindings with a context-aware hint bar.** Single-letter verbs drive line-level review actions (comment, copy, deep-link, delete) without leaving the keyboard. A which-key-style hint bar reveals on the first keypress and re-renders on every state change — showing only the keys that are actually live for the current cursor row and mode. Hidden hints are strict no-ops, so the bar never advertises a key that does nothing.
+- **Vim keybindings with a context-aware hint bar.** Single-letter verbs drive line-level actions (comment, copy, deep-link, delete) without leaving the keyboard. A which-key hint bar reveals on the first keypress and re-renders on every state change, showing only the keys live for the current cursor row and mode. Hidden hints are strict no-ops, so the bar never advertises a dead key.
 
-- **Terminal-only review loop via Carbonyl.** Pass `--carbonyl` (short: `--c`) and slop-review renders its diff UI straight into the TTY via [Carbonyl](https://github.com/fathyb/carbonyl), a Chromium fork that paints into the terminal, so the whole review loop stays in one pane beside your editor and agent with no browser and no context switch. Every keybinding carries over (a shim covers the few modifier chords Carbonyl strips); see [Carbonyl integration](#carbonyl-integration).
+- **Terminal-only review via Carbonyl.** `--carbonyl` (short: `--c`) renders the diff UI straight into the TTY via [Carbonyl](https://github.com/fathyb/carbonyl), a Chromium fork that paints into the terminal, so the whole loop stays in one pane beside your editor and agent - no browser, no context switch. Every keybinding carries over (a shim covers the few modifier chords Carbonyl strips). See [Carbonyl integration](#carbonyl-integration).
 
-- **One-way GitHub review-thread sync.** Run `slop --sync` to pull the *unresolved* review threads from the current branch's GitHub PR into local slop threads on the full diff, authored by whoever wrote them on GitHub. Re-running mirrors GitHub: new replies flow in, threads resolved on GitHub are deleted locally, and any thread you've edited / replied-to / resolved locally is flagged and skipped so your local work is never clobbered. See [GitHub review-thread sync](#github-review-thread-sync).
+- **One-way GitHub review-thread sync.** `slop --sync` pulls the *unresolved* review threads from the current branch's GitHub PR into local threads on the full diff, keeping each GitHub author. Re-running mirrors GitHub: new replies flow in, threads resolved on GitHub are deleted locally, and any thread you've edited / replied-to / resolved locally is flagged and skipped, so your local work is never clobbered. See [GitHub review-thread sync](#github-review-thread-sync).
 
 ## Getting started
 
@@ -33,23 +38,23 @@ cd /path/to/your-feature-branch
 npx slop-review
 ```
 
-That's it. The cwd is auto-bootstrapped as the review target, the server picks a free port (default range 9410-9419), and your browser opens. Review threads are stored in `<repo>/.reviews/` — add it to that repo's `.gitignore` if you want them local-only.
+The cwd is auto-bootstrapped as the review target, the server picks a free port (range 9410-9419, then any free port), and your browser opens. Threads live in `<repo>/.reviews/` - add it to that repo's `.gitignore` to keep them local-only.
 
-Flags: `--port <n>`, `--host <h>`, `--no-open`, `--carbonyl [<path>]` (see [Carbonyl integration](#carbonyl-integration)), `--sync` / `--browser` (see [GitHub review-thread sync](#github-review-thread-sync)), `-h`.
+Flags: `-p, --port <n>`, `--host <h>`, `--no-open`, `--carbonyl [<path>]` / `--c` (see [Carbonyl integration](#carbonyl-integration)), `--sync` / `--browser` (see [GitHub review-thread sync](#github-review-thread-sync)), `-h`.
 
-Prerequisites: Node ≥ 20, `git` on `PATH`. No runtime dependencies — the server runs on `node:http` + the standard library only, so `npx slop-review` doesn't pull a tree of transitive packages onto your machine.
+Prerequisites: Node ≥ 20, `git` on `PATH`. No runtime dependencies - the server is `node:http` + the standard library only, so `npx slop-review` pulls no transitive packages.
 
-The Overview modal uses `codex exec` in read-only non-interactive mode to generate a branch summary on demand. If `codex` is not on `PATH` or not logged in, the modal shows the captured CLI error and a retry button.
+The Overview modal generates a branch summary on demand using `codex exec` or `claude` (read-only, non-interactive). When both CLIs are on `PATH` the modal lets you pick; when one is, it's a single-button confirm; when neither is available or logged in, it shows the captured CLI error and a retry button.
 
-State (schema version only): `~/.config/slop-review/state.json`.
+State lives at `~/.config/slop-review/state.json` (honors `XDG_CONFIG_HOME`): schema version plus per-repo UI state (last view + thread-resume cursors).
 
 ## What to expect
 
-A couple of behaviors are intentional but might surprise readers coming from GitHub-style review tools.
+A couple of intentional behaviors that may surprise GitHub-review muscle memory.
 
 ### Where you land on launch
 
-Cold-launching `npx slop-review` first tries to resume the last view you were on for this branch, then falls back to a sensible per-commit default:
+Cold launch first tries to resume the last view for this branch, then falls back to a per-commit default:
 
 | Scenario                                              | Lands on                        |
 |-------------------------------------------------------|---------------------------------|
@@ -60,62 +65,64 @@ Cold-launching `npx slop-review` first tries to resume the last view you were on
 | On `main`/`master`, no commits ahead, has local edits | Local view                      |
 | Empty branch (no commits at all)                      | Full diff (degenerate fallback) |
 
-Rationale: feature-branch review is "walk forward from base", so first-commit is the natural entry. The on-base path uses an empty-tree merge-base fallback that can synthesize the whole repo history, where the latest commit is more useful than the dawn of the project. The Full diff is always a Shift+→ keystroke away from any commit view.
+Rationale: feature-branch review walks forward from base, so first-commit is the natural entry. The on-base path uses an empty-tree merge-base fallback that can synthesize the whole repo history, where the latest commit beats the dawn of the project. The full diff is always one `Shift+→` away.
 
-Resume behavior: each time you navigate between views (Shift+→/←, the prev/next buttons, or a fresh hash URL), the current view is stamped under `state.config.repo_ui_state.<repoId>.last_view:<branchId>` in `~/.config/slop-review/state.json` as `full`, `local`, or `commit:<sha>`. On the next cold launch slop-review reads that value and rehydrates — unless the saved commit no longer exists (force-push, rebase, garbage-collected sha), in which case the table's smart-default rules kick in. Per-branch scoping means switching branches doesn't carry the wrong sha across.
+### Resume
+
+Each navigation (Shift+←/→, the nav buttons, or a fresh hash URL) stamps the current view under `state.config.repo_ui_state.<repoId>.last_view:<branchId>` as `full`, `local`, or `commit:<sha>`. The next cold launch rehydrates it - unless the saved commit no longer exists (force-push, rebase, GC'd sha), in which case the smart-default table above kicks in. Per-branch scoping means switching branches never carries the wrong sha across.
 
 ## Carbonyl integration
 
-slop-review renders in any browser, but it also runs fully inside a terminal via [Carbonyl](https://github.com/fathyb/carbonyl) (a Chromium-based browser that paints into the TTY). Pass `--carbonyl` to launch Carbonyl instead of your default GUI browser:
+slop-review runs in any browser, and also fully inside a terminal via [Carbonyl](https://github.com/fathyb/carbonyl) (a Chromium-based browser that paints into the TTY). `--carbonyl` launches it instead of your default GUI browser:
 
 ```bash
-# Install Carbonyl once (macOS, prebuilt via the genkio/tap homebrew tap):
+# Install once (macOS, prebuilt via the genkio/tap homebrew tap):
 brew install genkio/tap/carbonyl
 
-# Then opt in per-launch:
+# Opt in per launch:
 slop-review --carbonyl
 ```
 
-Bare `--carbonyl` resolves the `carbonyl` binary from `PATH`, which is the path the homebrew install above sets up. For a dev build or a custom install location, pass an explicit binary or a directory containing one:
+Bare `--carbonyl` resolves the `carbonyl` binary from `PATH` (where the brew install puts it). For a dev build or custom install location, pass a binary or a directory containing one:
 
 ```bash
 slop-review --carbonyl ~/code/carbonyl/dist
 slop-review --carbonyl ~/code/carbonyl/dist/carbonyl
 ```
 
-The Carbonyl process inherits the slop-review terminal, so you get a single-pane terminal review loop with no extra window switch. Quitting Carbonyl (Ctrl+C) tears the slop-review server down with it.
+Carbonyl inherits the slop-review terminal, so you get a single-pane loop with no window switch. Quitting Carbonyl (Ctrl+C) tears the server down with it.
 
 ### Keybindings
 
-slop-review's diff view is fully keyboard-driven. The same bindings work in a regular browser and in Carbonyl, except for the two modifier-based chords noted below. Carbonyl's chromium fork strips Ctrl/Cmd/Shift before forwarding keydown events to the page, so any binding that requires a modifier needs a substitute keystroke.
+The diff view is fully keyboard-driven. The same bindings work in a regular browser and in Carbonyl, except for the two modifier chords noted below: Carbonyl's Chromium fork strips Ctrl/Cmd/Shift before forwarding keydown, so any modifier binding needs a substitute.
 
-| Key                | Action                                             | Carbonyl           |
-|--------------------|----------------------------------------------------|--------------------|
-| `j` / `k`          | Move cursor down / up one line                     | yes                |
-| `J` / `K`          | Move cursor down / up five lines                   | yes                |
-| `c` / `C`          | Open comment editor on new-side / old-side line    | yes                |
-| `v` / `V`          | Start visual-line selection (new / old side)       | yes                |
-| `y` / `Y`          | Copy permalink to cursor line (new / old side)     | yes                |
-| `o` / `O`          | Open the cursor line in the forge (new / old side) | yes                |
-| `r`                | Toggle the cursor row's file as reviewed           | yes                |
-| `n` / `N`          | Jump to next / previous thread in view             | yes                |
-| `d`                | Delete the thread under the cursor                 | yes                |
-| `p`                | Peek HEAD for the cursor row (commit view only)    | yes                |
-| `e`                | Expand context lines around the cursor's hunk      | yes                |
-| `Enter`            | Commit visual-line selection / confirm modal       | yes                |
-| `Escape`           | Cancel selection, minimize panel, close modal      | yes                |
-| `Backspace`        | Pop the active symbol-panel jump-stack frame       | yes                |
-| `Cmd/Ctrl+Enter`   | Submit the comment editor                          | use `;;` instead   |
-| `Shift+←` / `Shift+→` | Step to previous / next commit (or local / full) | use the « / » buttons in the diff header |
-| `←` / `→`          | Previous / next thread inside the thread modal     | yes                |
+| Key                   | Action                                             | Carbonyl                       |
+|-----------------------|----------------------------------------------------|--------------------------------|
+| `j` / `k`             | Move cursor down / up one line                     | yes                            |
+| `J` / `K`             | Move cursor down / up five lines                   | yes                            |
+| `c` / `C`             | Open comment editor on new-side / old-side line    | yes                            |
+| `v` / `V`             | Start visual-line selection (new / old side)       | yes                            |
+| `y` / `Y`             | Copy permalink to cursor line (new / old side)     | yes                            |
+| `o` / `O`             | Open the cursor line in the forge (new / old side) | yes                            |
+| `r`                   | Toggle the cursor row's file as reviewed           | yes                            |
+| `n` / `N`             | Jump to next / previous thread in view             | yes                            |
+| `d`                   | Delete the thread under the cursor                 | yes                            |
+| `p`                   | Peek HEAD for the cursor row (commit view only)    | yes                            |
+| `e`                   | Expand context lines around the cursor's hunk      | yes                            |
+| `Enter`               | Commit visual-line selection / confirm modal       | yes                            |
+| `Escape`              | Cancel selection, minimize panel, close modal      | yes                            |
+| `Backspace`           | Pop the active symbol-panel jump-stack frame       | yes                            |
+| `Cmd/Ctrl+Enter`      | Submit the comment editor                          | use `;;` instead               |
+| `Shift+←` / `Shift+→` | Step to previous / next commit (or local / full)   | use the `‹` / `›` nav buttons  |
+| `←` / `→`             | Previous / next thread inside the thread modal     | yes                            |
 
-`;;` (two semicolons within 400ms while the editor is focused) is implemented by `public/carbonyl-key-shim.js`: it detects the double-tap, splices the first `;` back out of the textarea, and dispatches a synthetic `Cmd+Enter` so the editor's existing submit handler fires unchanged. The shim is loaded unconditionally but only triggers on Carbonyl's modifier-stripped event signature, so in a regular browser it's a complete no-op.
+`;;` (two semicolons within 400ms while the editor is focused) is handled by `public/carbonyl-key-shim.js`: it detects the double-tap, splices the first `;` back out of the textarea, and dispatches a synthetic `Cmd+Enter` so the existing submit handler fires unchanged. The shim loads unconditionally but only triggers on Carbonyl's modifier-stripped event signature, so in a regular browser it's a no-op.
 
-If you genuinely want a literal `;;` in a comment body, pause >400ms between the two characters (or type `; ;` with a space and edit it out).
+For a literal `;;` in a comment body, pause >400ms between the two characters (or type `; ;` with a space and edit it out).
 
 ## GitHub review-thread sync
 
-`slop --sync` is a one-shot, one-directional mirror: it pulls the **unresolved** review threads from the GitHub pull request for your current branch and writes them as local slop review threads, then exits (no server, no browser). It uses the `gh` CLI for auth and data (via the GraphQL API, the only place GitHub exposes thread *resolved* state), so you need `gh` installed and logged in. A non-GitHub origin or a branch with no open PR is a no-op.
+`slop --sync` is a one-shot, one-directional mirror: it pulls the **unresolved** review threads from your branch's GitHub PR into local threads, then exits (no server, no browser). It uses the `gh` CLI for auth and data (GraphQL - the only place GitHub exposes thread *resolved* state), so `gh` must be installed and logged in. A non-GitHub origin or a branch with no open PR is a no-op.
 
 ```bash
 slop --sync
@@ -123,44 +130,44 @@ slop --sync
 
 Semantics:
 
-- **Anchoring.** GitHub review threads live on the PR "Files" tab, so they land on slop's **Full diff** (`view: "full"`). GitHub's `RIGHT` / `LEFT` diff side maps to slop's `new` / `old`, and multi-line threads keep their range. File-level (whole-file) GitHub comments have no line anchor and are reported as skipped.
-- **Authorship.** Synced comments keep the GitHub author's login as the `user` (not slop's `reviewer` / `reviewee` role markers), the thread shows a **GitHub** badge in the UI, and each comment's timestamp links back to the original comment on GitHub.
-- **Mirror on re-run.** Each sync refreshes existing synced threads (new GitHub replies appear), **deletes** local threads whose GitHub counterpart was resolved, and **creates** newly-opened ones.
-- **Local edits win.** The moment you edit, reply to, delete a comment from, or resolve a synced thread in the UI, it's flagged `locally_modified` and every later sync **skips** it, never overwriting or deleting your local work. The badge goes muted to show it has diverged.
-- **One direction only.** Sync never writes back to GitHub.
-- **Open straight into review.** Chain `--browser` or `--carbonyl` (e.g. `slop --sync --browser`) to launch the UI the moment the sync finishes, landing on the full diff with the first unresolved thread's modal already open (the same walk as the counts-strip "Resume unresolved thread" button). Plain `slop --sync` just prints the summary and exits.
+- **Anchoring.** GitHub review threads live on the PR "Files" tab, so they land on slop's **full diff** (`view: "full"`). GitHub's `RIGHT` / `LEFT` maps to slop's `new` / `old`; multi-line ranges are kept. File-level comments (no line anchor) are reported as skipped.
+- **Authorship.** Synced comments keep the GitHub author's login as `user`, the thread shows a **GitHub** badge, and each comment's timestamp links back to the original on GitHub.
+- **Mirror on re-run.** Each sync refreshes existing synced threads (new replies appear), **deletes** local threads resolved on GitHub, and **creates** newly-opened ones.
+- **Local edits win.** Edit, reply to, delete a comment from, or resolve a synced thread and it's flagged `locally_modified`; every later sync **skips** it, never overwriting your work. The badge goes muted to show it diverged.
+- **One direction.** Sync never writes back to GitHub.
+- **Open straight into review.** Chain `--browser` or `--carbonyl` (e.g. `slop --sync --browser`) to launch the UI when the sync finishes, landing on the full diff with the first unresolved thread's modal open. Plain `slop --sync` just prints the summary and exits.
 
-Each run prints a short summary: threads created / updated / deleted / skipped, plus the GitHub unresolved total.
+Each run prints a summary: created / updated / deleted / skipped, plus the GitHub unresolved total.
 
 ## AI agent integration
 
-slop-review ships a Claude Code skill at `skills/slop-review/SKILL.md` that teaches the agent how to read review threads, leave new comments as a reviewer, or address open threads as a reviewee. The skill works directly with the JSON files in `<repo>/.reviews/` — no HTTP API, no running slop-review server required for agent work.
+slop-review ships a Claude Code skill at `skills/slop-review/SKILL.md` that teaches an agent to read threads, leave comments as reviewer, or address open threads as reviewee. It works directly on the `.reviews/` JSON - no HTTP API, no running server.
 
-Two roles, both can be played by developer or LLM:
+Two roles, either played by developer or LLM:
 
-- **Reviewer** — leaves inline comments / asks questions on diff lines.
-- **Reviewee** — addresses comments by editing source code + appending replies.
+- **Reviewer** - leaves inline comments / questions on diff lines.
+- **Reviewee** - addresses comments by editing source code + appending replies.
 
-### End-user install
+### Install
 
-Install once via the [`skills`](https://www.npmjs.com/package/skills) npm package (Vercel Labs):
+Via the [`skills`](https://www.npmjs.com/package/skills) npm package (Vercel Labs):
 
 ```bash
 npx skills add genkio/slop-review
 ```
 
-That fetches the repo and copies `SKILL.md` into the right location for whichever agent CLI you run (Claude Code: `~/.claude/skills/slop-review/SKILL.md`). After install, prompt naturally — *"act as reviewer for this slop-review branch"*, *"address the unresolved slop-review threads"* — and the LLM picks up the skill via auto-discovery.
+That copies `SKILL.md` into place for your agent CLI (Claude Code: `~/.claude/skills/slop-review/SKILL.md`). Then prompt naturally - *"act as reviewer for this slop-review branch"*, *"address the unresolved slop-review threads"* - and the LLM picks it up via auto-discovery.
 
 ### Contributor install (hot-iteration)
 
-If you're editing the skill itself and want changes to take effect immediately without re-running `npx skills add`, symlink the local skill directory into your skills folder:
+Editing the skill itself? Symlink it so changes take effect without re-running `npx skills add`:
 
 ```bash
 mkdir -p ~/.claude/skills
 ln -sfn "$PWD/skills/slop-review" ~/.claude/skills/slop-review
 ```
 
-Now edits to `skills/slop-review/SKILL.md` in this checkout are live in Claude Code on the next prompt. Remove with `rm ~/.claude/skills/slop-review` when switching back to the published version. (If you previously ran `npx skills add genkio/slop-review`, that left a real directory at the install path — `rm -rf` it first before creating the symlink.)
+Edits to `skills/slop-review/SKILL.md` in this checkout are now live on the next prompt. Remove with `rm ~/.claude/skills/slop-review`. (If you previously ran `npx skills add genkio/slop-review`, `rm -rf` the real directory at the install path first.)
 
 ## Development
 
@@ -168,19 +175,16 @@ Now edits to `skills/slop-review/SKILL.md` in this checkout are live in Claude C
 git clone <this-repo> && cd slop-review
 ```
 
-There are no dependencies, the HTTP layer (`server/http.js`) is a small in-house wrapper over `node:http` that handles routing, JSON, and static files. If you change it, exercise the full request surface manually before shipping; the test suite (`npm test`) covers diff/state logic only.
+No dependencies. The HTTP layer (`server/http.js`) is a small in-house wrapper over `node:http` for routing, JSON, and static files; if you change it, exercise the full request surface manually - `npm test` covers diff/state logic only. Frontend (`public/**`) edits need only a hard refresh.
 
-Frontend (`public/**`) edits don't need a restart — just hard-refresh the browser.
-
-**Testing the actual `npx slop-review` flow against an external repo:**
+Test the real `npx slop-review` flow against an external repo:
 
 ```bash
 cd /path/to/slop-review
-npm link              # makes `slop-review` globally point at this checkout
+npm link              # `slop-review` now points at this checkout
 cd /some/target/repo
-slop-review           # runs your local code, picks up the cwd repo
+slop-review           # runs your local code against the cwd repo
 
-# alternatively
+# or run directly
 node /path/to/slop-review/bin/slop-review.js
 ```
-
