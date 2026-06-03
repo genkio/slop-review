@@ -300,6 +300,13 @@ export function openThreadModal(threadId, opts = {}) {
   }
 
   const buildInnerHtml = (thread) => {
+    // Submit-chord hint shown on the Reply button. Carbonyl's chromium fork
+    // strips Cmd/Ctrl, so terminal users submit with the `;;` shim (see
+    // public/carbonyl-key-shim.js); browser users get the platform chord.
+    const isCarbonyl = document.documentElement.classList.contains('is-carbonyl')
+    const isMac = /Mac|iPhone|iPad|iPod/i.test(navigator.platform || navigator.userAgent || '')
+    const submitHint = isCarbonyl ? ';;' : (isMac ? '⌘↵' : 'Ctrl+↵')
+
     const subLabel = thread.file ? `${thread.file}:${formatLineRange(thread)}` : 'Thread'
     // Mark old-side anchors so the user knows the comment is on a deleted
     // line — same affordance as the inline-thread badge and editor anchor.
@@ -324,8 +331,8 @@ export function openThreadModal(threadId, opts = {}) {
     // surface a small subtitle so the user remembers when they closed it.
     const isResolved = !!thread.resolved_at
     const resolveBtn = isResolved
-      ? '<button type="button" class="thread-unresolve" data-unresolve>Reopen</button>'
-      : '<button type="button" class="thread-resolve" data-resolve>✓ Resolve</button>'
+      ? '<button type="button" class="thread-unresolve" data-unresolve data-keyhint="r">Reopen</button>'
+      : '<button type="button" class="thread-resolve" data-resolve data-keyhint="r">✓ Resolve</button>'
     const resolvedSub = isResolved
       ? `<div class="thread-resolved-note">Resolved ${escapeHtml(relTime(thread.resolved_at))}</div>`
       : ''
@@ -408,8 +415,8 @@ export function openThreadModal(threadId, opts = {}) {
     // entirely when there's only one thread on the branch.
     const navHtml = navAvailable
       ? `<div class="thread-modal-nav">
-          <button type="button" class="thread-modal-nav-link" data-thread-prev ${navIdx <= 0 ? 'disabled' : ''}>Prev</button>
-          <button type="button" class="thread-modal-nav-link" data-thread-next ${navIdx >= threadOrder.length - 1 ? 'disabled' : ''}>Next</button>
+          <button type="button" class="thread-modal-nav-link" data-thread-prev ${navIdx <= 0 ? 'disabled' : ''}>‹ Prev</button>
+          <button type="button" class="thread-modal-nav-link" data-thread-next ${navIdx >= threadOrder.length - 1 ? 'disabled' : ''}>Next ›</button>
         </div>`
       : ''
 
@@ -423,8 +430,8 @@ export function openThreadModal(threadId, opts = {}) {
       ${navHtml}
       <div class="modal-actions is-reversed">
         ${resolveBtn}
-        <button type="button" class="danger" data-delete>Delete</button>
-        <button type="button" data-reply>Reply</button>
+        <button type="button" class="danger" data-delete data-keyhint="d">Delete</button>
+        <button type="button" data-reply data-keyhint="${escapeHtml(submitHint)}">Reply</button>
       </div>`
   }
 
@@ -447,17 +454,92 @@ export function openThreadModal(threadId, opts = {}) {
 
     const html = buildInnerHtml(thread)
     if (!backdrop) {
-      // ArrowLeft / ArrowRight → step prev / next thread. Document-scoped
-      // so it fires regardless of which element inside the modal has
-      // focus (otherwise a focused button would swallow the keyboard
-      // event before it ever reached a backdrop-scoped listener).
-      // Active-element gate is narrower than the Esc dispatcher in
-      // makeModal: we bail only when the cursor is in an actual text
-      // input (textarea / contentEditable / text-like <input>), so that
-      // native cursor movement inside those still wins. The reply
-      // textarea is not auto-focused on mount, so arrow nav works
-      // immediately after the modal opens.
-      const onArrowNav = (e) => {
+      // The thread modal's keyboard map: arrows step prev/next thread,
+      // i focuses the reply box, r resolves, d deletes, q closes, Esc drops
+      // focus, and Cmd/Ctrl+Enter (or carbonyl's `;;`) submits a reply.
+      // Document-scoped so it fires regardless of which element inside the
+      // modal has focus (otherwise a focused button would swallow the event
+      // before a backdrop-scoped listener saw it). The verb keys bail while a
+      // text field is focused, so native typing/cursor movement still wins;
+      // the reply textarea is not auto-focused on mount, so the verbs and
+      // arrows are live the moment the modal opens.
+      const onModalKey = (e) => {
+        // What's focused, and is it a text field inside THIS modal? The
+        // single-letter verbs stay dormant while the user is typing (so the
+        // letters land in the textarea); only the submit chord and Esc act
+        // mid-compose.
+        const ae = document.activeElement
+        const inTextField = !!ae && backdrop.contains(ae) && (
+          ae.tagName === 'TEXTAREA' ||
+          ae.isContentEditable ||
+          (ae.tagName === 'INPUT' && (() => {
+            const t = (ae.type || 'text').toLowerCase()
+            return ['text','search','email','url','tel','password','number','date','time','month','week','datetime-local'].includes(t)
+          })())
+        )
+        const backdrops = document.querySelectorAll('.modal-backdrop')
+        const isTop = backdrops[backdrops.length - 1] === backdrop
+
+        // Submit reply: Cmd/Ctrl+Enter from inside the reply textarea. The
+        // carbonyl `;;` shim synthesizes this exact ctrl+Enter keydown (see
+        // public/carbonyl-key-shim.js), so this one branch serves both the
+        // browser and the terminal. Scoped to the reply textarea so it never
+        // hijacks the chord while a comment edit-box (its own Save) is focused.
+        if (e.key === 'Enter' && (e.metaKey || e.ctrlKey) && !e.altKey) {
+          if (!isTop) return
+          const replyTa = backdrop.querySelector('.thread-reply-input')
+          if (replyTa && ae === replyTa) {
+            e.preventDefault()
+            e.stopImmediatePropagation()
+            backdrop.querySelector('[data-reply]')?.click()
+          }
+          return
+        }
+
+        // Esc: when a text field is focused, drop focus (the "done writing"
+        // gesture) so the verb keys light up again. Otherwise a no-op here:
+        // `q` is the close key, and makeModal's own Esc handler already bails
+        // while the reply textarea exists, so plain Esc leaves the modal open.
+        if (e.key === 'Escape') {
+          if (inTextField) {
+            e.preventDefault()
+            e.stopImmediatePropagation()
+            ae.blur()
+          }
+          return
+        }
+
+        // Single-letter verbs: i = focus reply, r = resolve/reopen,
+        // d = delete, q = close. Swallowed whenever the modal is on screen
+        // (capture-phase + stopImmediatePropagation) so they never leak to the
+        // diff page's onKey underneath, which binds bare r / d to its own
+        // actions; acted on only when this modal is topmost and not typing.
+        // Chord modifiers pass through untouched so browser shortcuts
+        // (Cmd+R reload, Ctrl+D bookmark) still work.
+        if (!e.metaKey && !e.ctrlKey && !e.altKey &&
+            (e.key === 'i' || e.key === 'r' || e.key === 'd' || e.key === 'q')) {
+          if (inTextField) return
+          e.preventDefault()
+          e.stopImmediatePropagation()
+          if (!isTop) return
+          if (e.key === 'i') {
+            const replyTa = backdrop.querySelector('.thread-reply-input')
+            if (replyTa) {
+              replyTa.focus()
+              const end = replyTa.value.length
+              replyTa.setSelectionRange(end, end)
+            }
+          } else if (e.key === 'r') {
+            backdrop.querySelector('[data-resolve], [data-unresolve]')?.click()
+          } else if (e.key === 'd') {
+            backdrop.querySelector('[data-delete]')?.click()
+          } else if (e.key === 'q') {
+            backdrop.remove()   // -> MutationObserver -> wrappedOnClose tears down
+          }
+          return
+        }
+
+        // ----- Arrow nav: step prev / next thread -----
         if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return
         // Shift+arrow is reserved for diff-page commit navigation (see
         // diff.js onKey). Bail BEFORE swallowing the event so the
@@ -465,19 +547,9 @@ export function openThreadModal(threadId, opts = {}) {
         // makes Shift+arrow work for native text-selection extension
         // inside the reply textarea — Shift bypasses our claim entirely.
         if (e.shiftKey) return
-        // Text-input cursor movement wins: bail BEFORE swallowing the
-        // event so the textarea / contentEditable / text-like <input>
-        // gets its native behaviour. Same compromise as before — typing
-        // a reply inside the modal still works.
-        const ae = document.activeElement
-        if (ae) {
-          if (ae.tagName === 'TEXTAREA' || ae.isContentEditable) return
-          if (ae.tagName === 'INPUT') {
-            const t = (ae.type || 'text').toLowerCase()
-            const textLike = ['text','search','email','url','tel','password','number','date','time','month','week','datetime-local']
-            if (textLike.includes(t)) return
-          }
-        }
+        // Text-input cursor movement wins: bail before swallowing so the
+        // reply textarea (or a comment edit-box) keeps native arrow behaviour.
+        if (inTextField) return
         // Thread modal is on screen — arrow keys belong to the modal
         // stack, NOT the diff page underneath. Swallow the event so
         // anything else listening for bare arrows can't react.
@@ -494,12 +566,10 @@ export function openThreadModal(threadId, opts = {}) {
         // bare arrows belong to the modal.
         e.preventDefault()
         e.stopImmediatePropagation()
-        // Only NAVIGATE when this modal is the topmost — a confirm
-        // modal layered on top (Delete this thread? Delete this
-        // comment?) interactively owns the keyboard, so we swallow the
+        // Only NAVIGATE when this modal is topmost: a confirm modal layered
+        // on top (Delete this thread?) owns the keyboard, so we swallow the
         // key here but don't step threads beneath it.
-        const all = document.querySelectorAll('.modal-backdrop')
-        if (all[all.length - 1] !== backdrop) return
+        if (!isTop) return
         if (!Array.isArray(threadOrder) || threadOrder.length < 2) return
         const dir = e.key === 'ArrowLeft' ? -1 : +1
         const adj = adjacentThreadId(currentId, threadOrder, dir)
@@ -513,7 +583,7 @@ export function openThreadModal(threadId, opts = {}) {
       // without cleanup we'd leak a handler per session that fires
       // against a detached `backdrop` closure.
       const wrappedOnClose = () => {
-        document.removeEventListener('keydown', onArrowNav, true)
+        document.removeEventListener('keydown', onModalKey, true)
         onClose?.()
       }
       // No `noBackdropClose` flag: clicking outside the modal closes it
@@ -532,7 +602,7 @@ export function openThreadModal(threadId, opts = {}) {
       // capture phase guarantees we run first regardless of registration
       // order, which lets the `stopImmediatePropagation` above actually
       // pre-empt onKey.
-      document.addEventListener('keydown', onArrowNav, true)
+      document.addEventListener('keydown', onModalKey, true)
     } else {
       // Replace `.modal`'s innerHTML in place. The backdrop's MutationObserver
       // only fires when the backdrop itself leaves the DOM, so swapping
@@ -665,7 +735,7 @@ export function openThreadModal(threadId, opts = {}) {
         // "Resolved Xh ago" sub-note since the thread is open again.
         const updated = res?.threads?.find((t) => t.id === currentId)
         thread.resolved_at = updated?.resolved_at ?? null
-        btn.outerHTML = '<button type="button" class="thread-resolve" data-resolve>✓ Resolve</button>'
+        btn.outerHTML = '<button type="button" class="thread-resolve" data-resolve data-keyhint="r">✓ Resolve</button>'
         backdrop.querySelector('.thread-resolved-note')?.remove()
         wireResolutionToggle()
       } catch (e) {
@@ -684,6 +754,10 @@ export function openThreadModal(threadId, opts = {}) {
           <button class="danger" data-confirm>Delete</button>
           <button data-close>Cancel</button>
         </div>`)
+      // Auto-focus the confirm button so the keyboard delete flow completes:
+      // `d` opens this confirm, Enter (on the focused button) deletes, Esc
+      // cancels (makeModal's own keydown handler closes it; no textarea here).
+      confirmBackdrop.querySelector('[data-confirm]')?.focus()
       confirmBackdrop.querySelector('[data-confirm]').onclick = async () => {
         try {
           const res = await api(

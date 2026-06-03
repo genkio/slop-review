@@ -1355,6 +1355,27 @@ a.card-file:hover .card-file-mark {
 .modal-actions.is-reversed button:first-child { margin-right: 0; }
 .modal-actions.is-reversed button:last-child  { margin-left: auto; }
 
+/* Keyboard-shortcut hint baked onto a modal action button via ::after
+   (thread modal: Resolve/Reopen = r, Delete = d, Reply = the submit chord).
+   A pseudo-element, not a child node, for two reasons: (1) the in-flight
+   `button.textContent = 'Saving…'` swaps in the reply/resolve handlers would
+   wipe a real child element, but leave a pseudo untouched; (2) carbonyl drops
+   glyphs in nested inline-flex runs (quirk #6) yet renders pseudo `content`
+   fine (same path as the diff-file-status `[m]` brackets). The hint text is
+   the `data-keyhint` attribute value, set in modals.js so the keymap is
+   single-sourced. */
+.modal-actions button[data-keyhint]::after {
+  content: attr(data-keyhint);
+  margin-left: 7px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--fg-muted);
+  opacity: 0.85;
+}
+/* Hide the hint while the button is mid-request (label reads "Saving…"). */
+.modal-actions button[data-keyhint]:disabled::after { content: ""; }
+
 /* ——— Head-preview modal ———
    "Peek HEAD" surfaces what a commit-view line looks like at HEAD when
    the file has later changes. The modal renders a ±10 line window
