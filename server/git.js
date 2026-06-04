@@ -542,18 +542,18 @@ const DEF_PATTERNS = {
     `|enum[\\t ]+${n}\\b` +
     `|(?:const|let|var)[\\t ]+${n}\\b)`,
   ),
-  // TODO(human): add a Python definition matcher.
-  //
-  // Decide which line shapes count as "introducing NAME" — at minimum
-  // `def NAME(...)` and `class NAME(...)`, but consider:
-  //   - `async def NAME(...)`
-  //   - `NAME = ...` at module level (broad; risks false positives on
-  //     assignments inside functions)
-  // Return a RegExp built around the validated NAME (no escaping needed).
-  // Use POSIX-style anchoring (`^[\t ]*`) and a trailing `\b` after NAME
-  // so `foo_bar` doesn't match when looking for `foo`. Mirror the TS
-  // shape above as a starting point.
-  python: null,
+  // Python: `def` / `async def` / `class` at any indent (so methods inside a
+  // class body count), plus a module-level binding `NAME = ...` / `NAME: T = ...`.
+  // The binding shape is anchored to column 0 deliberately: a top-level
+  // assignment is a real definition (constants, module globals), but an
+  // indented one is almost always a local rebind, not a def. `(?!=)` rules out
+  // `NAME ==`, and stopping the annotation before the first `=` keeps it off
+  // augmented assignments like `NAME += 1`.
+  python: (n) => new RegExp(
+    `^[\\t ]*(?:async[\\t ]+)?def[\\t ]+${n}\\b` +
+    `|^[\\t ]*class[\\t ]+${n}\\b` +
+    `|^${n}[\\t ]*(?::[^=\\n]+)?=(?!=)`,
+  ),
 
   go: (n) => new RegExp(
     `^(?:func[\\t ]+(?:\\([^)]*\\)[\\t ]+)?${n}\\b` +
