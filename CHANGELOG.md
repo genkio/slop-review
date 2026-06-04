@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.22.0](https://github.com/genkio/slop-review/compare/v0.21.1...v0.22.0) (2026-06-04)
+
+
+### Features
+
+* sync PR-level review summary bodies as anchor-lost threads ([a585f31](https://github.com/genkio/slop-review/commit/a585f319514dee6430dd7bfb7d4fe056dff2338e))
+* thread-modal keys - y copies id, [i] reply hint, h/l navigates between threads ([3094e9d](https://github.com/genkio/slop-review/commit/3094e9df9f17086656292afc068a1341dd6a63de))
+
+
+### Bug Fixes
+
+* sync appends new GitHub comments to locally-edited threads ([d42a760](https://github.com/genkio/slop-review/commit/d42a760cda654575950c68e8ecde30abfa5594c6))
+
 ## [0.21.1](https://github.com/genkio/slop-review/compare/v0.21.0...v0.21.1) (2026-06-04)
 
 
