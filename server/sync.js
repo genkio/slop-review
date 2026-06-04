@@ -1,5 +1,5 @@
 import { getBranchInfo, getOriginUrl, getFileLines } from './git.js'
-import { parseRemoteUrl, isGhAvailable, getPrNumber, fetchReviewThreads } from './host.js'
+import { parseRemoteUrl, isGhAvailable, getPrNumber, fetchReviewThreads, fetchReviewSummaries } from './host.js'
 import {
   sanitizeBranchId,
   readBranchThreads,
@@ -201,6 +201,33 @@ export function newGithubComments(existing, gh) {
   return appended
 }
 
+/**
+ * Synthesize PR review *summary bodies* into GitHub-thread-shaped objects so
+ * they ride the same reconcile/create/merge/delete pipeline as real review
+ * threads. A review body has no line anchor, so the synthetic thread carries no
+ * file/line (`path: null`): the UI renders it "anchor lost" (not pinned to a
+ * diff row) but still counts it and walks it in the thread nav, where a fileless
+ * thread sorts first. An `_prLevel` marker the upsert step turns into
+ * `pr_level: true` drives the "PR" badge. Reviews with an empty body (a bare
+ * review wrapping inline replies) are dropped. The review's GraphQL node id
+ * becomes the synthetic thread id, so re-syncs match and update instead of
+ * duplicating. Pure: no I/O.
+ */
+export function reviewSummaryThreads(reviews) {
+  const out = []
+  for (const r of reviews || []) {
+    if (!r || !(r.body || '').trim()) continue
+    out.push({
+      id: r.id,
+      _prLevel: true,
+      path: null,
+      line: null,
+      comments: { nodes: [{ author: r.author || null, body: r.body, createdAt: r.submittedAt || null, url: r.url || null }] },
+    })
+  }
+  return out
+}
+
 // Best-effort snapshot of the anchored line's text, read from the repo at the
 // relevant ref: HEAD for a new-side anchor, the merge-base (pre-image) for an
 // old-side one. Mirrors what the reviewer flow captures in `anchor_text`.
@@ -239,6 +266,7 @@ function isAnchorable(gh) {
 export async function runSync(repoPath, { log = () => {}, deps = {} } = {}) {
   const _getPrNumber = deps.getPrNumber || getPrNumber
   const _fetchReviewThreads = deps.fetchReviewThreads || fetchReviewThreads
+  const _fetchReviewSummaries = deps.fetchReviewSummaries || fetchReviewSummaries
   const _isGhAvailable = deps.isGhAvailable || isGhAvailable
 
   const info = await getBranchInfo(repoPath)
@@ -276,9 +304,22 @@ export async function runSync(repoPath, { log = () => {}, deps = {} } = {}) {
   const anchorable = unresolved.filter(isAnchorable)
   const unsupported = unresolved.length - anchorable.length
 
+  // PR-level review summaries (no line anchor) ride the same pipeline as real
+  // threads, carrying no file so the UI renders them "anchor lost". Additive and
+  // best-effort: a failure here must never sink the inline-thread sync, so we
+  // swallow it and carry on.
+  let reviewSummaries = []
+  try {
+    const { reviews, truncated } = await _fetchReviewSummaries(repoPath, parsed.owner, parsed.repo, number)
+    reviewSummaries = reviewSummaryThreads(reviews)
+    if (truncated) log('  note: PR has >100 reviews; only the first 100 summary bodies were considered.')
+  } catch (e) {
+    log(`  note: could not fetch PR review summaries (${e.message}); synced inline threads only.`)
+  }
+
   const branchId = sanitizeBranchId(branch)
   const localThreads = await readBranchThreads(repoPath, branchId)
-  const { toUpsert, toMerge, toDelete, skippedModified } = planSync(anchorable, localThreads)
+  const { toUpsert, toMerge, toDelete, skippedModified } = planSync([...anchorable, ...reviewSummaries], localThreads)
 
   const stats = {
     branch,
@@ -291,6 +332,7 @@ export async function runSync(repoPath, { log = () => {}, deps = {} } = {}) {
     updated: 0,
     merged: 0,
     merged_comments: 0,
+    pr_summaries: 0,
     deleted: 0,
     skipped_modified: skippedModified,
   }
@@ -298,6 +340,16 @@ export async function runSync(repoPath, { log = () => {}, deps = {} } = {}) {
   for (const { gh, existing } of toUpsert) {
     const id = existing?.id || newThreadId()
     const thread = mapGithubThreadToSlop(gh, { id, headSha: info.head_sha, existing })
+    if (gh._prLevel) {
+      thread.pr_level = true
+      // A review body isn't anchored to a line the reviewer read code at, so a
+      // brand-new summary must NOT start "read up to creation" like a real
+      // thread would. Backdate last_read_at to the epoch so it surfaces as
+      // unread (your_turn) until the developer opens it. A truthy epoch (vs
+      // null) survives mapGithubThreadToSlop's `existing.last_read_at || ...`
+      // coalesce on later syncs, so it stays unread across re-syncs.
+      if (!existing) thread.last_read_at = '1970-01-01T00:00:00.000Z'
+    }
     thread.anchor_text = await readAnchorText(repoPath, {
       side: thread.side,
       line: thread.line,
@@ -311,7 +363,8 @@ export async function runSync(repoPath, { log = () => {}, deps = {} } = {}) {
     // newly-added field (like github_url) must always land, so re-running
     // sync reliably converges the local copy onto GitHub.
     await writeThread(repoPath, branchId, thread)
-    if (existing) stats.updated++
+    if (gh._prLevel) stats.pr_summaries++
+    else if (existing) stats.updated++
     else stats.created++
   }
 
@@ -345,6 +398,9 @@ export function formatSyncStats(stats) {
   ]
   if (stats.merged_comments > 0) {
     lines.push(`  ${stats.merged_comments} new GitHub comment(s) appended to edited thread(s)`)
+  }
+  if (stats.pr_summaries > 0) {
+    lines.push(`  ${stats.pr_summaries} PR-level review summary thread(s) (no line anchor)`)
   }
   if (stats.github_unsupported > 0) {
     lines.push(`  ${stats.github_unsupported} file-level thread(s) skipped (no line anchor)`)

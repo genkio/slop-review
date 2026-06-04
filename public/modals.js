@@ -307,7 +307,12 @@ export function openThreadModal(threadId, opts = {}) {
     const isMac = /Mac|iPhone|iPad|iPod/i.test(navigator.platform || navigator.userAgent || '')
     const submitHint = isCarbonyl ? ';;' : (isMac ? '⌘↵' : 'Ctrl+↵')
 
-    const subLabel = thread.file ? `${thread.file}:${formatLineRange(thread)}` : 'Thread'
+    // PR-level review summaries have only a dummy file:1 anchor (see
+    // server/sync.js), so labelling them with that line would mislead. Show
+    // their nature instead.
+    const subLabel = thread.pr_level
+      ? 'PR-level review'
+      : (thread.file ? `${thread.file}:${formatLineRange(thread)}` : 'Thread')
     // Mark old-side anchors so the user knows the comment is on a deleted
     // line — same affordance as the inline-thread badge and editor anchor.
     // New-side is the default; labelling it would be visual noise.
@@ -387,22 +392,35 @@ export function openThreadModal(threadId, opts = {}) {
       lineEnd: thread.line_end || thread.line,
       side: thread.side || 'new',
     })
-    const subLabelEl = forgeUrl
+    // No forge deep-link for a PR-level summary: its file:1 is a dummy anchor,
+    // so a "jump to line 1 of the first file" link would point nowhere useful.
+    // The summary's own permalink rides on the comment timestamp instead.
+    const subLabelEl = (forgeUrl && !thread.pr_level)
       ? `<a href="${escapeHtml(forgeUrl)}" class="thread-modal-sub-label" target="_blank" rel="noopener noreferrer">${escapeHtml(subLabel)}${sideTagHtml}</a>`
       : `<span class="thread-modal-sub-label">${escapeHtml(subLabel)}${sideTagHtml}</span>`
     // "GitHub" badge for threads pulled in by `slop --sync` (those carry a
     // github_thread_id). Once the developer edits a synced thread locally,
     // `locally_modified` flips and sync stops touching it, so the badge goes
     // muted + "(edited)" to signal it has diverged from GitHub.
-    const githubBadge = thread.github_thread_id
+    // PR-level summaries also carry a github_thread_id (the review node id) but
+    // get their own "PR" badge below, so exclude them from the GitHub badge.
+    const githubBadge = (thread.github_thread_id && !thread.pr_level)
       ? `<span class="thread-github-badge${thread.locally_modified ? ' is-modified' : ''}" title="${thread.locally_modified
           ? 'Synced from GitHub, then edited locally; future syncs skip it'
           : 'Synced from a GitHub PR review thread'}">GitHub${thread.locally_modified ? ' (edited)' : ''}</span>`
+      : ''
+    // "PR" badge for a synced PR-level review summary (a review's top-level
+    // body, which has no line anchor and is pinned to a dummy file:1).
+    const prLevelBadge = thread.pr_level
+      ? `<span class="thread-pr-badge${thread.locally_modified ? ' is-modified' : ''}" title="${thread.locally_modified
+          ? 'A PR-level review summary, edited locally; future syncs leave it alone'
+          : 'A PR-level review summary (no line anchor); shown in the thread list, not pinned to the diff'}">PR${thread.locally_modified ? ' (edited)' : ''}</span>`
       : ''
 
     const subHtml = `<div class="sub">
       ${subLabelEl}
       ${githubBadge}
+      ${prLevelBadge}
       ${filenameBtn}
       ${positionHtml}
     </div>`

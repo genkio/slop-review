@@ -3490,6 +3490,28 @@ a.card-file:hover .card-file-mark {
   border-color: var(--hairline-strong);
   background: transparent;
 }
+/* PR-level review-summary badge. Same shape as the GitHub badge but a touch
+   more filled so a summary (often a blocker) reads as slightly louder. Goes
+   muted + "(edited)" once the developer touches it, like the GitHub badge. */
+.thread-pr-badge {
+  display: inline-block;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  padding: 2px 6px 1px;
+  border-radius: 2px;
+  flex-shrink: 0;
+  color: var(--accent);
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+}
+.thread-pr-badge.is-modified {
+  color: var(--fg-muted);
+  border-color: var(--hairline-strong);
+  background: transparent;
+}
 /* A synced comment's timestamp is a permalink to the comment on GitHub. Keep
    the muted timestamp look (the `.msg-when` / `.diff-thread-when` base styles
    still apply); reveal a dotted underline + accent on hover so it reads as

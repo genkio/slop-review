@@ -195,3 +195,55 @@ export async function fetchReviewThreads(repoPath, owner, repo, number) {
   }
   return out
 }
+
+// PR-level review *summaries* (the top-level body submitted with Approve /
+// Comment / Request-changes) live on PullRequestReview, not on a review thread,
+// and carry no line anchor. Sync surfaces the non-empty ones as "PR-level"
+// threads (see server/sync.js: reviewSummaryThreads) with no file, which the UI
+// renders "anchor lost" but still counts and walks in the thread nav.
+const REVIEW_SUMMARIES_QUERY = `
+query($owner: String!, $repo: String!, $number: Int!) {
+  repository(owner: $owner, name: $repo) {
+    pullRequest(number: $number) {
+      reviews(first: 100) {
+        pageInfo { hasNextPage }
+        nodes {
+          id
+          author { login }
+          body
+          url
+          state
+          submittedAt
+        }
+      }
+    }
+  }
+}`
+
+/**
+ * Fetch a PR's review submissions. Returns { reviews, truncated }. `truncated`
+ * is true when the PR has more than 100 reviews; we don't paginate (a PR with
+ * 100+ submitted reviews is well past any real case) and the caller logs the
+ * cap. Throws on a hard gh failure, same contract as fetchReviewThreads.
+ */
+export async function fetchReviewSummaries(repoPath, owner, repo, number) {
+  const args = [
+    'api', 'graphql',
+    '-f', `query=${REVIEW_SUMMARIES_QUERY}`,
+    '-f', `owner=${owner}`,
+    '-f', `repo=${repo}`,
+    '-F', `number=${number}`,
+  ]
+  const { stdout } = await pExecFile('gh', args, {
+    cwd: repoPath,
+    timeout: GH_GRAPHQL_TIMEOUT,
+    maxBuffer: GH_MAXBUF,
+    encoding: 'utf8',
+  })
+  const data = JSON.parse(stdout)
+  const pr = data?.data?.repository?.pullRequest
+  return {
+    reviews: (pr?.reviews?.nodes || []).filter(Boolean),
+    truncated: !!pr?.reviews?.pageInfo?.hasNextPage,
+  }
+}

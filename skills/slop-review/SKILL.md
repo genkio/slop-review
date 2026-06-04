@@ -90,6 +90,8 @@ Sidecars in the same dir:
 
   The web UI flips it automatically, but **only for mutations made through the UI**. Editing the JSON file directly (this skill's whole premise) does NOT trip it, and marking-as-read never does. So whenever you append/edit a comment on, relocate the anchor of, or otherwise change a thread that has a `github_thread_id`, write `"locally_modified": true` in the same edit. Leave it absent on developer-authored threads (no `github_thread_id`), and never set it back to `false`.
 
+- **`pr_level` (sync-only). Don't touch.** `true` on threads `slop --sync` creates from a GitHub review's top-level *summary body* (the text submitted with Approve / Comment / Request-changes), which has no line anchor. These carry `file: null` - the UI renders them "anchor lost" (surfaced in the thread nav, not pinned to a diff row) - and a `github_thread_id` that is the *review* node id. Reply to them like any synced thread (set `locally_modified`), but leave `file` null; don't invent an anchor.
+
 ---
 
 ## Workflow: as reviewer (leave new comments)
@@ -149,6 +151,8 @@ Prompt example: *"review this branch and leave inline comments on anything sketc
    ```
 
 6. **Summarize where you commented** - list the file:line anchors. Don't restate each comment; the developer sees them in the UI.
+
+**Issue outside the diff?** A change can surface a bug in code this PR doesn't touch (a caller, a config, a now-wrong test) - a finding with no `+`/`-` line to sit on. Anchor to the real `file`:`line` anyway: read the current line at HEAD for `anchor_text`, with `side: "new"` and `sha: <HEAD>`. slop renders it "anchor lost" (not pinned to a visible diff row) but still counts it and walks it in the thread nav, so the developer reaches it. Always prefer a real anchor when a relevant file exists - it hands the developer a coordinate they can open. A `file: null` thread (no anchor at all) is reserved for `slop --sync` mirroring a GitHub review *body*; don't hand-author one.
 
 **On `user`:** every `user` value is a **role**, not a person's identity. Author as the role you play - `"reviewer"` when the prompt asks you to leave comments / questions, `"reviewee"` when it asks you to address a thread. Never your agent name (`claude`, `codex`, ...). The UI stamps developer comments `"reviewer"` automatically, so rendered authors are just the two role names.
 

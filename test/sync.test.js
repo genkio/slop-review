@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { execFileSync } from 'node:child_process'
 
-import { planSync, mapGithubThreadToSlop, newGithubComments, runSync } from '../server/sync.js'
+import { planSync, mapGithubThreadToSlop, newGithubComments, reviewSummaryThreads, runSync } from '../server/sync.js'
 import { readBranchThreads, writeThread, sanitizeBranchId } from '../server/reviews.js'
 
 // Build a fake GitHub review-thread node in the same shape host.js returns
@@ -195,6 +195,24 @@ test('newGithubComments: an already-mirrored comment edited on GitHub is NOT re-
 })
 
 // ---------------------------------------------------------------------------
+// reviewSummaryThreads: PR-level review bodies -> synthetic dummy-anchored threads.
+// ---------------------------------------------------------------------------
+
+test('reviewSummaryThreads: non-empty bodies become fileless pr-level threads; empties dropped', () => {
+  const reviews = [
+    { id: 'R1', author: { login: 'octocat' }, body: 'blocker: fix it', url: 'u1', submittedAt: '2026-01-01T00:00:00Z' },
+    { id: 'R2', author: { login: 'octocat' }, body: '   ', url: 'u2', submittedAt: '2026-01-01T00:00:00Z' },
+  ]
+  const out = reviewSummaryThreads(reviews)
+  assert.equal(out.length, 1)
+  assert.equal(out[0].id, 'R1')
+  assert.equal(out[0]._prLevel, true)
+  assert.equal(out[0].path, null)   // no file -> the UI renders it anchor-lost
+  assert.equal(out[0].comments.nodes[0].body, 'blocker: fix it')
+  assert.equal(out[0].comments.nodes[0].url, 'u1')
+})
+
+// ---------------------------------------------------------------------------
 // runSync: end-to-end against a temp repo, with gh responses injected.
 // ---------------------------------------------------------------------------
 
@@ -223,6 +241,7 @@ test('runSync: creates, then refreshes/deletes, then protects locally-modified t
     isGhAvailable: async () => true,
     getPrNumber: async () => 7,
     fetchReviewThreads: async () => [ghThread('GH_A'), ghThread('GH_B', { line: 2 })],
+    fetchReviewSummaries: async () => ({ reviews: [], truncated: false }),
   }
   try {
     // First sync: both threads land as fresh local files.
@@ -275,6 +294,7 @@ test('runSync: a locally-modified thread keeps its local reply and appends new G
     isGhAvailable: async () => true,
     getPrNumber: async () => 7,
     fetchReviewThreads: async () => ghWith(c1),
+    fetchReviewSummaries: async () => ({ reviews: [], truncated: false }),
   }
   try {
     // First sync lands the thread with its single GitHub comment.
@@ -318,6 +338,52 @@ test('runSync: a locally-modified thread keeps its local reply and appends new G
   }
 })
 
+test('runSync: a PR review summary body syncs as an unread, fileless pr_level thread', async () => {
+  const { root, work } = makeGithubRepo()
+  const branchId = sanitizeBranchId('main')
+  const deps = {
+    isGhAvailable: async () => true,
+    getPrNumber: async () => 7,
+    fetchReviewThreads: async () => [],   // no inline threads on this PR
+    fetchReviewSummaries: async () => ({
+      reviews: [
+        { id: 'REVIEW_1', author: { login: 'octocat' }, body: 'blocker: fix fetch.ts', url: 'https://github.com/acme/widgets/pull/7#pullrequestreview-1', submittedAt: '2026-02-02T00:00:00Z', state: 'COMMENTED' },
+        { id: 'REVIEW_EMPTY', author: { login: 'octocat' }, body: '', url: 'x', submittedAt: '2026-02-02T00:00:00Z', state: 'COMMENTED' },
+      ],
+      truncated: false,
+    }),
+  }
+  try {
+    const res = await runSync(work, { deps })
+    assert.equal(res.status, 'ok')
+    assert.equal(res.stats.pr_summaries, 1)   // the empty-body review is dropped
+    assert.equal(res.stats.created, 0)        // pr-level counted on its own, not as created
+    const threads = await readBranchThreads(work, branchId)
+    assert.equal(threads.length, 1)
+    const t = threads[0]
+    assert.equal(t.pr_level, true)
+    assert.equal(t.github_thread_id, 'REVIEW_1')   // review node id is the sync key
+    assert.equal(t.file, null)   // fileless -> the UI renders it anchor-lost
+    assert.equal(t.side, 'new')
+    assert.equal(Date.parse(t.last_read_at), 0, 'starts unread (epoch last_read_at)')
+    assert.equal(t.comments.length, 1)
+    assert.equal(t.comments[0].body, 'blocker: fix fetch.ts')
+    assert.equal(t.comments[0].user, 'octocat')
+    assert.equal(t.comments[0].github_url, 'https://github.com/acme/widgets/pull/7#pullrequestreview-1')
+
+    // Idempotent re-sync: still one thread, still pr_level, still unread (the
+    // epoch last_read_at must survive the refresh, not coalesce to created_at).
+    const res2 = await runSync(work, { deps })
+    assert.equal(res2.stats.pr_summaries, 1)
+    const after = await readBranchThreads(work, branchId)
+    assert.equal(after.length, 1)
+    assert.equal(after[0].pr_level, true)
+    assert.equal(Date.parse(after[0].last_read_at), 0, 'stays unread across re-sync')
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
 test('runSync: a non-GitHub origin is a no-op soft-stop', async () => {
   const { root, work } = makeGithubRepo()
   execFileSync('git', ['-C', work, 'remote', 'set-url', 'origin', 'git@gitlab.com:acme/widgets.git'], { stdio: 'pipe' })
@@ -356,6 +422,7 @@ test('runSync: file-level (no line anchor) threads are reported as skipped', asy
       isGhAvailable: async () => true,
       getPrNumber: async () => 7,
       fetchReviewThreads: async () => [ghThread('GH_FILE', { subjectType: 'FILE', line: null })],
+      fetchReviewSummaries: async () => ({ reviews: [], truncated: false }),
     }
     const res = await runSync(work, { deps })
     assert.equal(res.status, 'ok')
