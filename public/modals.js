@@ -346,7 +346,7 @@ export function openThreadModal(threadId, opts = {}) {
     // full filename and the slop-review skill resolves to the same JSON.
     const hexId = (thread.id || '').replace(/^thread_/, '')
     const filenameBtn = fileNameForCopy && hexId
-      ? `<button type="button" class="thread-filename" data-copy-filename data-filename="${escapeHtml(fileNameForCopy)}" title="Click to copy ${escapeHtml(fileNameForCopy)} — paste into a chat to reference this thread"><span class="thread-filename-text">${escapeHtml(hexId)}</span></button>`
+      ? `<button type="button" class="thread-filename" data-copy-filename data-filename="${escapeHtml(fileNameForCopy)}" title="Copy ${escapeHtml(fileNameForCopy)} (press y): paste into a chat to reference this thread"><span class="thread-filename-text">${escapeHtml(hexId)}</span></button>`
       : ''
 
     // navAvailable + navIdx feed two pieces of nav UI rendered later in
@@ -425,7 +425,7 @@ export function openThreadModal(threadId, opts = {}) {
       ${resolvedSub}
       <div class="thread-list" data-thread-list>${msgs}</div>
       <div class="thread-reply">
-        <textarea class="thread-reply-input" rows="3" placeholder="Add a follow-up comment…"></textarea>
+        <textarea class="thread-reply-input" rows="3" placeholder="Add a follow-up comment… [i]"></textarea>
       </div>
       ${navHtml}
       <div class="modal-actions is-reversed">
@@ -454,10 +454,11 @@ export function openThreadModal(threadId, opts = {}) {
 
     const html = buildInnerHtml(thread)
     if (!backdrop) {
-      // The thread modal's keyboard map: arrows step prev/next thread,
-      // j/k scroll the modal body (J/K jump further), i focuses the reply
-      // box, r resolves, d deletes, q closes, Esc drops focus, and
-      // Cmd/Ctrl+Enter (or carbonyl's `;;`) submits a reply.
+      // The thread modal's keyboard map: arrows (or h/l, vim-style) step
+      // prev/next thread, j/k scroll the modal body (J/K jump further), i
+      // focuses the reply box, r resolves, d deletes, y copies the thread id,
+      // q closes, Esc drops focus, and Cmd/Ctrl+Enter (or carbonyl's `;;`)
+      // submits a reply.
       // Document-scoped so it fires regardless of which element inside the
       // modal has focus (otherwise a focused button would swallow the event
       // before a backdrop-scoped listener saw it). The verb keys bail while a
@@ -511,14 +512,16 @@ export function openThreadModal(threadId, opts = {}) {
         }
 
         // Single-letter verbs: i = focus reply, r = resolve/reopen,
-        // d = delete, q = close. Swallowed whenever the modal is on screen
-        // (capture-phase + stopImmediatePropagation) so they never leak to the
-        // diff page's onKey underneath, which binds bare r / d to its own
-        // actions; acted on only when this modal is topmost and not typing.
-        // Chord modifiers pass through untouched so browser shortcuts
-        // (Cmd+R reload, Ctrl+D bookmark) still work.
+        // d = delete, y = copy thread id, q = close. Swallowed whenever the
+        // modal is on screen (capture-phase + stopImmediatePropagation) so
+        // they never leak to the diff page's onKey underneath, which binds
+        // bare r / d / y to its own actions (y there copies a diff line ref,
+        // which would silently clobber the clipboard behind the modal); acted
+        // on only when this modal is topmost and not typing. Chord modifiers
+        // pass through untouched so browser shortcuts (Cmd+R reload, Ctrl+D
+        // bookmark) still work.
         if (!e.metaKey && !e.ctrlKey && !e.altKey &&
-            (e.key === 'i' || e.key === 'r' || e.key === 'd' || e.key === 'q')) {
+            (e.key === 'i' || e.key === 'r' || e.key === 'd' || e.key === 'y' || e.key === 'q')) {
           if (inTextField) return
           e.preventDefault()
           e.stopImmediatePropagation()
@@ -534,6 +537,11 @@ export function openThreadModal(threadId, opts = {}) {
             backdrop.querySelector('[data-resolve], [data-unresolve]')?.click()
           } else if (e.key === 'd') {
             backdrop.querySelector('[data-delete]')?.click()
+          } else if (e.key === 'y') {
+            // Reuse the filename pill's own click handler: copy + toast + the
+            // transient is-copied glyph swap. No-op if the pill is absent
+            // (thread with no resolvable filename).
+            backdrop.querySelector('[data-copy-filename]')?.click()
           } else if (e.key === 'q') {
             backdrop.remove()   // -> MutationObserver -> wrappedOnClose tears down
           }
@@ -562,8 +570,16 @@ export function openThreadModal(threadId, opts = {}) {
           return
         }
 
-        // ----- Arrow nav: step prev / next thread -----
-        if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return
+        // ----- Arrow / h / l nav: step prev / next thread -----
+        // h/l mirror ArrowLeft/ArrowRight (vim-style). The letter keys are
+        // chord-guarded (bail when Cmd/Ctrl/Alt is held) so browser shortcuts
+        // such as Cmd+L / Ctrl+L (focus address bar) still work, matching how
+        // the i/r/d/y/q verbs above let chords through. The arrows keep their
+        // existing modifier behaviour. Shift+h/l never reach here (they arrive
+        // as 'H'/'L'), so the Shift bail below stays arrow-only in practice.
+        const navPrev = e.key === 'ArrowLeft'  || (e.key === 'h' && !e.metaKey && !e.ctrlKey && !e.altKey)
+        const navNext = e.key === 'ArrowRight' || (e.key === 'l' && !e.metaKey && !e.ctrlKey && !e.altKey)
+        if (!navPrev && !navNext) return
         // Shift+arrow is reserved for diff-page commit navigation (see
         // diff.js onKey). Bail BEFORE swallowing the event so the
         // bubble-phase onKey listener gets a clean shot. This also
@@ -594,7 +610,7 @@ export function openThreadModal(threadId, opts = {}) {
         // key here but don't step threads beneath it.
         if (!isTop) return
         if (!Array.isArray(threadOrder) || threadOrder.length < 2) return
-        const dir = e.key === 'ArrowLeft' ? -1 : +1
+        const dir = navPrev ? -1 : +1
         const adj = adjacentThreadId(currentId, threadOrder, dir)
         if (!adj) return
         currentId = adj
