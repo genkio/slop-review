@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.21.1](https://github.com/genkio/slop-review/compare/v0.21.0...v0.21.1) (2026-06-04)
+
+
+### Bug Fixes
+
+* j/k scroll the thread modal instead of the diff behind it ([c249bcd](https://github.com/genkio/slop-review/commit/c249bcdb87da8a980c1498f9dd24f19aca429436))
+
 ## [0.21.0](https://github.com/genkio/slop-review/compare/v0.20.0...v0.21.0) (2026-06-03)
 
 
