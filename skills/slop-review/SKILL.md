@@ -5,14 +5,14 @@ description: Slop-review review-thread workflows on a git feature branch. TRIGGE
 
 # slop-review skill
 
-`slop-review` is a local code-review surface that turns a git feature branch into a GitHub-PR-style review loop. Comments live as JSON files in the repo at `<repo>/.reviews/<branch_id>/thread_<status>_<8hex>.json`. The slop-review web UI is what the **developer** uses to view threads and mark them resolved; **you (the agent) work with the underlying files directly** — no HTTP API, no running server required.
+`slop-review` turns a git feature branch into a GitHub-PR-style review loop. Comments are JSON files in the repo: `<repo>/.reviews/<branch_id>/thread_<status>_<8hex>.json`. The web UI is for the **developer**; **you (the agent) edit the files directly** - no HTTP API, no running server needed.
 
-There are two roles in any given conversation:
+Two roles per conversation:
 
-- **Reviewer** — reads the diff, leaves inline comments / questions on specific lines.
-- **Reviewee** — reads existing comments, answers questions, and addresses feedback by editing source code + appending replies to the thread.
+- **Reviewer** - reads the diff, leaves inline comments / questions on specific lines.
+- **Reviewee** - reads comments, answers, edits source code + appends replies.
 
-Either role can be a developer or an LLM. The skill works the same way for both — pick the verb from the user's prompt.
+Either role can be human or LLM. Same mechanics for both - pick the verb from the prompt.
 
 ---
 
@@ -22,23 +22,23 @@ Either role can be a developer or an LLM. The skill works the same way for both 
 <repo>/.reviews/<branch_id>/thread_<status>_<8hex>.json
 ```
 
-- **`<branch_id>`** is the current branch name with `[^A-Za-z0-9_-]` collapsed to `-`, leading/trailing `-` stripped, capped at 80 chars. Compute it with:
+- **`<branch_id>`** - the branch name, `[^A-Za-z0-9_-]` collapsed to `-`, leading/trailing `-` stripped, capped at 80 chars:
 
   ```bash
   BRANCH=$(git rev-parse --abbrev-ref HEAD)
   BRANCH_ID=$(printf '%s' "$BRANCH" | sed -E 's/[^A-Za-z0-9_-]+/-/g; s/^-+//; s/-+$//' | cut -c1-80)
   ```
 
-  In practice you can also just `ls <repo>/.reviews/` and pick the directory matching the current branch — most repos have one or two.
+  Or just `ls <repo>/.reviews/` and pick the dir matching the branch - most repos have one or two.
 
-- **`<status>`** ∈ `{open, resolved}`. **Only act on `thread_open_*.json` files.** `thread_resolved_*.json` are closed; treat them as read-only history.
+- **`<status>`** ∈ `{open, resolved}`. **Act only on `thread_open_*.json`.** `thread_resolved_*` are closed; treat as read-only history.
 
-- **`<8hex>`** is a stable random hex id; never changes when status flips.
+- **`<8hex>`** - a stable random hex id; never changes when status flips.
 
-Sidecars in the same directory:
+Sidecars in the same dir:
 
-- `_reviewed.json` — slop-review web UI bookkeeping for per-file "reviewed" marks. **Ignore**; don't read or write.
-- `_overview.json` — the branch overview that the UI's Overview modal renders. You can author this yourself; see [Workflow: generate the branch overview](#workflow-generate-the-branch-overview) below.
+- `_reviewed.json` - UI bookkeeping for per-file "reviewed" marks. **Ignore**; don't read or write.
+- `_overview.json` - the branch overview the UI's Overview modal renders. You can author it; see [Workflow: generate the branch overview](#workflow-generate-the-branch-overview).
 
 ---
 
@@ -58,7 +58,7 @@ Sidecars in the same directory:
   "last_read_at":  "2026-05-09T11:30:00Z",     // developer controls; don't touch
   "resolved_at":   null,                       // ISO timestamp when resolved; null = open. DON'T touch
   "github_thread_id": null,                    // (sync-only) GitHub GraphQL node id; present only on threads pulled in by `slop --sync`. DON'T touch
-  "locally_modified": false,                   // (sync-only) flips true once you edit/reply/resolve a synced thread; sync then skips it. DON'T hand-edit
+  "locally_modified": false,                   // (sync-only) true = sync leaves this thread alone. Web UI sets it; when YOU edit a synced thread's file directly you MUST set it yourself (see rules)
   "comments": [
     {
       "id":        "thread_a1b2c3d4_1",        // <thread.id>_<N>, where N is 1-indexed
@@ -69,44 +69,49 @@ Sidecars in the same directory:
     {
       "id":        "thread_a1b2c3d4_2",
       "user":      "reviewee",
-      "body":      "Good catch — added a guard. See foo.ts:42.",
+      "body":      "Good catch - added a guard. See foo.ts:42.",
       "posted_at": "2026-05-09T10:15:00Z"
     }
   ]
 }
 ```
 
-**Field rules — both roles:**
+**Field rules - both roles:**
 
-- **Don't modify** `id`, `created_at`, `last_read_at`, `resolved_at`. They're either stable identifiers or developer-controlled state.
-- **Don't rename the file.** Resolution status (`_open_` ↔ `_resolved_`) is developer-controlled via the slop-review web UI; touching it from the agent breaks the user's mental model.
-- **`comments[]`** is append-only — never mutate or reorder existing entries.
-- **`line_end`**: `null` (or absent / equal to `line`) for a single-line anchor; set to the inclusive end line for a multi-line range. The server caps the range at 500 lines.
-- **`anchor_text`**: only modify when relocating an anchor onto a resolving commit (see the reviewee workflow below).
-- **`github_thread_id` / `locally_modified` (sync-only).** Threads created by `slop --sync` (which mirrors a GitHub PR's *unresolved* review threads into `.reviews/`) carry these two extra fields. `github_thread_id` is the GitHub GraphQL node id sync matches on across runs; `locally_modified` starts `false`, and the web UI flips it `true` the instant the developer edits, replies to, deletes a comment from, or (un)resolves the thread. A `locally_modified` thread is skipped by every later sync (never refreshed or deleted), so local edits always win. **Don't hand-edit either field.** The comments on a synced thread carry the GitHub author's login as `user` (not the `reviewer` / `reviewee` role markers), and they anchor on `view: "full"`. Each synced comment also carries a `github_url` permalink back to the comment on GitHub.
+- **Don't modify** `id`, `created_at`, `last_read_at`, `resolved_at`. Stable identifiers or developer-controlled state.
+- **Don't rename the file.** Status (`_open_` ↔ `_resolved_`) is the developer's, set via the web UI. Renaming from the agent breaks their mental model.
+- **`comments[]`** is append-only. Never mutate or reorder existing entries.
+- **`line_end`** - `null` (or absent / equal to `line`) = single-line anchor; else the inclusive end line. The server caps the span at 500 lines.
+- **`anchor_text`** - only modify when relocating an anchor onto a resolving commit (see the reviewee workflow).
+- **`github_thread_id` (sync-only). Don't touch.** Set on threads `slop --sync` pulls from a GitHub PR's *unresolved* review threads. It's the GitHub GraphQL node id; sync matches on it across runs to decide create / refresh / delete, and its mere presence is what marks a thread "synced". Don't hand-edit or remove it. Synced comments carry the GitHub author's login as `user` (not the `reviewer` / `reviewee` role markers), anchor on `view: "full"`, and each carries a `github_url` permalink back to the comment on GitHub.
+- **`locally_modified` (sync-only). YOU set it.** Synced thread = has `github_thread_id`.
+  - `false` -> next `slop --sync` overwrites the thread from GitHub, or *deletes* it once it's resolved/gone upstream (may later re-create it under a fresh `thread_<hex>` filename). Your appended reply is silently LOST.
+  - `true` -> sync skips it forever (never refreshed or deleted). Local edits win.
+
+  The web UI flips it automatically, but **only for mutations made through the UI**. Editing the JSON file directly (this skill's whole premise) does NOT trip it, and marking-as-read never does. So whenever you append/edit a comment on, relocate the anchor of, or otherwise change a thread that has a `github_thread_id`, write `"locally_modified": true` in the same edit. Leave it absent on developer-authored threads (no `github_thread_id`), and never set it back to `false`.
 
 ---
 
 ## Workflow: as reviewer (leave new comments)
 
-User prompt example: *"review this branch and leave inline comments on anything sketchy"*.
+Prompt example: *"review this branch and leave inline comments on anything sketchy"*.
 
-1. **Read the diff** to find lines worth commenting on:
+1. **Read the diff** for comment-worthy lines:
    ```bash
    BASE=$(git merge-base origin/HEAD HEAD 2>/dev/null || git merge-base origin/main HEAD)
    git diff "$BASE"..HEAD
    ```
-   For per-commit review, use `git show <sha>`. For uncommitted changes, `git diff HEAD`.
+   Per-commit: `git show <sha>`. Uncommitted: `git diff HEAD`.
 
-2. **For each comment-worthy spot, write a thread JSON file**:
+2. **For each spot, write a thread JSON file:**
 
-   - Generate a thread id: `thread_<8 random hex chars>`. Use a fresh hex each time; don't reuse.
-   - Capture `anchor_text` from the source file at the line you're commenting on (the literal line text, no leading `+` / `-` from the diff). For `side: "old"`, the line won't exist in the working tree — read it from the diff's `-` half, or via `git show "$BASE:$file" | sed -n '<line>p'`.
-   - Capture `sha`:
-     - `view: "full"` → `git rev-parse HEAD` (current head)
-     - `view: "commit"` → the full commit SHA you're reviewing
-     - `view: "local"` → literal string `"local"`
-   - Write the file at `<repo>/.reviews/<branch_id>/thread_open_<hex>.json` with this shape (substitute your values):
+   - Thread id: `thread_<8 random hex>`. Fresh hex each time; don't reuse.
+   - `anchor_text` = the literal source line at that point (no leading `+` / `-` from the diff). For `side: "old"` the line isn't in the working tree - read it from the diff's `-` half, or `git show "$BASE:$file" | sed -n '<line>p'`.
+   - `sha`:
+     - `view: "full"` -> `git rev-parse HEAD`
+     - `view: "commit"` -> the full commit SHA you're reviewing
+     - `view: "local"` -> literal string `"local"`
+   - Write `<repo>/.reviews/<branch_id>/thread_open_<hex>.json` (substitute your values):
      ```jsonc
      {
        "id": "thread_<hex>",
@@ -131,93 +136,93 @@ User prompt example: *"review this branch and leave inline comments on anything 
      }
      ```
 
-3. **Pick the right `view`**:
-   - `full` for branch-level review (default — reviewing what the feature branch changes vs the base).
-   - `commit` when commenting on a specific commit; pair with that commit's SHA.
-   - `local` for the user's uncommitted working-tree changes.
+3. **Pick `view`:**
+   - `full` - branch-level review vs base (default).
+   - `commit` - a specific commit; pair with that commit's SHA.
+   - `local` - the user's uncommitted working-tree changes.
 
-4. **Choose `side: "new"`** unless you're specifically commenting on a removed line, in which case `side: "old"`.
+4. **`side`** - `"new"` unless commenting on a removed line, then `"old"`.
 
-5. **`mkdir -p`** the branch directory first if it doesn't exist:
+5. **`mkdir -p`** the branch dir first if missing:
    ```bash
    mkdir -p <repo>/.reviews/<branch_id>/
    ```
 
-6. **Summarize where you commented** — list the file:line anchors. Don't restate what each comment said; the developer will see them in the slop-review UI.
+6. **Summarize where you commented** - list the file:line anchors. Don't restate each comment; the developer sees them in the UI.
 
-**On `user`:** every comment's `user` value is a **role**, not a person's identity. When you (the agent) author a comment, set `user` to the role you're playing — `"reviewer"` if the user's prompt asks you to leave comments / questions, `"reviewee"` if the prompt asks you to address an existing thread. Don't use your agent name (`claude`, `codex`, etc.). The slop-review web UI follows the same convention: developer-authored comments are stamped `"reviewer"` automatically, so a thread's rendered author labels are just the two role names plus whatever you and the developer's counterparties choose.
+**On `user`:** every `user` value is a **role**, not a person's identity. Author as the role you play - `"reviewer"` when the prompt asks you to leave comments / questions, `"reviewee"` when it asks you to address a thread. Never your agent name (`claude`, `codex`, ...). The UI stamps developer comments `"reviewer"` automatically, so rendered authors are just the two role names.
 
 ---
 
 ## Workflow: as reviewee (address open threads)
 
-User prompt example: *"go through unresolved slop-review threads and address them"*.
+Prompt example: *"go through unresolved slop-review threads and address them"*.
 
-1. **List open threads** (resolved threads are out of scope):
+1. **List open threads** (resolved = out of scope):
    ```bash
    ls <repo>/.reviews/<branch_id>/thread_open_*.json
    ```
 
-2. **For each open thread, in turn**:
-   - **Read** the JSON. Index 0 of `comments[]` is the original note anchored at `Source:` (`file`:`line`); later entries are prior replies.
-   - **Resolve the anchor against HEAD first.** The thread's `file` / `line` / `anchor_text` describe what the reviewer saw at `sha` — not necessarily what's at HEAD now. For `view: "commit"` (and to a lesser degree `view: "full"`), later commits may have shifted, rewritten, or already fixed that line. Before editing, locate the current equivalent at HEAD:
-     - `grep -n "<anchor_text>" "<file>"` — find where the line lives now (line numbers drift; literal text is the more durable anchor).
-     - `git log -L <line>,<line>:<file> <sha>..HEAD` — see what happened to that exact line between the thread's `sha` and HEAD.
-     - If `anchor_text` no longer exists at HEAD and a later commit appears to have addressed the concern, **reply with that observation instead of re-fixing it** — don't restate work the developer already did.
-   - **Open the source file at HEAD** (using the resolved line from the step above) and decide whether a code change is still warranted.
-   - **If yes — edit the source code**, then `git commit` with a conventional-commits subject (`fix:`, `feat:`, `refactor:`, `docs:`, `test:`, `chore:`, etc.) describing the resolution. **One commit per thread** by default; only fold multiple threads into one commit if they're truly the same edit.
-   - **Relocate the thread's anchor onto the resolving commit** by editing these fields IN PLACE in the JSON:
-     - `view` → `"commit"`
-     - `sha` → the new commit's full SHA (`git rev-parse HEAD`)
-     - `file` → path of the most semantically-relevant file in the new commit's diff (usually the file you edited)
-     - `line` → line number of the most relevant line in that file at the new SHA
-     - `line_end` → end line if the resolving change spans a range; otherwise `null`. Don't carry over a stale multi-line range from the original anchor.
-     - `anchor_text` → the literal text of that line at the new SHA
-   - **Append exactly one new entry** to `comments[]`:
+2. **For each open thread:**
+   - **Read** the JSON. `comments[0]` = the original note anchored at `file`:`line`; later entries = prior replies.
+   - **Resolve the anchor against HEAD first.** The thread's `file` / `line` / `anchor_text` describe what the reviewer saw at `sha`, not necessarily HEAD now. Later commits may have shifted, rewritten, or already fixed that line (especially `view: "commit"`). Before editing, find the current equivalent:
+     - `grep -n "<anchor_text>" "<file>"` - where the line lives now (line numbers drift; the literal text is the durable anchor).
+     - `git log -L <line>,<line>:<file> <sha>..HEAD` - what happened to that exact line between the thread's `sha` and HEAD.
+     - If `anchor_text` is gone at HEAD and a later commit appears to have addressed the concern, **reply with that observation instead of re-fixing it** - don't restate work the developer already did.
+   - **Open the source file at HEAD** (using the resolved line above) and decide whether a code change is still warranted.
+   - **If yes - edit the source code**, then `git commit` with a conventional-commits subject (`fix:`, `feat:`, `refactor:`, `docs:`, `test:`, `chore:`, ...) describing the resolution. **One commit per thread** by default; fold multiple threads into one commit only if they're truly the same edit.
+   - **Relocate the thread's anchor onto the resolving commit** - edit these fields IN PLACE in the JSON:
+     - `view` -> `"commit"`
+     - `sha` -> the new commit's full SHA (`git rev-parse HEAD`)
+     - `file` -> the most semantically-relevant file in the new commit's diff (usually the one you edited)
+     - `line` -> the most relevant line in that file at the new SHA
+     - `line_end` -> end line if the resolving change spans a range, else `null`. Don't carry over a stale multi-line range.
+     - `anchor_text` -> the literal text of that line at the new SHA
+   - **Append exactly one** entry to `comments[]`:
      ```jsonc
      {
        "id":        "<thread.id>_<N>",  // N = comments.length + 1, BEFORE you append
-       "user":      "reviewee",          // the role you're playing — see "On `user`" above
+       "user":      "reviewee",          // the role you're playing - see "On `user`" above
        "body":      "Added a guard for the empty case. See abc1234.",
        "posted_at": "<current UTC ISO 8601>"
      }
      ```
      Reference the resolving commit's short SHA in `body` so the developer can find it.
+   - **If the thread is synced** (it has a `github_thread_id`), **set `"locally_modified": true`** in this same write. Otherwise the next `slop --sync` overwrites the thread from GitHub (or deletes it) and your reply *and* anchor relocation are lost. Skip this for developer-authored threads (no `github_thread_id`).
    - **Write the JSON back** with **2-space indentation** preserved.
-   - **Don't set `resolved_at`** and **don't rename the file**. Resolution is the developer's gesture — they'll review your commit + reply in the UI and click `✓ Resolve` if satisfied. (The UI rename to `thread_resolved_*.json` happens server-side then.)
+   - **Don't set `resolved_at`, don't rename the file.** Resolution is the developer's gesture - they review your commit + reply in the UI and click `✓ Resolve` if satisfied (the rename to `thread_resolved_*.json` happens server-side then).
 
-3. **If a question doesn't need code** (e.g. clarification request), just append a reply comment without editing source or committing.
+3. **If a question needs no code** (e.g. a clarification request), just append a reply - no source edit, no commit.
 
-4. **Summarize** — list the commits you made and which threads they addressed. Don't `git push` unless the user asks.
+4. **Summarize** - list the commits and which threads they addressed. Don't `git push` unless the user asks.
 
 ---
 
 ## Workflow: reply to a specific thread
 
-User prompt example: *"reply to `thread_open_a1b2c3d4.json`"*.
+Prompt example: *"reply to `thread_open_a1b2c3d4.json`"*.
 
-1. **Find the file**. If the developer named the filename: `<repo>/.reviews/<branch_id>/<filename>`. Otherwise:
+1. **Find the file.** Named filename -> `<repo>/.reviews/<branch_id>/<filename>`. Otherwise:
    ```bash
    ls <repo>/.reviews/<branch_id>/thread_open_*.json   # if you have only the hex
-   # or grep for the file:line anchor:
-   grep -l '"file": "packages/foo/src/bar.ts"' <repo>/.reviews/<branch_id>/thread_open_*.json
+   grep -l '"file": "packages/foo/src/bar.ts"' <repo>/.reviews/<branch_id>/thread_open_*.json   # by anchor
    ```
 
-2. **Read** the JSON, **append** one comment with `id: <thread.id>_<comments.length + 1>` and `user` set to your current role — `"reviewer"` if the user asked you to leave a follow-up question / observation, `"reviewee"` if you're answering or addressing the existing thread — then **write back** preserving indentation.
+2. **Read**, then **append** one comment with `id: <thread.id>_<comments.length + 1>` and `user` = your role (`"reviewer"` for a follow-up question / observation, `"reviewee"` to answer or address the thread). **If the thread has a `github_thread_id` (synced from GitHub), also set `"locally_modified": true`** in the same write so the next sync doesn't overwrite your reply. Then **write back**, preserving indentation.
 
 ---
 
 ## Workflow: generate the branch overview
 
-User prompt examples: *"generate the slop-review overview"*, or as a step in *"understand the changes, generate overview, then review"*. When the user asks for overview + review together, do the overview first — it's the warm-up that makes the line-level review better-targeted.
+Prompt examples: *"generate the slop-review overview"*, or as a step in *"understand the changes, generate overview, then review"*. When asked for overview + review together, do the overview first - it's the warm-up that makes the line-level review better-targeted.
 
-The slop-review UI's **Overview** modal renders `<repo>/.reviews/<branch_id>/_overview.json`. The CLI normally produces it; you can write the same artifact yourself.
+The UI's **Overview** modal renders `<repo>/.reviews/<branch_id>/_overview.json`. The CLI normally produces it; you can write the same artifact.
 
-1. **Skip if nothing changed.** No commits ahead of base and no local changes → tell the user and stop.
+1. **Skip if nothing changed.** No commits ahead of base and no local changes -> tell the user and stop.
 
 2. **Inspect** the diff in scope (`<merge-base>..HEAD` for committed work, `git diff HEAD` for local-only). Exclude `.reviews/`.
 
-3. **Write the Markdown** with these four section headings in this order — the UI parses them, so names and ordering are load-bearing:
+3. **Write the Markdown** with these headings, in this order. The UI looks sections up by **exact heading text**, so the names are load-bearing:
 
    ```
    # Overview
@@ -227,11 +232,11 @@ The slop-review UI's **Overview** modal renders `<repo>/.reviews/<branch_id>/_ov
    ## Sketch       (fenced ```json``` block, shape below)
    ```
 
-   Sketch shape: `{ "nodes": [{ "id": "...", "label": "...", "detail": "..." }], "edges": [["from", "to"]] }`. Small (≈3-6 nodes, 2-7 edges); node ids are lowercase letters/digits/`_-`. The UI renders it as a diagram.
+   Sketch shape: `{ "nodes": [{ "id": "...", "label": "...", "detail": "..." }], "edges": [["from", "to"]] }`. Small: ≈3-6 nodes, 2-7 edges; node ids are lowercase letters/digits/`_-`. The UI renders it as a diagram.
 
-   Keep the prose concise and grounded in what the diff actually shows. For the exact original prompt the CLI uses (word counts, bullet caps, tone rules), read `buildOverviewPrompt` in `server/overview.js`.
+   Keep the prose concise and grounded in what the diff shows. For the exact CLI prompt (word counts, bullet caps, tone rules), read `buildOverviewPrompt` in `server/overview.js`.
 
-4. **Compute `cache_key`** so the UI doesn't badge the overview "stale". SHA-1 over a JSON.stringify of this object, in this key order:
+4. **Compute `cache_key`** so the UI doesn't badge the overview "stale". SHA-1 over a `JSON.stringify` of this object, in this key order:
 
    ```js
    {
@@ -242,7 +247,7 @@ The slop-review UI's **Overview** modal renders `<repo>/.reviews/<branch_id>/_ov
    }
    ```
 
-   When `has_local_changes` is true the server replaces `local: null` with a working-tree fingerprint (tracked diff SHA-1 + `[{path, size, mtime_ms}]` per untracked file). Reproducing it is fiddly, so just leave `local: null` and accept the "stale" badge — content still renders, regenerate is one click for the developer.
+   When `has_local_changes` is true the server replaces `local: null` with a working-tree fingerprint (tracked diff SHA-1 + `[{path, size, mtime_ms}]` per untracked file). Reproducing it is fiddly - just leave `local: null` and accept the "stale" badge. Content still renders; regenerate is one click for the developer.
 
 5. **Write atomically** (tmp file + `mv`) to `<repo>/.reviews/<branch_id>/_overview.json`:
 
@@ -260,19 +265,20 @@ The slop-review UI's **Overview** modal renders `<repo>/.reviews/<branch_id>/_ov
    }
    ```
 
-6. Tell the user where it landed and a one-line takeaway. Don't paste the Markdown — the UI renders it. If the user also asked for a review pass, continue into the reviewer workflow.
+6. Tell the user where it landed + a one-line takeaway. Don't paste the Markdown - the UI renders it. If they also asked for a review pass, continue into the reviewer workflow.
 
 ---
 
 ## Things to avoid
 
-- **Don't touch `resolved_at`** and **don't rename `_open_*` → `_resolved_*` files**. Resolution status is developer-controlled via the slop-review web UI.
-- **Don't act on `thread_resolved_*.json` files**. They're closed; the conversation is done. (You can read them for historical context if asked, but don't append to them or edit them.)
-- **Don't delete `<repo>/.reviews/`** or the `_reviewed.json` sidecar — those are slop-review web UI bookkeeping; nuking them isn't reversible. `_overview.json` is fair game to (re)write under the overview workflow, but don't delete it.
-- **Don't push to the remote** (`git push`) unless the user explicitly asks. Resolutions are local commits by default.
-- **Don't fold multiple thread resolutions into one commit** unless they're literally the same edit. The default is one commit per thread; the slop-review UI's per-commit view (`#/diff/<sha>`) shows the original comment + reply + the resolving diff side by side, which is the whole point of the loop.
-- **Don't synthesize replies the developer didn't ask for.** If asked "find unresolved threads", just *list* them — don't append "I'll handle this" comments to each one.
-- **Don't impersonate the developer.** Set `user` to the **role** you're playing — `"reviewer"` when leaving comments, `"reviewee"` when addressing them — never to your agent's tool name (`claude`, `codex`, etc.) or to anything that could be mistaken for a person's name.
+- **Don't touch `resolved_at`, don't rename `_open_*` -> `_resolved_*`.** Resolution status is developer-controlled via the web UI.
+- **Don't act on `thread_resolved_*.json`.** They're closed; the conversation is done. (Read for historical context if asked; don't append to them or edit them.)
+- **Don't delete `<repo>/.reviews/`** or the `_reviewed.json` sidecar - UI bookkeeping, not reversible. `_overview.json` is fair to (re)write under the overview workflow, but don't delete it.
+- **Don't `git push`** unless the user explicitly asks. Resolutions are local commits by default.
+- **Don't forget `locally_modified` on synced threads.** Editing a `github_thread_id` thread's file directly doesn't trip the web UI's auto-flip, so the next `slop --sync` silently overwrites (or even deletes and re-creates under a new filename) that thread and your appended reply is lost - unless you set `"locally_modified": true` yourself in the same write.
+- **Don't fold multiple thread resolutions into one commit** unless they're literally the same edit. The default is one commit per thread; the UI's per-commit view (`#/diff/<sha>`) shows the original comment + reply + the resolving diff side by side, which is the whole point of the loop.
+- **Don't synthesize replies the developer didn't ask for.** Asked to "find unresolved threads" -> just *list* them; don't append "I'll handle this" comments to each.
+- **Don't impersonate the developer.** `user` = the **role** you're playing (`"reviewer"` / `"reviewee"`), never your agent's tool name (`claude`, `codex`, ...) or anything that reads like a person's name.
 
 ---
 
@@ -295,4 +301,4 @@ NEW_ID="thread_$NEW_HEX"
 NEW_FILE="$THREADS_DIR/thread_open_$NEW_HEX.json"
 ```
 
-That's the entire surface area. Read, edit, write JSON files; commit code changes via `git`. The slop-review web UI picks up your changes in real time via filesystem watchers — no notification step needed.
+That's the entire surface area. Read, edit, write JSON files; commit code changes via `git`. The server reads the thread files fresh on each request, so the developer sees your edits on their next page load / navigation - there's no filesystem watcher and no live push, but also no notification step you need to trigger.
