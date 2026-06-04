@@ -455,8 +455,9 @@ export function openThreadModal(threadId, opts = {}) {
     const html = buildInnerHtml(thread)
     if (!backdrop) {
       // The thread modal's keyboard map: arrows step prev/next thread,
-      // i focuses the reply box, r resolves, d deletes, q closes, Esc drops
-      // focus, and Cmd/Ctrl+Enter (or carbonyl's `;;`) submits a reply.
+      // j/k scroll the modal body (J/K jump further), i focuses the reply
+      // box, r resolves, d deletes, q closes, Esc drops focus, and
+      // Cmd/Ctrl+Enter (or carbonyl's `;;`) submits a reply.
       // Document-scoped so it fires regardless of which element inside the
       // modal has focus (otherwise a focused button would swallow the event
       // before a backdrop-scoped listener saw it). The verb keys bail while a
@@ -536,6 +537,28 @@ export function openThreadModal(threadId, opts = {}) {
           } else if (e.key === 'q') {
             backdrop.remove()   // -> MutationObserver -> wrappedOnClose tears down
           }
+          return
+        }
+
+        // ----- j / k: scroll the modal body (J / K jump further) -----
+        // `.modal` is the scroll container (max-height: 90vh, overflow-y:
+        // auto in app.css), so the whole thread scrolls as one. Without
+        // this branch bare j/k/J/K fall past us (capture phase) to the diff
+        // page's onKey underneath, which moves its line cursor and scrolls
+        // the diff behind the modal: the background lurches while the modal
+        // sits still. Claim them for the modal exactly like the arrows:
+        // swallow whenever the modal is topmost and the user isn't typing,
+        // so nothing leaks to the page below. J/K are caught here too
+        // because diff.js binds them to a 5-line jump; leaving them out
+        // would let Shift+j/k still scroll the background.
+        if ((e.key === 'j' || e.key === 'k' || e.key === 'J' || e.key === 'K') &&
+            !e.metaKey && !e.ctrlKey && !e.altKey) {
+          if (inTextField) return
+          e.preventDefault()
+          e.stopImmediatePropagation()
+          if (!isTop) return
+          const scroller = backdrop.querySelector('.modal')
+          if (scroller) scroller.scrollBy({ top: modalScrollStep(e.key, scroller), behavior: 'auto' })
           return
         }
 
@@ -915,5 +938,21 @@ function adjacentThreadId(currentId, order, step) {
   if (idx < 0) return null
   const next = idx + step
   return next >= 0 && next < order.length ? order[next] : null
+}
+
+/**
+ * Pixel delta for one j/k/J/K keypress scrolling the thread modal body.
+ * `el` is the `.modal` scroll container. Positive scrolls down (j / J),
+ * negative up (k / K); J/K are the larger "jump" variant, mirroring the
+ * diff page's 1-line (j) vs 5-line (J) cursor moves. Magnitude is a
+ * fraction of the visible height so it scales with modal size, with px
+ * floors so a short modal still moves a perceptible amount under
+ * carbonyl's half-block downsample (quirk #1).
+ */
+function modalScrollStep(key, el) {
+  const h = el.clientHeight || 0
+  const big = key === 'J' || key === 'K'
+  const magnitude = big ? Math.max(200, h * 0.85) : Math.max(48, h * 0.15)
+  return key === 'j' || key === 'J' ? magnitude : -magnitude
 }
 
