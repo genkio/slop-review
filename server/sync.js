@@ -22,8 +22,11 @@ import {
 //   locally_modified  false when sync writes the thread; the web-UI thread
 //                     routes flip it true the moment the developer edits,
 //                     replies to, deletes a comment from, or (un)resolves a
-//                     synced thread. Sync then leaves that thread untouched
-//                     forever (no overwrite, no delete): local edits win.
+//                     synced thread. Sync then never overwrites, re-orders, or
+//                     deletes such a thread: local edits win. It does still
+//                     APPEND comments newly posted on GitHub (matched by
+//                     github_url, so nothing already mirrored is duplicated),
+//                     letting an edited thread keep catching its later replies.
 // ----------------------------------------------------------------------
 
 /**
@@ -31,35 +34,48 @@ import {
  * the current local thread objects, decide what to do. No I/O, no clock, no
  * randomness, so it's exhaustively unit-testable.
  *
- *   toUpsert: [{ gh, existing }]  existing=null -> create; else -> refresh
- *   toDelete: [threadId]          synced locally but resolved/gone on GitHub
- *   skippedModified: number       synced locally but locally_modified -> leave
+ *   toUpsert: [{ gh, existing }]  existing=null -> create; else -> full refresh
+ *                                 (locally_modified threads are NOT in here)
+ *   toMerge:  [{ gh, existing }]  locally_modified AND still live on GitHub:
+ *                                 append-only -> pull NEW GitHub comments in,
+ *                                 preserving every existing comment + local edit
+ *   toDelete: [threadId]          unmodified locally but resolved/gone on GitHub
+ *   skippedModified: number       locally_modified AND gone from GitHub: nothing
+ *                                 to merge, never deleted -> left as-is
  *
  * Threads with no `github_thread_id` (developer-authored, never synced) are
- * invisible to sync: they're neither upserted nor deleted.
+ * invisible to sync: neither upserted, merged, nor deleted.
  */
 export function planSync(unresolvedGh, localThreads) {
-  const ghIds = new Set(unresolvedGh.map((t) => t.id))
+  const ghById = new Map(unresolvedGh.map((t) => [t.id, t]))
   const localByGh = new Map()
   for (const t of localThreads) {
     if (t.github_thread_id) localByGh.set(t.github_thread_id, t)
   }
 
   const toDelete = []
+  const toMerge = []
   let skippedModified = 0
   for (const t of localByGh.values()) {
-    if (t.locally_modified) { skippedModified++; continue }
-    if (!ghIds.has(t.github_thread_id)) toDelete.push(t.id)
+    const gh = ghById.get(t.github_thread_id) || null
+    if (t.locally_modified) {
+      // Local edits win: never overwrite or delete. But a still-live thread
+      // can still gain NEW GitHub replies -> merge them in (append-only).
+      if (gh) toMerge.push({ gh, existing: t })
+      else skippedModified++   // gone from GitHub: nothing to merge, won't delete
+      continue
+    }
+    if (!gh) toDelete.push(t.id)
   }
 
   const toUpsert = []
   for (const gh of unresolvedGh) {
     const existing = localByGh.get(gh.id) || null
-    if (existing?.locally_modified) continue   // protected; counted above
+    if (existing?.locally_modified) continue   // handled by toMerge above
     toUpsert.push({ gh, existing })
   }
 
-  return { toUpsert, toDelete, skippedModified }
+  return { toUpsert, toMerge, toDelete, skippedModified }
 }
 
 // First of the candidate line numbers that is a usable 1-indexed line, else
@@ -135,6 +151,54 @@ export function mapGithubThreadToSlop(gh, { id, headSha, existing = null }) {
     locally_modified: false,
     comments,
   }
+}
+
+/**
+ * The GitHub comments on `gh` that aren't yet mirrored in the locally-modified
+ * thread `existing`. Pure and append-only: every comment already in `existing`
+ * (synced OR developer-authored) is left untouched; this only builds the NEW
+ * comment objects to push onto the end, in GitHub's own chronological order.
+ *
+ * Ids continue the thread's `<id>_<N>` sequence from its current max rather
+ * than from the GitHub list position: a developer reply already claimed a
+ * number (e.g. `_3`), so a fresh GitHub reply mapped positionally would collide
+ * with it and clobber the local comment. Max-plus-one sidesteps that.
+ *
+ * Appending (vs. re-sorting the whole thread by timestamp) keeps the
+ * developer's own comments where they put them and leaves the newest GitHub
+ * reply last, so deriveState surfaces the thread as `your_turn`.
+ */
+export function newGithubComments(existing, gh) {
+  const existingComments = existing.comments || []
+  const seenUrls = new Set()
+  for (const c of existingComments) {
+    if (c.github_url) seenUrls.add(c.github_url)
+  }
+  let maxN = 0
+  for (const c of existingComments) {
+    const n = parseInt(String(c.id).split('_').pop(), 10)
+    if (Number.isInteger(n) && n > maxN) maxN = n
+  }
+
+  const appended = []
+  for (const cmt of gh.comments?.nodes || []) {
+    // Already mirrored, or unkeyable -> skip. github_url is the only stable
+    // per-comment identity slop persists; a url-less node (rare: the GraphQL
+    // field is nullable) can't be deduped, so appending it would re-duplicate
+    // it on every future sync.
+    if (!cmt.url || seenUrls.has(cmt.url)) continue
+
+    maxN += 1
+    const comment = {
+      id: `${existing.id}_${maxN}`,
+      user: cmt.author?.login || 'ghost',
+      body: cmt.body || '',
+      posted_at: cmt.createdAt || null,
+    }
+    if (cmt.url) comment.github_url = cmt.url
+    appended.push(comment)
+  }
+  return appended
 }
 
 // Best-effort snapshot of the anchored line's text, read from the repo at the
@@ -214,7 +278,7 @@ export async function runSync(repoPath, { log = () => {}, deps = {} } = {}) {
 
   const branchId = sanitizeBranchId(branch)
   const localThreads = await readBranchThreads(repoPath, branchId)
-  const { toUpsert, toDelete, skippedModified } = planSync(anchorable, localThreads)
+  const { toUpsert, toMerge, toDelete, skippedModified } = planSync(anchorable, localThreads)
 
   const stats = {
     branch,
@@ -225,6 +289,8 @@ export async function runSync(repoPath, { log = () => {}, deps = {} } = {}) {
     github_unsupported: unsupported,
     created: 0,
     updated: 0,
+    merged: 0,
+    merged_comments: 0,
     deleted: 0,
     skipped_modified: skippedModified,
   }
@@ -249,6 +315,19 @@ export async function runSync(repoPath, { log = () => {}, deps = {} } = {}) {
     else stats.created++
   }
 
+  // Locally-modified threads: append-only merge. We never rewrite or re-order
+  // what the developer already has, only push GitHub comments they haven't seen
+  // yet onto the end. A merge that finds nothing new counts as a skip (edited
+  // locally, no fresh GitHub replies this round).
+  for (const { gh, existing } of toMerge) {
+    const appended = newGithubComments(existing, gh)
+    if (appended.length === 0) { stats.skipped_modified++; continue }
+    const thread = { ...existing, comments: [...(existing.comments || []), ...appended] }
+    await writeThread(repoPath, branchId, thread)
+    stats.merged++
+    stats.merged_comments += appended.length
+  }
+
   for (const threadId of toDelete) {
     await deleteThread(repoPath, branchId, threadId)
     stats.deleted++
@@ -261,9 +340,12 @@ export async function runSync(repoPath, { log = () => {}, deps = {} } = {}) {
 export function formatSyncStats(stats) {
   const lines = [
     `Synced PR #${stats.pr_number} (${stats.owner}/${stats.repo}) on branch "${stats.branch}":`,
-    `  ${stats.created} created, ${stats.updated} updated`,
+    `  ${stats.created} created, ${stats.updated} updated, ${stats.merged} merged`,
     `  ${stats.deleted} deleted (resolved on GitHub), ${stats.skipped_modified} skipped (edited locally)`,
   ]
+  if (stats.merged_comments > 0) {
+    lines.push(`  ${stats.merged_comments} new GitHub comment(s) appended to edited thread(s)`)
+  }
   if (stats.github_unsupported > 0) {
     lines.push(`  ${stats.github_unsupported} file-level thread(s) skipped (no line anchor)`)
   }
