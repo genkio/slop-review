@@ -27,7 +27,7 @@ https://github.com/user-attachments/assets/3058c57d-74b0-4bba-9c99-73cca13925f0
 
 - **Vim keybindings with a context-aware hint bar.** Single-letter verbs drive line-level actions (comment, copy, deep-link, delete) without leaving the keyboard. A which-key hint bar reveals on the first keypress and re-renders on every state change, showing only the keys live for the current cursor row and mode. Hidden hints are strict no-ops, so the bar never advertises a dead key.
 
-- **Terminal-only review via Carbonyl.** `--carbonyl` (short: `--c`) renders the diff UI straight into the TTY via [Carbonyl](https://github.com/fathyb/carbonyl), a Chromium fork that paints into the terminal, so the whole loop stays in one pane beside your editor and agent - no browser, no context switch. Every keybinding carries over (a shim covers the few modifier chords Carbonyl strips). See [Carbonyl integration](#carbonyl-integration).
+- **Terminal-only review via Carbonyl.** `--carbonyl` (short: `-c`) renders the diff UI straight into the TTY via [Carbonyl](https://github.com/fathyb/carbonyl), a Chromium fork that paints into the terminal, so the whole loop stays in one pane beside your editor and agent - no browser, no context switch. Every keybinding carries over (a shim covers the few modifier chords Carbonyl strips). See [Carbonyl integration](#carbonyl-integration).
 
 - **One-way GitHub review-thread sync.** `slop --sync` pulls the *unresolved* review threads from the current branch's GitHub PR into local threads on the full diff, keeping each GitHub author. Re-running mirrors GitHub: new replies flow in, threads resolved on GitHub are deleted locally, and any thread you've edited / replied-to / resolved locally is flagged and skipped, so your local work is never clobbered. See [GitHub review-thread sync](#github-review-thread-sync).
 
@@ -40,7 +40,7 @@ npx slop-review
 
 The cwd is auto-bootstrapped as the review target, the server picks a free port (range 9410-9419, then any free port), and your browser opens. Threads live in `<repo>/.reviews/` - add it to that repo's `.gitignore` to keep them local-only.
 
-Flags: `-p, --port <n>`, `--host <h>`, `--no-open`, `--carbonyl [<path>]` / `--c` (see [Carbonyl integration](#carbonyl-integration)), `--sync` / `--browser` (see [GitHub review-thread sync](#github-review-thread-sync)), `-h`.
+Flags: `-p, --port <n>`, `--host <h>`, `--no-open`, `--carbonyl [<path>]` / `-c` (see [Carbonyl integration](#carbonyl-integration)), `--sync` / `-s`, `--browser` / `-b` (see [GitHub review-thread sync](#github-review-thread-sync)), `-h`.
 
 Prerequisites: Node ≥ 20, `git` on `PATH`. No runtime dependencies - the server is `node:http` + the standard library only, so `npx slop-review` pulls no transitive packages.
 

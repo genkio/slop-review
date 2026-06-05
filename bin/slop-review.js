@@ -30,16 +30,16 @@ Options:
   -p, --port <n>      Port to bind (default: first free port in 9410-9419, then any free port)
       --host <h>      Hostname to bind (default: 0.0.0.0)
       --no-open       Don't auto-open the browser
-      --carbonyl [<p>], --c [<p>]
+      --carbonyl [<p>], -c [<p>]
                       Open with the carbonyl terminal browser instead of the
                       default browser. With no argument, resolves \`carbonyl\`
                       from PATH (e.g. \`brew install genkio/tap/carbonyl\`).
                       Pass <p> to override with a binary or a directory
                       containing one.
-      --sync          Sync unresolved GitHub PR review threads for the current
+      --sync, -s      Sync unresolved GitHub PR review threads for the current
                       branch into local review threads, then exit (requires the
                       \`gh\` CLI). One-directional: GitHub -> local.
-      --browser       Chain after --sync to open the UI in your default browser
+      --browser, -b   Chain after --sync to open the UI in your default browser
                       once the sync finishes, landing on the full diff with the
                       first unresolved thread surfaced (like --carbonyl, but the
                       GUI browser).
@@ -64,14 +64,14 @@ const hostArg = takeArg('--host') || '0.0.0.0'
 // explicit binary or directory, useful for dev builds outside the standard
 // PATH. The check `!next.startsWith('-')` is what disambiguates the two
 // forms: it treats `--carbonyl --no-open` as bare, not as a path argument.
-// `--c` is the short alias for muscle memory; both spellings accept the
+// `-c` is the short alias for muscle memory; both spellings accept the
 // same optional path argument.
 let carbonylArg = null
 let useCarbonyl = false
 const carbonylIdx = (() => {
   const long = args.indexOf('--carbonyl')
   if (long >= 0) return long
-  return args.indexOf('--c')
+  return args.indexOf('-c')
 })()
 if (carbonylIdx >= 0) {
   useCarbonyl = true
@@ -89,14 +89,20 @@ if (noOpen) args.splice(noOpenIdx, 1)
 
 // `--sync` is a one-shot mode handled below (after the git-repo guard, before
 // the port dance). Consume it here so the unknown-arg check doesn't reject it.
-const syncIdx = args.indexOf('--sync')
+const syncIdx = (() => {
+  const long = args.indexOf('--sync')
+  return long >= 0 ? long : args.indexOf('-s')   // `-s`: short alias, like `-c` for --carbonyl
+})()
 const doSync = syncIdx >= 0
 if (doSync) args.splice(syncIdx, 1)
 
 // `--browser` is the GUI-browser counterpart to `--carbonyl` for the
 // open-after-sync flow. On its own it matches the default launch (the browser
 // opens anyway); its real job is opting `--sync` into opening afterwards.
-const browserIdx = args.indexOf('--browser')
+const browserIdx = (() => {
+  const long = args.indexOf('--browser')
+  return long >= 0 ? long : args.indexOf('-b')   // `-b`: short alias, like `-c` for --carbonyl
+})()
 const useBrowser = browserIdx >= 0
 if (useBrowser) args.splice(browserIdx, 1)
 
