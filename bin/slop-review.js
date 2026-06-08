@@ -43,6 +43,10 @@ Options:
                       once the sync finishes, landing on the full diff with the
                       first unresolved thread surfaced (like --carbonyl, but the
                       GUI browser).
+      --threads, -t   Open straight into the comment-thread walk on launch
+                      (full diff, first unresolved thread surfaced) without
+                      syncing. The no-sync counterpart to --sync's resume view;
+                      composes with --carbonyl / --browser / --port.
   -h, --help          Show this help
 `)
   process.exit(0)
@@ -106,6 +110,18 @@ const browserIdx = (() => {
 const useBrowser = browserIdx >= 0
 if (useBrowser) args.splice(browserIdx, 1)
 
+// `--threads` / `-t` lands the launch on the same resume view `--sync` opens
+// (full diff, first unresolved thread surfaced) but skips the GitHub sync, for
+// jumping straight back into existing local threads. Composes with the launch
+// flags; chained with `--sync` it also keeps the process alive to open after
+// the sync (see openAfterSync below).
+const threadsIdx = (() => {
+  const long = args.indexOf('--threads')
+  return long >= 0 ? long : args.indexOf('-t')   // `-t`: short alias, like `-c` for --carbonyl
+})()
+const doThreads = threadsIdx >= 0
+if (doThreads) args.splice(threadsIdx, 1)
+
 // Fail loud on anything left over so typos like `--arbonyl` surface
 // immediately instead of silently dropping through to the default-browser
 // branch. Positional args (URLs, repo paths, etc.) aren't a thing here:
@@ -134,12 +150,12 @@ try {
 // --sync is a one-shot: pull unresolved GitHub PR review threads into
 // <repo>/.reviews/ and (by default) exit, without binding a port. Placed after
 // the git-repo guard (so it shares the same repoRoot resolution) and before
-// the port logic. When chained with --browser or --carbonyl it keeps the
-// process alive afterwards, so the normal server-start + open path below
-// launches the UI straight into the synced threads.
+// the port logic. When chained with --browser, --carbonyl, or --threads it
+// keeps the process alive afterwards, so the normal server-start + open path
+// below launches the UI straight into the synced threads.
 if (doSync) {
   const { runSync, formatSyncStats } = await import(join(PACKAGE_ROOT, 'server', 'sync.js'))
-  const openAfterSync = useBrowser || useCarbonyl
+  const openAfterSync = useBrowser || useCarbonyl || doThreads
   try {
     const result = await runSync(repoRoot, { log: (m) => process.stdout.write(`${m}\n`) })
     if (result.status === 'ok') {
@@ -229,12 +245,13 @@ if (!noOpen) {
   // load the carbonyl-only CSS shim (see public/carbonyl.css). Hash routing
   // preserves the query across SPA navigation, and a full reload keeps it
   // too, so a single launch-time flag is enough; no UA sniff needed.
-  // When opening as the tail of `--sync`, deep-link to the full diff with the
-  // first unresolved thread surfaced (?resume=1, consumed by the diff page).
-  const syncHash = doSync ? '#/diff?resume=1' : ''
+  // --sync (when it opens afterwards) and --threads both deep-link to the full
+  // diff with the first unresolved thread surfaced (?resume=1, consumed by the
+  // diff page). --threads is the no-sync route to that same resume view.
+  const resumeHash = (doSync || doThreads) ? '#/diff?resume=1' : ''
   const url = useCarbonyl
-    ? `http://localhost:${port}/?carbonyl=1${syncHash}`
-    : `http://localhost:${port}/${syncHash}`
+    ? `http://localhost:${port}/?carbonyl=1${resumeHash}`
+    : `http://localhost:${port}/${resumeHash}`
   if (useCarbonyl) {
     let binary
     if (carbonylArg) {
