@@ -912,6 +912,13 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
       { keys: ['v'],     label: 'multi-line' },
       { keys: ['y'],     label: 'copy' },
     ]
+    // h / l step to the prev / next diff (commit <-> commit <-> Full <->
+    // Local), the keyboard twin of the diff-nav buttons. Shown only when
+    // there's somewhere to go (more than the lone Full diff); goto() no-ops
+    // at the ends, so the keys never dead-press in between. Surfaced here
+    // because, unlike Shift+arrow, these are bare keys and primary nav.
+    // Spliced in right after j/k 'move' so the two nav hints sit together.
+    if (maxIndex() >= 1) items.splice(1, 0, { keys: ['h','l'], label: 'prev/next diff' })
     // `r` toggles the cursor row's file between reviewed and unreviewed.
     // Local view has no stable blob to pin the mark against (see the
     // click handler at diff.js:1922), so the binding — and its hint —
@@ -1553,13 +1560,26 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
         e.preventDefault()
       }
     }
-    // Commit / variant navigation: Shift+arrow only. Plain arrows are
-    // reserved for the thread modal's thread-by-thread navigation
-    // (see modals.js onArrowNav); a Shift modifier is the explicit
-    // signal that the user wants to move *between* diffs rather than
-    // between threads.
+    // Commit / variant navigation. Two key sets land here:
+    //
+    //   - Shift+arrow: plain arrows are reserved for the thread modal's
+    //     thread-by-thread navigation (see modals.js onModalKey), so the
+    //     Shift modifier is the explicit signal to move between diffs.
+    //   - h / l (vim-style, no modifier): these mirror the thread modal's
+    //     own h/l (prev/next thread). While a thread modal is open its
+    //     capture-phase listener swallows h/l before they reach here, so
+    //     they step threads; with no thread modal up they fall through to
+    //     this handler and step diffs. Cmd/Ctrl/Alt bail so browser chords
+    //     (Cmd+L address bar, etc.) still work, matching the j/k guards
+    //     above. Shift+h/l arrive as 'H'/'L' and stay unbound.
+    //
+    // goto() clamps to [0, maxIndex] and no-ops at the edges, so walking
+    // right past the last commit lands on the Full diff (then Local, if any)
+    // and stops there; left stops at the first commit.
     else if (e.key === 'ArrowLeft'  && e.shiftKey) { goto(state.index - 1); e.preventDefault() }
     else if (e.key === 'ArrowRight' && e.shiftKey) { goto(state.index + 1); e.preventDefault() }
+    else if (e.key === 'h' && !e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey) { goto(state.index - 1); e.preventDefault() }
+    else if (e.key === 'l' && !e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey) { goto(state.index + 1); e.preventDefault() }
   }
   document.addEventListener('keydown', onKey)
   syncUrl()

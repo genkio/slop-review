@@ -607,20 +607,23 @@ export function openThreadModal(threadId, opts = {}) {
         // Text-input cursor movement wins: bail before swallowing so the
         // reply textarea (or a comment edit-box) keeps native arrow behaviour.
         if (inTextField) return
-        // Thread modal is on screen — arrow keys belong to the modal
+        // Thread modal is on screen: these nav keys belong to the modal
         // stack, NOT the diff page underneath. Swallow the event so
-        // anything else listening for bare arrows can't react.
+        // anything else listening for them can't react.
         //
-        // The primary line of defence is actually the keybinding
-        // contract: diff.js's onKey requires Shift+arrow for commit
-        // nav (we bailed above when shiftKey is true), so plain arrows
-        // won't trigger `goto` even if the event reached it. Capture-
-        // phase registration + `stopImmediatePropagation` here are
-        // defence-in-depth — they ensure that if a future listener
-        // anywhere starts handling bare arrows, the thread modal's
-        // claim stays unambiguous. Stop unconditionally — even when
-        // there's no neighbour to navigate to (threadOrder.length < 2),
-        // bare arrows belong to the modal.
+        // For h/l this swallow is load-bearing: diff.js's onKey binds bare
+        // h/l to prev/next *diff* navigation (goto), so if the event leaked
+        // through it would step the diff behind the modal. Capture-phase
+        // registration + stopImmediatePropagation here are what reserve
+        // h/l for thread nav while the modal is up.
+        //
+        // For the arrows it's belt-and-braces: diff.js requires Shift+arrow
+        // for commit nav (we bailed above when shiftKey is true), so plain
+        // arrows wouldn't trigger goto even if they reached it. Stopping
+        // them too keeps the modal's claim on bare arrows unambiguous for
+        // any future listener. Stop unconditionally: even with no neighbour
+        // to navigate to (threadOrder.length < 2), these keys are the
+        // modal's.
         e.preventDefault()
         e.stopImmediatePropagation()
         // Only NAVIGATE when this modal is topmost: a confirm modal layered
