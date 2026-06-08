@@ -860,6 +860,12 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
   // modifier the user should reach for.
   const IS_MAC = typeof navigator !== 'undefined' && /Mac/i.test(navigator.platform || navigator.userAgent || '')
   const SUBMIT_MOD = IS_MAC ? '⌘' : 'Ctrl'
+  // Carbonyl (terminal chromium) can't open popups, so the forge bindings
+  // copy the deep-link instead of opening it (see deliverForgeLink). The
+  // class is stamped on <html> at page load (index.html), before any render,
+  // so reading it once here is reliable. Drives both the copy-vs-open
+  // behaviour and the `o` hint label so the bar matches what o actually does.
+  const IS_CARBONYL = document.documentElement.classList.contains('is-carbonyl')
 
   function getKeymapItems () {
     // Confirmation modal (e.g. Delete thread) — highest priority because
@@ -935,7 +941,7 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
     // is live but un-hinted (see comment above the items array).
     const prInfo = state.prInfo
     if (prInfo?.host === 'github' && prInfo?.pr_url) {
-      items.push({ keys: ['o'], label: 'open GitHub' })
+      items.push({ keys: ['o'], label: IS_CARBONYL ? 'copy GitHub link' : 'open GitHub' })
     }
     // n — jump to next thread in view. Surfaced only when at least one
     // thread is currently rendered (view filter + non-collapsed file).
@@ -1085,13 +1091,63 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
     return null
   }
 
-  // Single-line forge deep-link used by bare `o`/`O` (no comment selection
-  // active). Mirrors the CTA forge button's URL-synthesis path so the two
-  // routes produce identical URLs for a single line. CRITICAL: window.open
-  // is called synchronously to preserve the user-activation flag — the
-  // synthetic .click() from this real keydown carries the gesture in, but
-  // it expires on the next microtask, so the popup must open *before* the
-  // buildForgeDeepLink promise resolves.
+  // Deliver a forge deep-link for one line range. Shared by bare `o`/`O`
+  // (via openForgeForRow) and the CTA forge button so both routes build
+  // identical URLs and behave the same.
+  //
+  // Two render targets, two deliveries:
+  //   - Browser: open the URL in a new tab. window.open('about:blank') runs
+  //     SYNCHRONOUSLY (before awaiting buildForgeDeepLink) to keep the
+  //     click's user-activation alive: the synthetic .click() from a real
+  //     keydown carries the gesture in, but it expires on the next
+  //     microtask, so the popup must open before the promise resolves. We
+  //     redirect about:blank once the URL is ready rather than passing
+  //     noopener to window.open (that flag returns null by spec, leaving no
+  //     handle to redirect); tab.opener = null severs the reverse-tabnabbing
+  //     channel manually instead.
+  //   - Carbonyl: window.open is always popup-blocked in the terminal
+  //     chromium, so there's no tab to redirect. Copy the URL to the
+  //     clipboard instead, the actionable equivalent in a shell. No gesture
+  //     pre-step needed: copyToClipboard's execCommand fallback only wants
+  //     the document focused (unchanged across the await), not live
+  //     user-activation.
+  function deliverForgeLink ({ path, lineStart, lineEnd, side }) {
+    const info = state.prInfo
+    if (!info?.host || !info?.pr_url) return
+    const build = () => buildForgeDeepLink({
+      host: info.host,
+      prUrl: info.pr_url,
+      path,
+      lineStart,
+      lineEnd,
+      side,
+    })
+    if (IS_CARBONYL) {
+      build()
+        .then((url) => url && copyToClipboard(url).then(() => toast.ok('Copied forge link')))
+        .catch((e) => toast('Failed to copy forge URL: ' + (e.message || 'unknown')))
+      return
+    }
+    const tab = window.open('about:blank', '_blank')
+    if (!tab) {
+      toast('Popup blocked — allow popups for slop-review to open forge links')
+      return
+    }
+    build()
+      .then((url) => {
+        if (!url) { tab.close(); return }
+        tab.opener = null
+        tab.location.href = url
+      })
+      .catch((e) => {
+        tab.close()
+        toast('Failed to build forge URL: ' + (e.message || 'unknown'))
+      })
+  }
+
+  // Bare `o`/`O`: no comment selection, so resolve a single line from the
+  // cursor row's gutter (preferSide, with new<->old fallback unless strict).
+  // The CTA forge button handles the multi-line selection case.
   function openForgeForRow (row, preferSide, strict = false) {
     if (!row) return
     const info = state.prInfo
@@ -1103,28 +1159,7 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
     const path = cell.dataset.path
     const line = Number(cell.dataset.line)
     const side = cell.dataset.side
-    const tab = window.open('about:blank', '_blank')
-    if (!tab) {
-      toast('Popup blocked — allow popups for slop-review to open forge links')
-      return
-    }
-    buildForgeDeepLink({
-      host: info.host,
-      prUrl: info.pr_url,
-      path,
-      lineStart: line,
-      lineEnd: line,
-      side,
-    })
-      .then((url) => {
-        if (!url) { tab.close(); return }
-        tab.opener = null
-        tab.location.href = url
-      })
-      .catch((e) => {
-        tab.close()
-        toast('Failed to build forge URL: ' + (e.message || 'unknown'))
-      })
+    deliverForgeLink({ path, lineStart: line, lineEnd: line, side })
   }
 
   // True when the current view is a commit-diff AND the given file is one
@@ -1803,44 +1838,12 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
       if (!sha) return
       openHeadPreviewModal({ repoId: repo.id, commitSha: sha, path: sel.path, line: sel.lineStart })
     })
-    // GitHub deep-link: synthesize the `pull/N/files#diff-<sha>R<line>` URL
-    // and open in a new tab. Pre-opening the tab BEFORE the async hash
-    // computation is deliberate — Safari/Chrome only allow `window.open`
-    // inside a user gesture, so awaiting first and opening after would
-    // get popup-blocked. We open about:blank synchronously and keep a
-    // handle so we can redirect it once the URL is ready.
-    //
-    // Don't pass `noopener,noreferrer` to window.open: that flag makes
-    // the call return `null` *by spec*, even on success. Without a
-    // handle we can't redirect the new tab. Instead, after assigning
-    // `tab.location.href`, we set `tab.opener = null` to manually sever
-    // the reverse-tabnabbing channel — same security posture, working
-    // reference.
-    cta.querySelector('[data-cta-forge]')?.addEventListener('click', async (ev) => {
+    // Handler stays non-async: deliverForgeLink's window.open needs the
+    // click's live user-activation, which an await here would burn before
+    // the popup opens.
+    cta.querySelector('[data-cta-forge]')?.addEventListener('click', (ev) => {
       ev.preventDefault(); ev.stopPropagation()
-      const info = state.prInfo
-      if (!info?.host || !info?.pr_url) return
-      const tab = window.open('about:blank', '_blank')
-      if (!tab) {
-        toast('Popup blocked — allow popups for slop-review to open forge links')
-        return
-      }
-      try {
-        const url = await buildForgeDeepLink({
-          host: info.host,
-          prUrl: info.pr_url,
-          path: sel.path,
-          lineStart: sel.lineStart,
-          lineEnd: sel.lineEnd,
-          side: sel.side,
-        })
-        if (!url) { tab.close(); return }
-        tab.opener = null
-        tab.location.href = url
-      } catch (e) {
-        tab.close()
-        toast('Failed to build forge URL: ' + (e.message || 'unknown'))
-      }
+      deliverForgeLink({ path: sel.path, lineStart: sel.lineStart, lineEnd: sel.lineEnd, side: sel.side })
     })
     // Second hint refresh — the earlier call (line ~964) fires before the
     // CTA row is in the DOM, so it can't see `[data-cta-forge]`. This call
