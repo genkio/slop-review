@@ -433,8 +433,8 @@ export function openThreadModal(threadId, opts = {}) {
     // entirely when there's only one thread on the branch.
     const navHtml = navAvailable
       ? `<div class="thread-modal-nav">
-          <button type="button" class="thread-modal-nav-link" data-thread-prev ${navIdx <= 0 ? 'disabled' : ''}>‹ Prev</button>
-          <button type="button" class="thread-modal-nav-link" data-thread-next ${navIdx >= threadOrder.length - 1 ? 'disabled' : ''}>Next ›</button>
+          <button type="button" class="thread-modal-nav-link" data-thread-prev data-keyhint="h" ${navIdx <= 0 ? 'disabled' : ''}>‹ Prev</button>
+          <button type="button" class="thread-modal-nav-link" data-thread-next data-keyhint="l" ${navIdx >= threadOrder.length - 1 ? 'disabled' : ''}>Next ›</button>
         </div>`
       : ''
 

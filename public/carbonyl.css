@@ -358,12 +358,13 @@
 
 /* Thread-modal keyboard hints + prev/next chevrons.
    The ::after key hints on the action buttons (Resolve r / Delete d / Reply
-   ;;) ship at 11px / fg-muted in the base sheet, both below carbonyl's
-   legibility floor (quirk #1). Pin to 13px + accent so they survive the
-   half-block downsample. The pseudo `content` itself renders fine here, the
-   same path as the diff-file-status brackets; only its size/contrast needs
-   the bump. */
-.is-carbonyl .modal-actions button[data-keyhint]::after {
+   ;;) and the prev/next links (Prev h / Next l) ship at 11px / fg-muted in
+   the base sheet, both below carbonyl's legibility floor (quirk #1). Pin to
+   13px + accent so they survive the half-block downsample. The pseudo
+   `content` itself renders fine here, the same path as the diff-file-status
+   brackets; only its size/contrast needs the bump. */
+.is-carbonyl .modal-actions button[data-keyhint]::after,
+.is-carbonyl .thread-modal-nav-link[data-keyhint]::after {
   font-size: 13px;
   font-weight: 600;
   color: var(--accent);

@@ -1194,6 +1194,21 @@ a.card-file:hover .card-file-mark {
   outline-offset: 2px;
   border-radius: 2px;
 }
+/* Key-shortcut hints baked onto the prev/next links (h = prev, l = next),
+   same ::after + data-keyhint mechanism as the modal-action buttons so the
+   keymap is single-sourced. Hidden when the link is disabled: at the first
+   thread h is a no-op and at the last thread l is, so advertising the key
+   there would lie. */
+.thread-modal-nav-link[data-keyhint]::after {
+  content: attr(data-keyhint);
+  margin-left: 6px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--fg-muted);
+  opacity: 0.85;
+}
+.thread-modal-nav-link[data-keyhint]:disabled::after { content: ""; }
 /* Tighten the gap between the nav row and the modal-actions divider —
    `.modal-actions` ships with `margin-top: 24px` for top-level modals,
    which leaves too much air when the nav row sits directly above it. */
