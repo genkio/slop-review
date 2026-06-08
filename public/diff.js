@@ -1243,8 +1243,27 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
     const current = body?.querySelector('tr.diff-row.is-cursor')
     let nextIdx
     if (!current) {
-      // First press: j → first line, k → last line.
-      nextIdx = delta > 0 ? 0 : rows.length - 1
+      // No cursor yet: a fresh page, or the user just closed a thread modal
+      // that left the diff scrolled to the thread's anchor. Re-anchor within
+      // the CURRENT viewport rather than teleporting to the absolute first /
+      // last row. The old "j -> row 0, k -> last row" default sent k straight
+      // to the end of the diff whenever the body was scrolled (e.g. right
+      // after closing an auto-opened thread modal), which read as a bug.
+      // Now j seeds at the first navigable row reaching into the viewport
+      // from the top and k at the last one still touching the bottom, so the
+      // first press always lands on screen and heads in the pressed
+      // direction. Degenerates to row 0 / last row when the body sits at the
+      // top and isn't scrolled, so a fresh page still starts j at line one.
+      const view = body.getBoundingClientRect()
+      if (delta > 0) {
+        nextIdx = rows.findIndex((r) => r.getBoundingClientRect().bottom > view.top + 1)
+        if (nextIdx === -1) nextIdx = rows.length - 1
+      } else {
+        nextIdx = rows.length - 1
+        for (let i = rows.length - 1; i >= 0; i--) {
+          if (rows[i].getBoundingClientRect().top < view.bottom - 1) { nextIdx = i; break }
+        }
+      }
     } else {
       const idx = rows.indexOf(current)
       if (idx === -1) {
