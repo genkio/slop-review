@@ -953,6 +953,16 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
     if (body?.querySelector('.diff-file:not(.is-collapsed) tr.diff-row-thread')) {
       items.push({ keys: ['n'], label: 'next thread' })
     }
+    // q - reopen the last-viewed thread modal (the q close-key, run in
+    // reverse). Gated on the same condition as the q handler in onKey: a
+    // resume cursor exists for this view and the thread it points at is
+    // still around. So the hint appears only after the user has actually
+    // opened-then-closed a thread, and never advertises a reopen that would
+    // no-op.
+    const resumeId = getResumeCursor()
+    if (resumeId && state.threads.some((t) => t.id === resumeId)) {
+      items.push({ keys: ['q'], label: 'reopen thread' })
+    }
     // Cursor-dependent: only surface `d` when there's actually a thread
     // to delete on the current line, so the hint bar never advertises a
     // no-op. revealKeymapHint() runs after every j/k, so this stays
@@ -1545,6 +1555,26 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
       jumpToThread(e.key === 'n' ? 1 : -1)
       revealKeymapHint()
       e.preventDefault()
+      return
+    }
+    // q - reopen the last thread modal. The thread modal binds q to close
+    // (capture-phase + stopImmediatePropagation, see modals.js), so while
+    // it's open q never reaches here; once closed, q lands here and reopens
+    // the thread the user was last viewing. That makes q a toggle: close to
+    // read the code behind the modal, q again to step back into the thread.
+    // The target is the per-view resume cursor (getResumeCursor) - the same
+    // bookmark openThread/onNavigate stamp on every modal transition, so it
+    // points at the exact thread last on screen and survives the close. No-op
+    // (silent, no toast) when there's no remembered thread for this view or
+    // it has since been deleted; getKeymapItems gates the q hint on the same
+    // condition so the bar never advertises a dead key. Suppressed mid-CTA
+    // like the other verbs.
+    if (e.key === 'q' && !state.commentSelection && !e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey) {
+      const resumeId = getResumeCursor()
+      if (resumeId && state.threads.some((t) => t.id === resumeId)) {
+        openThread(resumeId)
+        e.preventDefault()
+      }
       return
     }
     // p — peek HEAD: open the head-preview modal for the cursor row.
