@@ -40,7 +40,20 @@ npx slop-review
 
 The cwd is auto-bootstrapped as the review target, the server picks a free port (range 9410-9419, then any free port), and your browser opens. Threads live in `<repo>/.reviews/` - add it to that repo's `.gitignore` to keep them local-only.
 
-Flags: `-p, --port <n>`, `--host <h>`, `--no-open`, `--carbonyl [<path>]` / `-c` (see [Carbonyl integration](#carbonyl-integration)), `--sync` / `-s`, `--browser` / `-b` (see [GitHub review-thread sync](#github-review-thread-sync)), `-h`.
+All flags are optional:
+
+| Flag         | Alias | Argument   | Description                                                                                                   |
+|--------------|-------|------------|---------------------------------------------------------------------------------------------------------------|
+| `--port`     | `-p`  | `<n>`      | Port to bind. Default: first free in `9410-9419`, then any free port                                          |
+| `--host`     |       | `<h>`      | Hostname to bind. Default `0.0.0.0`                                                                            |
+| `--no-open`  |       |            | Don't auto-open the browser                                                                                   |
+| `--carbonyl` | `-c`  | `[<path>]` | Open in the [Carbonyl](#carbonyl-integration) terminal browser; bare resolves `carbonyl` from `PATH`, or pass a binary / dir |
+| `--sync`     | `-s`  |            | Mirror unresolved GitHub PR review threads into local threads, then exit. Needs `gh`. See [sync](#github-review-thread-sync) |
+| `--browser`  | `-b`  |            | Chain after `--sync` to open the UI in your default browser once the sync finishes                            |
+| `--threads`  | `-t`  |            | Open straight into the thread walk (full diff, first unresolved thread surfaced) without syncing              |
+| `--help`     | `-h`  |            | Show help                                                                                                     |
+
+`--sync` exits after mirroring unless you chain `--browser`, `--carbonyl`, or `--threads` - those open the UI and keep re-syncing every 5 min. `--threads` reaches that same resume view without syncing.
 
 Prerequisites: Node ≥ 20, `git` on `PATH`. No runtime dependencies - the server is `node:http` + the standard library only, so `npx slop-review` pulls no transitive packages.
 
