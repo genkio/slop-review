@@ -8,6 +8,7 @@ import {
   listThreadsWithState,
 } from '../reviews.js'
 import { getBranchInfo } from '../git.js'
+import { getSyncStatus } from '../sync-status.js'
 
 // Developer-authored comments (created via the slop-review web UI) are
 // stamped with the role marker `"reviewer"` rather than a personal
@@ -45,7 +46,10 @@ export function registerThreadRoutes(app) {
     const { repo, branchId, branch, error } = await withRepoAndBranch(c)
     if (error) return error
     const threads = await listThreadsWithState(repo.path, branchId)
-    return c.json({ branch, branch_id: branchId, threads })
+    // sync_changes anchors the diff header's "N behind" badge: the client
+    // captures this value at load, then the badge flags how many background
+    // syncs have changed the store since (see public/sync-status.js).
+    return c.json({ branch, branch_id: branchId, threads, sync_changes: getSyncStatus().changes })
   })
 
   app.post('/api/repos/:id/threads', async (c) => {

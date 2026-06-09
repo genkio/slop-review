@@ -5,6 +5,7 @@ import { languageForPath, highlightLine } from './syntax.js'
 import { intraLineSegments } from './intra-line-diff.js'
 import { ROUTES } from './routes.js'
 import { setupOverviewNav } from './overview-nav.js'
+import { setupSyncStatus } from './sync-status.js'
 import { store } from './store.js'
 
 // v2: commit-diff files now include `is_unchanged_since_commit`, which
@@ -719,6 +720,7 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
           <input type="checkbox" data-linenums-toggle>
           <span>Line #</span>
         </label>
+        <span data-sync-status class="sync-status-slot"></span>
         <span data-overview-nav class="overview-nav-slot"></span>
       </div>
     </header>
@@ -822,6 +824,8 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
   }
 
   let disposeOverviewNav = null
+  let disposeSyncStatus = null
+  let syncChangesBaseline = null
   let disposed = false
   let flashTimer = null
   const isStale = () => disposed || !isCurrent()
@@ -830,6 +834,7 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
     disposed = true
     document.removeEventListener('keydown', onKey)
     if (disposeOverviewNav) { try { disposeOverviewNav() } catch {}; disposeOverviewNav = null }
+    if (disposeSyncStatus) { try { disposeSyncStatus() } catch {}; disposeSyncStatus = null }
     if (flashTimer) { clearTimeout(flashTimer); flashTimer = null }
     teardownAutoReviewObserver()
   }
@@ -1668,6 +1673,7 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
   document.addEventListener('keydown', onKey)
   syncUrl()
   disposeOverviewNav = setupOverviewNav($('[data-overview-nav]'), repo.id)
+  disposeSyncStatus = setupSyncStatus($('[data-sync-status]'), { getBaseline: () => syncChangesBaseline })
 
   $('[data-prev]').addEventListener('click', () => goto(state.index - 1))
   $('[data-next]').addEventListener('click', () => goto(state.index + 1))
@@ -4790,6 +4796,9 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
       const r = await api(`/api/repos/${encodeURIComponent(repo.id)}/threads`)
       if (isStale()) return
       state.threads = r?.threads || []
+      // Re-anchor the sync badge's "N behind" baseline: this read reflects the
+      // current store, so anything synced after it is what the page is missing.
+      if (typeof r?.sync_changes === 'number') syncChangesBaseline = r.sync_changes
       // Capture scroll BEFORE any DOM mutation. renderInlineComments
       // briefly removes-then-re-adds inline thread rows, and renderBody
       // below replaces body.innerHTML wholesale — both can clamp scrollTop

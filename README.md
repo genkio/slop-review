@@ -136,6 +136,7 @@ Semantics:
 - **Local edits win.** Edit, reply to, delete a comment from, or resolve a synced thread and it's flagged `locally_modified`; every later sync **skips** it, never overwriting your work. The badge goes muted to show it diverged.
 - **One direction.** Sync never writes back to GitHub.
 - **Open straight into review.** Chain `--browser` or `--carbonyl` (e.g. `slop --sync --browser`) to launch the UI when the sync finishes, landing on the full diff with the first unresolved thread's modal open. Plain `slop --sync` just prints the summary and exits.
+- **Keeps mirroring while open.** When `--sync` opens the UI (chained with `--browser` / `--carbonyl` / `--threads`), the server re-syncs from GitHub every 5 minutes so new replies and resolutions keep flowing in. A **"Synced …"** badge in the diff header shows when the last pull landed (it renders in carbonyl too); a failed pull shows **"Sync failed"**. The loop runs in the server process, so quitting slop-review (Ctrl-C, in the terminal or the carbonyl pane) stops the pull with it. The page doesn't live-reload threads, so once a background sync has changed threads the badge appends **"· N behind"** (amber) to tell you a manual reload is worth it; reloading or navigating clears it.
 
 Each run prints a summary: created / updated / deleted / skipped, plus the GitHub unresolved total.
 

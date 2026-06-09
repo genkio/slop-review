@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { execFileSync } from 'node:child_process'
 
-import { planSync, mapGithubThreadToSlop, newGithubComments, reviewSummaryThreads, runSync } from '../server/sync.js'
+import { planSync, mapGithubThreadToSlop, newGithubComments, reviewSummaryThreads, runSync, startSyncLoop } from '../server/sync.js'
 import { readBranchThreads, writeThread, sanitizeBranchId } from '../server/reviews.js'
 
 // Build a fake GitHub review-thread node in the same shape host.js returns
@@ -432,4 +432,101 @@ test('runSync: file-level (no line anchor) threads are reported as skipped', asy
   } finally {
     rmSync(root, { recursive: true, force: true })
   }
+})
+
+// ---------------------------------------------------------------------------
+// startSyncLoop: the background re-sync poller. Drives it with an injected
+// scheduler + runSync so there's no real clock, no real gh, no real timers.
+// ---------------------------------------------------------------------------
+
+// Fake setTimeout that just stashes the callback so a test can fire ticks
+// deterministically. Returns a handle with a no-op unref so the loop's
+// `typeof timer.unref === 'function'` guard is satisfied.
+function fakeScheduler() {
+  const self = { pending: null, arms: 0, cleared: 0 }
+  self.setTimeoutFn = (fn) => { self.arms++; self.pending = fn; return { unref() {} } }
+  self.clearTimeoutFn = () => { self.cleared++; self.pending = null }
+  self.fire = () => self.pending()
+  return self
+}
+
+test('startSyncLoop: arms a timer but does not sync until the interval fires', () => {
+  const sched = fakeScheduler()
+  let runs = 0
+  const stop = startSyncLoop('/repo', {
+    runSync: async () => { runs++; return { status: 'ok', stats: {} } },
+    setTimeoutFn: sched.setTimeoutFn,
+    clearTimeoutFn: sched.clearTimeoutFn,
+  })
+  assert.equal(sched.arms, 1)
+  assert.equal(runs, 0)
+  stop()
+})
+
+test('startSyncLoop: each tick runs sync, reports the result, and re-arms', async () => {
+  const sched = fakeScheduler()
+  const results = []
+  let runs = 0
+  const stop = startSyncLoop('/repo', {
+    runSync: async () => { runs++; return { status: 'ok', stats: { created: runs } } },
+    onResult: (r) => results.push(r),
+    setTimeoutFn: sched.setTimeoutFn,
+    clearTimeoutFn: sched.clearTimeoutFn,
+  })
+
+  await sched.fire()
+  assert.equal(runs, 1)
+  assert.deepEqual(results.map((r) => r.stats.created), [1])
+  assert.equal(sched.arms, 2)
+
+  await sched.fire()
+  assert.equal(runs, 2)
+  assert.deepEqual(results.map((r) => r.stats.created), [1, 2])
+  assert.equal(sched.arms, 3)
+  stop()
+})
+
+test('startSyncLoop: a failing sync is swallowed via onError and the loop keeps going', async () => {
+  const sched = fakeScheduler()
+  const errors = []
+  const stop = startSyncLoop('/repo', {
+    runSync: async () => { throw new Error('boom') },
+    onError: (e) => errors.push(e.message),
+    setTimeoutFn: sched.setTimeoutFn,
+    clearTimeoutFn: sched.clearTimeoutFn,
+  })
+  await sched.fire()
+  assert.deepEqual(errors, ['boom'])
+  assert.equal(sched.arms, 2)
+  stop()
+})
+
+test('startSyncLoop: stop() cancels the pending timer and blocks re-arming', () => {
+  const sched = fakeScheduler()
+  const stop = startSyncLoop('/repo', {
+    runSync: async () => ({ status: 'ok', stats: {} }),
+    setTimeoutFn: sched.setTimeoutFn,
+    clearTimeoutFn: sched.clearTimeoutFn,
+  })
+  stop()
+  assert.equal(sched.cleared, 1)
+  assert.equal(sched.pending, null)
+})
+
+test('startSyncLoop: a tick in flight when stop() is called does not re-arm', async () => {
+  const sched = fakeScheduler()
+  let release
+  const stop = startSyncLoop('/repo', {
+    // runSync hangs until the test releases it, modelling a tick mid-pull.
+    runSync: () => new Promise((res) => { release = () => res({ status: 'ok', stats: {} }) }),
+    setTimeoutFn: sched.setTimeoutFn,
+    clearTimeoutFn: sched.clearTimeoutFn,
+  })
+  assert.equal(sched.arms, 1)
+
+  const inFlight = sched.fire()
+  stop()
+  release()
+  await inFlight
+  assert.equal(sched.arms, 1)   // stop() blocks the re-arm even when the tick finishes after it
 })

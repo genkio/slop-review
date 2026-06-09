@@ -389,6 +389,70 @@ export async function runSync(repoPath, { log = () => {}, deps = {} } = {}) {
   return { status: 'ok', stats }
 }
 
+// Re-pull GitHub review threads this often while a `--sync` session keeps the
+// UI (and thus the server process) alive. 5 minutes: brisk enough that new
+// replies surface within a coffee break, slow enough to stay well under gh's
+// rate limits even with several repos open at once.
+export const SYNC_POLL_INTERVAL_MS = 5 * 60 * 1000
+
+/**
+ * Background re-sync loop for a live `--sync` session (chained with --browser /
+ * --carbonyl / --threads, so the UI stays open). Runs runSync on a fixed
+ * interval and returns a stop() that cancels the pending timer and blocks any
+ * further rescheduling.
+ *
+ * Recursive setTimeout, NOT setInterval: the next pull is armed only once the
+ * current one settles, so a slow or hung gh call can never stack a second sync
+ * on top of an unfinished one and race on the same `.reviews/` files. Each
+ * tick's error is handed to onError and swallowed -- a transient gh / network
+ * failure must never tear down the user's open session; the next tick retries.
+ *
+ * The timer lives in the caller's process, so it dies with it: every quit path
+ * (terminal Ctrl-C, carbonyl exit) that ends the process also stops the loop.
+ * stop() is the explicit in-process counterpart for a clean, immediate cancel.
+ *
+ * `deps` inject the clock + runSync for tests; everything defaults to real.
+ */
+export function startSyncLoop(
+  repoPath,
+  {
+    intervalMs = SYNC_POLL_INTERVAL_MS,
+    onResult = () => {},
+    onError = () => {},
+    runSync: runSyncFn = runSync,
+    setTimeoutFn = setTimeout,
+    clearTimeoutFn = clearTimeout,
+  } = {}
+) {
+  let timer = null
+  let stopped = false
+
+  const arm = () => {
+    timer = setTimeoutFn(tick, intervalMs)
+    // Don't let the poll timer alone hold the event loop open: the server is
+    // what keeps the process alive, so if it ever goes down the process can
+    // exit cleanly instead of lingering for a pending tick.
+    if (timer && typeof timer.unref === 'function') timer.unref()
+  }
+
+  async function tick() {
+    timer = null
+    try {
+      onResult(await runSyncFn(repoPath, { log: () => {} }))
+    } catch (e) {
+      onError(e)
+    }
+    if (!stopped) arm()
+  }
+
+  arm()
+
+  return () => {
+    stopped = true
+    if (timer) { clearTimeoutFn(timer); timer = null }
+  }
+}
+
 /** Render the stats object as a short human-facing summary for the CLI. */
 export function formatSyncStats(stats) {
   const lines = [

@@ -6,6 +6,8 @@ import { registerDiffRoutes } from './routes/diff.js'
 import { registerThreadRoutes } from './routes/threads.js'
 import { registerOverviewRoutes } from './routes/overview.js'
 import { shutdownAllOverviewJobs } from './overview.js'
+import { startSyncLoop } from './sync.js'
+import { markSyncEnabled, recordSyncResult, recordSyncError, getSyncStatus } from './sync-status.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const PROJECT_ROOT = join(__dirname, '..')
@@ -23,7 +25,7 @@ const DEFAULT_PORT = 9410
  *     the bottom kicks off `start()` with env-derived defaults)
  *   - `bin/slop-review.js` (imports and awaits `start({ port })` directly)
  */
-export async function start({ port = DEFAULT_PORT, hostname = '0.0.0.0' } = {}) {
+export async function start({ port = DEFAULT_PORT, hostname = '0.0.0.0', startSync = false, syncSeed = null } = {}) {
   // Hard requirement: the active repo is derived from this env var. The
   // bin shim sets it from cwd; running `node server/index.js` directly
   // (without the env) is unsupported now that bookmark-CRUD is gone.
@@ -73,6 +75,11 @@ export async function start({ port = DEFAULT_PORT, hostname = '0.0.0.0' } = {}) 
     return c.json({ ok: true, ui_state: bucket })
   })
 
+  // Background-sync health for the diff-header badge (public/sync-status.js).
+  // Process-global: one slop process serves one repo. `enabled` is false on a
+  // normal launch, which keeps the badge hidden.
+  app.get('/api/sync-status', (c) => c.json(getSyncStatus()))
+
   registerDiffRoutes(app)
   registerThreadRoutes(app)
   registerOverviewRoutes(app)
@@ -91,8 +98,27 @@ export async function start({ port = DEFAULT_PORT, hostname = '0.0.0.0' } = {}) 
       resolve({ server, info })
     })
 
+    // For a `--sync` session, mirror GitHub on a fixed interval. The loop lives
+    // here (not the bin shim) so its status feeds /api/sync-status from the same
+    // process. syncSeed is the launch sync's result, so the badge reads "Synced
+    // just now" immediately instead of waiting a full interval for the first tick.
+    let stopSync = null
+    if (startSync) {
+      markSyncEnabled()
+      if (syncSeed) recordSyncResult(syncSeed)
+      stopSync = startSyncLoop(process.env.SLOP_REVIEW_REPO, {
+        onResult: recordSyncResult,
+        onError: recordSyncError,
+      })
+    }
+
+    // Single shutdown point. Stopping the loop is belt-and-suspenders -- the
+    // timer dies with the process anyway -- but it makes intent explicit:
+    // quitting slop-review halts the GitHub pull. Covers terminal Ctrl-C and,
+    // under carbonyl, the SIGINT delivered to the shared process group.
     for (const sig of ['SIGTERM', 'SIGINT']) {
       process.on(sig, () => {
+        if (stopSync) stopSync()
         shutdownAllOverviewJobs()
         process.exit(0)
       })

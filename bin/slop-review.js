@@ -38,7 +38,10 @@ Options:
                       containing one.
       --sync, -s      Sync unresolved GitHub PR review threads for the current
                       branch into local review threads, then exit (requires the
-                      \`gh\` CLI). One-directional: GitHub -> local.
+                      \`gh\` CLI). One-directional: GitHub -> local. When chained
+                      with --browser/--carbonyl/--threads to open the UI, it
+                      keeps re-syncing every 5 minutes until you quit (Ctrl-C
+                      stops the loop along with slop-review).
       --browser, -b   Chain after --sync to open the UI in your default browser
                       once the sync finishes, landing on the full diff with the
                       first unresolved thread surfaced (like --carbonyl, but the
@@ -147,17 +150,28 @@ try {
   process.exit(1)
 }
 
+// Handed to the server (start() below): syncEnabled turns on the recurring
+// re-sync loop for this session, syncSeed carries the launch sync's result so
+// the loop's status starts populated instead of "never synced". Both are inert
+// on a normal launch (no --sync).
+let syncEnabled = false
+let syncSeed = null
+
 // --sync is a one-shot: pull unresolved GitHub PR review threads into
 // <repo>/.reviews/ and (by default) exit, without binding a port. Placed after
 // the git-repo guard (so it shares the same repoRoot resolution) and before
 // the port logic. When chained with --browser, --carbonyl, or --threads it
 // keeps the process alive afterwards, so the normal server-start + open path
-// below launches the UI straight into the synced threads.
+// below launches the UI straight into the synced threads, and the server keeps
+// re-syncing every few minutes (surfaced as the "Synced …" badge in the diff
+// header).
 if (doSync) {
   const { runSync, formatSyncStats } = await import(join(PACKAGE_ROOT, 'server', 'sync.js'))
   const openAfterSync = useBrowser || useCarbonyl || doThreads
+  syncEnabled = openAfterSync
   try {
     const result = await runSync(repoRoot, { log: (m) => process.stdout.write(`${m}\n`) })
+    syncSeed = result
     if (result.status === 'ok') {
       process.stdout.write(`${formatSyncStats(result.stats)}\n`)
     } else if (result.status === 'no-pr') {
@@ -173,7 +187,8 @@ if (doSync) {
     process.exit(1)
   }
   // Plain `--sync` ends here; chained with --browser/--carbonyl it falls
-  // through to start the server and open the resume view.
+  // through to start the server (which then runs the recurring sync) and open
+  // the resume view.
   if (!openAfterSync) process.exit(0)
 }
 
@@ -230,7 +245,7 @@ process.env.SLOP_REVIEW_REPO = repoRoot
 process.env.SLOP_REVIEW_PORT = String(port)
 
 const { start } = await import(join(PACKAGE_ROOT, 'server', 'index.js'))
-await start({ port, hostname: hostArg })
+await start({ port, hostname: hostArg, startSync: syncEnabled, syncSeed })
 
 // 4. Auto-open the browser. Localhost works regardless of bind host since
 //    the server is listening on 0.0.0.0 and we're on the same machine.

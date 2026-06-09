@@ -4099,6 +4099,32 @@ body:has(.diff-page) main {
 }
 .overview-nav-slot:empty { display: none; }
 
+/* Background-sync badge (sync-status.js). Ambient, non-clickable status text
+   ("Synced 2m ago"): quieter than the .page-nav links beside it, and with no
+   trailing arrow since it navigates nowhere. The empty slot collapses so a
+   non-sync launch leaves no gap in the header actions. */
+.sync-status-slot {
+  display: inline-flex;
+  align-items: center;
+}
+.sync-status-slot:empty { display: none; }
+.sync-status {
+  display: inline-flex;
+  align-items: center;
+  padding: 6px 4px;
+  font-family: var(--font-sans);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--fg-muted);
+  white-space: nowrap;
+  cursor: default;
+}
+.sync-status.is-error { color: var(--lane-removed); }
+/* Behind: amber draws the eye to "you're not seeing the latest", echoing the
+   .page-nav.is-stale "out of date" cue. The whole badge tints, so "Synced 2m
+   ago · 3 behind" reads as one attention-worthy unit. */
+.sync-status.is-behind { color: var(--lane-working); font-weight: 600; }
+
 /* Cross-page navigation link. Distinct from .btn (action) — these
    read as text-links with a trailing → arrow that telegraphs "go to"
    semantics. The action/navigation visual split lets a user tell at a

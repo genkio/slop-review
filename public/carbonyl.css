@@ -154,6 +154,23 @@
   font-weight: 600;
 }
 
+/* Sync-status badge.
+   sync-status.js renders a 13px/.fg-muted info pill. Carbonyl swallows the
+   muted color; restore to ink/600 like the overview link. The error state
+   keeps its red (a saturated foreground color survives the downsample). The
+   badge lives in .diff-head, already promoted to position: sticky above, so
+   its single text run stays alive across repaints. */
+.is-carbonyl .sync-status {
+  color: var(--ink);
+  font-weight: 600;
+}
+.is-carbonyl .sync-status.is-error {
+  color: var(--lane-removed);
+}
+.is-carbonyl .sync-status.is-behind {
+  color: var(--lane-working);
+}
+
 /* Review banner / view-mode toggle.
    The summary banner holds the Split/Inline view-mode toggle.
    Base CSS hides the toggle via the 768px mobile rule, leaving
