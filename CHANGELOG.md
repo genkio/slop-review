@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.23.0](https://github.com/genkio/slop-review/compare/v0.22.0...v0.23.0) (2026-06-13)
+
+
+### Features
+
+* --threads / -t opens the thread walk on launch without syncing ([470f101](https://github.com/genkio/slop-review/commit/470f101b570357b053628f8c7b3d7927832654f9))
+* h/l navigates between diffs on the diff page ([e26eb21](https://github.com/genkio/slop-review/commit/e26eb21199373526fdbf266e0492a8874cade9e1))
+* keep --sync mirroring GitHub on a 5-min loop ([4587ae4](https://github.com/genkio/slop-review/commit/4587ae419ac3a07dcac3158ffefceeea8b3bb9b1))
+* q reopens the last-viewed thread modal when none is open ([a50b6c1](https://github.com/genkio/slop-review/commit/a50b6c11ebdb5405cb8a12df71c5810920c1c220))
+* show h/l key hints on the thread modal's prev/next nav links ([756a040](https://github.com/genkio/slop-review/commit/756a040a2b854b4fcdca56445cb114080a85805c))
+
+
+### Bug Fixes
+
+* copy forge link instead of opening under carbonyl ([b71e812](https://github.com/genkio/slop-review/commit/b71e812349837a2a5e1da23b389f75f7e60299f0))
+* seed j/k cursor in the viewport, not the diff's far end ([8a2106a](https://github.com/genkio/slop-review/commit/8a2106a8dd368fd840f49a70d9b01d03977e67bd))
+
 ## [0.22.0](https://github.com/genkio/slop-review/compare/v0.21.1...v0.22.0) (2026-06-04)
 
 
