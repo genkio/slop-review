@@ -1,0 +1,557 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>slop-review the PR review loop for you and your LLM</title>
+<meta name="description" content="Open any git branch, leave inline comments on the diff, then hand the threads to your LLM. Runs in your browser or straight in your terminal via Carbonyl. Zero dependencies.">
+<meta property="og:title" content="slop-review">
+<meta property="og:description" content="A local pull-request review loop for you and your coding agent. Browser or terminal. Zero dependencies.">
+<meta property="og:type" content="website">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🐛</text></svg>">
+<script>
+  // Mark JS-on so reveal-on-scroll only hides content when we can also show it.
+  document.documentElement.classList.add('js')
+  try {
+    var t = localStorage.getItem('slop-theme')
+    if (t) document.documentElement.dataset.theme = t
+    else if (window.matchMedia && matchMedia('(prefers-color-scheme: light)').matches) document.documentElement.dataset.theme = 'light'
+  } catch (e) {}
+</script>
+<style>
+:root {
+  --bg:#0a0a0a; --bg-deep:#050505; --card:#141416; --card-2:#1b1b1f;
+  --fg:#fafafa; --ink:#ffffff; --fg-soft:#a1a1aa; --fg-muted:#8b8b94;
+  --hairline:#27272a; --hairline-strong:#3f3f46;
+  --accent:#818cf8; --accent-soft:#a5b4fc; --accent-deep:#5b6cff;
+  --green:#4ade80; --red:#f87171; --blue:#60a5fa; --amber:#fbbf24;
+  --sans:ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;
+  --mono:ui-monospace,"SF Mono","Menlo","Cascadia Code","Consolas",monospace;
+  --ease:cubic-bezier(.16,1,.3,1);
+  --maxw:1180px;
+  --glow:rgba(129,140,248,.18);
+}
+[data-theme=light] {
+  --bg:#fafafa; --bg-deep:#f4f4f5; --card:#ffffff; --card-2:#f4f4f5;
+  --fg:#18181b; --ink:#09090b; --fg-soft:#3f3f46; --fg-muted:#71717a;
+  --hairline:#e4e4e7; --hairline-strong:#d4d4d8;
+  --accent:#4f5ddb; --accent-soft:#8a96ff; --accent-deep:#4338ca;
+  --green:#15803d; --red:#dc2626; --blue:#2563eb; --amber:#b45309;
+  --glow:rgba(91,108,255,.13);
+}
+* { box-sizing:border-box; }
+html { scroll-behavior:smooth; }
+body {
+  margin:0; background:var(--bg); color:var(--fg); font-family:var(--sans);
+  font-size:16px; line-height:1.6; -webkit-font-smoothing:antialiased; text-rendering:optimizeLegibility;
+  overflow-x:hidden;
+}
+a { color:inherit; text-decoration:none; }
+::selection { background:color-mix(in srgb, var(--accent) 35%, transparent); }
+img { max-width:100%; display:block; }
+.wrap { max-width:var(--maxw); margin:0 auto; padding:0 24px; }
+.mono { font-family:var(--mono); }
+.bg-fx { position:fixed; inset:0; z-index:0; pointer-events:none; overflow:hidden; }
+.bg-fx::before {
+  content:""; position:absolute; top:-340px; left:50%; transform:translateX(-50%);
+  width:1100px; height:760px; background:radial-gradient(closest-side, var(--glow), transparent 70%);
+  filter:blur(8px);
+}
+.bg-grid {
+  position:absolute; inset:0;
+  background-image:linear-gradient(var(--hairline) 1px, transparent 1px), linear-gradient(90deg, var(--hairline) 1px, transparent 1px);
+  background-size:56px 56px; opacity:.25;
+  mask-image:radial-gradient(ellipse 80% 50% at 50% 0%, #000 30%, transparent 75%);
+  -webkit-mask-image:radial-gradient(ellipse 80% 50% at 50% 0%, #000 30%, transparent 75%);
+}
+main, header.nav { position:relative; z-index:1; }
+header.nav {
+  position:sticky; top:0; z-index:50; backdrop-filter:blur(12px);
+  background:color-mix(in srgb, var(--bg) 72%, transparent);
+  border-bottom:1px solid transparent; transition:border-color .3s var(--ease);
+}
+header.nav.scrolled { border-bottom-color:var(--hairline); }
+.nav-in { display:flex; align-items:center; gap:18px; height:60px; }
+.brand { display:flex; align-items:center; gap:9px; font-weight:650; letter-spacing:-.02em; font-size:16px; color:var(--ink); }
+.brand .bug { font-size:20px; }
+.brand .tag { font-family:var(--mono); font-size:10px; font-weight:600; color:var(--accent); border:1px solid color-mix(in srgb, var(--accent) 40%, transparent); border-radius:999px; padding:2px 8px; letter-spacing:.04em; }
+.nav-links { margin-left:auto; display:flex; align-items:center; gap:6px; }
+.nav-links a.navlink { font-size:13.5px; color:var(--fg-soft); padding:7px 11px; border-radius:7px; transition:color .15s, background .15s; }
+.nav-links a.navlink:hover { color:var(--ink); background:var(--card); }
+.icon-btn { display:inline-flex; align-items:center; justify-content:center; width:34px; height:34px; border:1px solid var(--hairline-strong); border-radius:8px; background:transparent; color:var(--fg-soft); cursor:pointer; transition:.15s; }
+.icon-btn:hover { color:var(--ink); border-color:var(--accent); }
+.btn {
+  display:inline-flex; align-items:center; gap:8px; font-size:13.5px; font-weight:550; font-family:var(--sans);
+  padding:9px 15px; border-radius:9px; border:1px solid var(--hairline-strong); color:var(--fg); background:var(--card); cursor:pointer; transition:.16s var(--ease);
+}
+.btn:hover { border-color:var(--ink); transform:translateY(-1px); }
+.btn.primary { background:var(--accent); border-color:var(--accent); color:#0a0a16; font-weight:650; }
+[data-theme=light] .btn.primary { color:#fff; }
+.btn.primary:hover { background:var(--accent-soft); border-color:var(--accent-soft); box-shadow:0 8px 28px -8px var(--accent); }
+@media (max-width:720px){ .nav-links a.navlink.hide-sm { display:none; } }
+.hero { padding:84px 0 40px; text-align:center; }
+.eyebrow {
+  display:inline-flex; align-items:center; gap:8px; font-family:var(--mono); font-size:12px; color:var(--fg-soft);
+  border:1px solid var(--hairline); background:var(--card); border-radius:999px; padding:6px 14px; margin-bottom:26px;
+}
+.eyebrow b { color:var(--accent); font-weight:600; }
+h1.hero-title {
+  font-size:clamp(34px,6.4vw,68px); line-height:1.02; letter-spacing:-.035em; font-weight:680; margin:0 auto;
+  max-width:16ch; color:var(--ink);
+}
+h1.hero-title .grad {
+  background:linear-gradient(110deg, var(--accent), var(--accent-soft) 55%, var(--blue));
+  -webkit-background-clip:text; background-clip:text; color:transparent;
+}
+.hero-sub { font-size:clamp(16px,2vw,20px); color:var(--fg-soft); max-width:60ch; margin:24px auto 0; line-height:1.55; }
+.hero-sub code { font-family:var(--mono); font-size:.88em; color:var(--accent); background:color-mix(in srgb,var(--accent) 12%, transparent); padding:1px 6px; border-radius:5px; }
+.cta { display:flex; flex-wrap:wrap; gap:12px; justify-content:center; align-items:center; margin-top:34px; }
+.install {
+  display:inline-flex; align-items:center; gap:12px; font-family:var(--mono); font-size:15px;
+  background:var(--card); border:1px solid var(--hairline-strong); border-radius:11px; padding:11px 12px 11px 18px; color:var(--ink);
+}
+.install .dollar { color:var(--fg-muted); }
+.install .cmd b { color:var(--accent); font-weight:600; }
+.install button { border:0; background:var(--card-2); color:var(--fg-soft); border-radius:7px; width:32px; height:32px; cursor:pointer; transition:.15s; font-size:13px; display:inline-flex; align-items:center; justify-content:center; }
+.install button:hover { color:var(--ink); background:color-mix(in srgb,var(--accent) 22%, var(--card-2)); }
+.hero-meta { margin-top:22px; font-size:13px; color:var(--fg-muted); font-family:var(--mono); display:flex; gap:8px 18px; justify-content:center; flex-wrap:wrap; }
+.hero-meta span { display:inline-flex; align-items:center; gap:7px; }
+.dot { width:6px; height:6px; border-radius:50%; background:var(--green); box-shadow:0 0 0 3px color-mix(in srgb,var(--green) 22%, transparent); }
+.frame { border-radius:14px; border:1px solid var(--hairline-strong); background:var(--card); overflow:hidden; box-shadow:0 40px 90px -50px rgba(0,0,0,.9), 0 0 0 1px rgba(255,255,255,.02) inset; }
+.frame-bar { display:flex; align-items:center; gap:8px; padding:0 14px; height:38px; background:var(--card-2); border-bottom:1px solid var(--hairline); }
+.lights { display:flex; gap:7px; }
+.lights i { width:11px; height:11px; border-radius:50%; display:block; }
+.lights i:nth-child(1){ background:#ff5f57; } .lights i:nth-child(2){ background:#febc2e; } .lights i:nth-child(3){ background:#28c840; }
+.frame-url { margin:0 auto; font-family:var(--mono); font-size:11.5px; color:var(--fg-muted); background:var(--bg); border:1px solid var(--hairline); border-radius:7px; padding:3px 14px; max-width:60%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.frame-bar .term-label { margin:0 auto; font-family:var(--mono); font-size:11.5px; color:var(--fg-muted); }
+.frame img { display:block; width:100%; height:auto; }
+.hero-shot { max-width:1080px; margin:54px auto 0; }
+.hero-shot .frame { transform:perspective(2200px) rotateX(2deg); transform-origin:top center; }
+section.band { padding:72px 0; }
+.section-head { text-align:center; max-width:720px; margin:0 auto 48px; }
+.kicker { font-family:var(--mono); font-size:12px; font-weight:600; letter-spacing:.16em; text-transform:uppercase; color:var(--accent); }
+h2.section-title { font-size:clamp(26px,3.6vw,40px); letter-spacing:-.03em; line-height:1.1; margin:14px 0 0; color:var(--ink); font-weight:660; }
+.section-head p { color:var(--fg-soft); font-size:17px; margin:16px 0 0; }
+.modes { display:grid; grid-template-columns:1fr 1fr; gap:26px; }
+.mode-card .cap { display:flex; align-items:center; gap:10px; margin:0 0 14px; }
+.mode-card .cap .pill { font-family:var(--mono); font-size:11px; letter-spacing:.06em; text-transform:uppercase; color:var(--fg-soft); border:1px solid var(--hairline); border-radius:999px; padding:3px 10px; }
+.mode-card h3 { margin:0; font-size:18px; letter-spacing:-.01em; color:var(--ink); }
+.mode-card p { color:var(--fg-soft); font-size:14.5px; margin:8px 2px 16px; }
+@media (max-width:860px){ .modes { grid-template-columns:1fr; } }
+.feature { display:grid; grid-template-columns:1fr 1fr; gap:56px; align-items:start; padding:46px 0; }
+.feat-text { position:sticky; top:84px; min-width:0; }
+@media (max-width:860px){ .feat-text { position:static; } }
+/* let grid/flex children shrink so pre-formatted code scrolls instead of blowing out the track */
+.feat-media, .mode-card, .icard, .modes > *, .install-grid > * { min-width:0; }
+.code { max-width:100%; }
+.feature:nth-child(even) .feat-text { order:2; }
+.feature .num { font-family:var(--mono); font-size:13px; font-weight:600; color:var(--accent); letter-spacing:.1em; }
+.feature h3 { font-size:clamp(22px,2.6vw,30px); letter-spacing:-.025em; line-height:1.12; margin:12px 0 0; color:var(--ink); font-weight:640; }
+.feature p { color:var(--fg-soft); font-size:16px; margin:16px 0 0; line-height:1.62; }
+.feature p code, li code { font-family:var(--mono); font-size:.86em; color:var(--accent); background:color-mix(in srgb,var(--accent) 12%, transparent); padding:1px 6px; border-radius:5px; }
+.feat-points { list-style:none; padding:0; margin:18px 0 0; display:flex; flex-direction:column; gap:9px; }
+.feat-points li { position:relative; padding-left:24px; color:var(--fg-soft); font-size:14.5px; }
+.feat-points li::before { content:""; position:absolute; left:2px; top:9px; width:7px; height:7px; border-radius:2px; transform:rotate(45deg); background:var(--accent); }
+.feat-media { display:flex; flex-direction:column; gap:16px; }
+@media (max-width:860px){
+  .feature { grid-template-columns:1fr; gap:26px; padding:30px 0; }
+  .feature:nth-child(even) .feat-text { order:0; }
+}
+.code {
+  font-family:var(--mono); font-size:13.5px; line-height:1.7; background:var(--bg-deep);
+  border:1px solid var(--hairline); border-radius:11px; padding:16px 18px; color:var(--fg-soft); overflow-x:auto; white-space:pre;
+}
+.code .c { color:var(--fg-muted); }
+.code .k { color:var(--accent); }
+.code .s { color:var(--green); }
+.keys { border:1px solid var(--hairline); border-radius:14px; overflow:hidden; background:var(--card); }
+.keys table { width:100%; border-collapse:collapse; }
+.keys td { padding:13px 18px; border-bottom:1px solid var(--hairline); font-size:14.5px; color:var(--fg-soft); vertical-align:middle; }
+.keys tr:last-child td { border-bottom:0; }
+.keys tr:hover td { background:var(--card-2); }
+kbd {
+  font-family:var(--mono); font-size:12.5px; color:var(--ink); background:var(--bg-deep);
+  border:1px solid var(--hairline-strong); border-bottom-width:2px; border-radius:6px; padding:2px 8px; margin-right:4px; display:inline-block;
+}
+.keys td.kcol { width:200px; white-space:nowrap; }
+.keys td.cb { width:84px; text-align:center; font-family:var(--mono); font-size:12px; color:var(--fg-muted); }
+.keys .yes { color:var(--green); }
+@media (max-width:640px){ .keys td.cb { display:none; } .keys td.kcol { width:auto; white-space:normal; } .code { white-space:pre-wrap; word-break:break-word; } }
+.install-grid { display:grid; grid-template-columns:repeat(2,1fr); gap:22px; }
+.icard { border:1px solid var(--hairline); border-radius:14px; background:var(--card); padding:22px; }
+.icard h4 { margin:0 0 4px; font-size:16px; color:var(--ink); letter-spacing:-.01em; }
+.icard p { margin:0 0 14px; font-size:13.5px; color:var(--fg-muted); }
+@media (max-width:760px){ .install-grid { grid-template-columns:1fr; } }
+footer { border-top:1px solid var(--hairline); margin-top:40px; padding:48px 0 60px; }
+.foot-in { display:flex; flex-wrap:wrap; gap:24px; align-items:center; justify-content:space-between; }
+.foot-links { display:flex; gap:20px; flex-wrap:wrap; }
+.foot-links a { color:var(--fg-soft); font-size:14px; }
+.foot-links a:hover { color:var(--accent); }
+.foot-note { color:var(--fg-muted); font-size:13px; font-family:var(--mono); }
+.reveal { transition:opacity .7s var(--ease), transform .7s var(--ease); }
+.js .reveal { opacity:0; transform:translateY(18px); }
+.reveal.in { opacity:1; transform:none; }
+@media (prefers-reduced-motion:reduce){ .js .reveal { opacity:1; transform:none; transition:none; } html { scroll-behavior:auto; } }
+.toast {
+  position:fixed; bottom:26px; left:50%; transform:translateX(-50%) translateY(20px); opacity:0;
+  background:var(--ink); color:var(--bg); font-family:var(--mono); font-size:12px; letter-spacing:.06em; text-transform:uppercase;
+  padding:10px 16px; border-radius:8px; z-index:100; transition:.25s var(--ease); pointer-events:none;
+}
+.toast.show { opacity:1; transform:translateX(-50%) translateY(0); }
+
+/* visible keyboard focus for every interactive control */
+:where(a, button, .btn, .icon-btn, .navlink, kbd):focus-visible {
+  outline:2px solid var(--accent); outline-offset:3px; border-radius:8px;
+}
+/* deeper-page backdrop so the long feature run does not read as a flat void */
+#features { position:relative; }
+#features::before {
+  content:""; position:absolute; top:18%; left:50%; transform:translateX(-50%);
+  width:900px; max-width:100%; height:900px; z-index:-1; pointer-events:none;
+  background:radial-gradient(closest-side, var(--glow), transparent 72%); opacity:.7;
+}
+section.band#keys, section.band#install { border-top:1px solid var(--hairline); }
+/* the phone + terminal showcase row: balanced on desktop, stacked on mobile */
+.everywhere { grid-template-columns:0.85fr 1.15fr; align-items:center; }
+@media (max-width:860px){ .everywhere { grid-template-columns:1fr; } }
+</style>
+</head>
+<body>
+<div class="bg-fx"><div class="bg-grid"></div></div>
+
+<header class="nav">
+  <div class="wrap nav-in">
+    <a class="brand" href="#top"><span class="bug">🐛</span> slop-review <span class="tag">v0.22</span></a>
+    <nav class="nav-links">
+      <a class="navlink hide-sm" href="#modes">Modes</a>
+      <a class="navlink hide-sm" href="#features">Features</a>
+      <a class="navlink hide-sm" href="#keys">Keys</a>
+      <a class="navlink hide-sm" href="#install">Install</a>
+      <button class="icon-btn" id="theme" title="Toggle theme" aria-label="Toggle theme">&#9680;</button>
+      <a class="btn" href="https://github.com/genkio/slop-review" target="_blank" rel="noopener">&#9733; GitHub</a>
+    </nav>
+  </div>
+</header>
+
+<main id="top">
+  <section class="hero wrap">
+    <span class="eyebrow"><span class="dot"></span> Local PR-review loop &middot; human <b>&harr;</b> LLM</span>
+    <h1 class="hero-title">Review your branch like a PR. <span class="grad">Hand the threads to your agent.</span></h1>
+    <p class="hero-sub">Run it in any git repo: leave inline comments on the diff, then hand the threads to your LLM acting as reviewer or reviewee via a bundled skill. Comments are plain JSON under <code>.reviews/</code> &mdash; no clipboard handoff, no server required for the agent loop.</p>
+    <div class="cta">
+      <div class="install">
+        <span class="dollar">$</span>
+        <span class="cmd mono"><b>npx</b> slop-review</span>
+        <button id="copy-install" title="Copy" aria-label="Copy npx slop-review to clipboard"><span aria-hidden="true">&#10697;</span></button>
+      </div>
+      <a class="btn primary" href="#install">Get started</a>
+    </div>
+    <div class="hero-meta">
+      <span><span class="dot"></span> 0 runtime dependencies</span>
+      <span class="mono">Node &ge; 20</span>
+      <span class="mono">browser <b style="color:var(--accent)">or</b> terminal</span>
+      <span class="mono">node:http only</span>
+    </div>
+  </section>
+
+  <div class="hero-shot wrap reveal">
+    <div class="frame">
+      <div class="frame-bar"><div class="lights"><i></i><i></i><i></i></div><div class="frame-url">localhost:9410 &mdash; slop-review &mdash; feat/search-ranking</div></div>
+      <img src="assets/hero-full-diff.webp" alt="slop-review full-diff view: importance-ordered files, side-by-side diff with inline comment threads" width="1600" height="1003" loading="eager">
+    </div>
+  </div>
+
+  <section class="band wrap" id="modes">
+    <div class="section-head reveal">
+      <div class="kicker">One page, two renderers</div>
+      <h2 class="section-title">In your browser. Or straight in your terminal.</h2>
+      <p>The same keyboard-driven review UI runs as a local web app, and fully inside your terminal via <a style="color:var(--accent)" href="https://github.com/fathyb/carbonyl" target="_blank" rel="noopener">Carbonyl</a> &mdash; a Chromium fork that paints into the TTY. No window switch, no context loss. Every keybinding carries over.</p>
+    </div>
+    <div class="modes reveal">
+      <div class="mode-card">
+        <div class="cap"><span class="pill">Browser</span><h3>The full GUI, zero setup</h3></div>
+        <div class="frame">
+          <div class="frame-bar"><div class="lights"><i></i><i></i><i></i></div><div class="frame-url">localhost:9410</div></div>
+          <img src="assets/commit-view.webp" alt="slop-review per-commit diff in the browser" width="1600" height="1003" loading="lazy">
+        </div>
+      </div>
+      <div class="mode-card">
+        <div class="cap"><span class="pill">Terminal</span><h3><code style="font-size:.8em">--carbonyl</code> keeps it in one pane</h3></div>
+        <div class="frame">
+          <div class="frame-bar"><div class="lights"><i></i><i></i><i></i></div><div class="term-label">zsh &mdash; carbonyl</div></div>
+          <img src="assets/carbonyl-diff.webp" alt="slop-review diff rendered inside the terminal via Carbonyl" width="1100" height="858" loading="lazy">
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <div class="wrap" id="features">
+    <div class="section-head reveal">
+      <div class="kicker">Highlights</div>
+      <h2 class="section-title">Built for the review loop, not just diff-staring.</h2>
+      <p>Nine things slop-review does that a plain diff viewer doesn't.</p>
+    </div>
+
+    <div class="feature reveal">
+      <div class="feat-text">
+        <div class="num">01 / Importance-ordered files</div>
+        <h3>Land on the load-bearing edits first.</h3>
+        <p>Every diff sorts files by how central they are to the change set, not alphabetically. You start at the code that matters and walk outward to the tests and docs.</p>
+        <ul class="feat-points">
+          <li>Incoming reference count: how many other changed files import this one</li>
+          <li>Then status (modified before added before removed)</li>
+          <li>Then source before tests / docs / fixtures, then path</li>
+        </ul>
+      </div>
+      <div class="feat-media">
+        <div class="frame"><div class="frame-bar"><div class="lights"><i></i><i></i><i></i></div><div class="frame-url">localhost:9410 &mdash; full diff</div></div><img src="assets/importance-order.webp" alt="Files sorted by reference count: parser.ts and types.ts first" width="1600" height="1003" loading="lazy"></div>
+      </div>
+    </div>
+
+    <div class="feature reveal">
+      <div class="feat-text">
+        <div class="num">02 / Vim keys + which-key hint bar</div>
+        <h3>Drive the whole review from the home row.</h3>
+        <p>Single-letter verbs handle comment, copy, deep-link, peek and delete, without leaving the keyboard. A which-key hint bar reveals on the first keypress and re-renders on every state change, showing only the keys live for your current row.</p>
+        <ul class="feat-points">
+          <li>Hidden hints are strict no-ops, so the bar never advertises a dead key</li>
+          <li><code>j</code>/<code>k</code> move, <code>c</code> comment, <code>n</code> next thread, <code>r</code> reviewed, <code>p</code> peek HEAD</li>
+        </ul>
+      </div>
+      <div class="feat-media">
+        <div class="frame"><div class="frame-bar"><div class="lights"><i></i><i></i><i></i></div><div class="frame-url">localhost:9410</div></div><img src="assets/keymap-hint.webp" alt="The context-aware which-key hint bar along the bottom of the diff" width="1600" height="1003" loading="lazy"></div>
+      </div>
+    </div>
+
+    <div class="feature reveal">
+      <div class="feat-text">
+        <div class="num">03 / Comment anywhere</div>
+        <h3>Inline threads on the new side or the old.</h3>
+        <p>Press <code>c</code> to open the comment editor on the cursor line, or <code>v</code> to select a range first. Single-line or multi-line, new-side or old-side, threads work identically across all three diff modes.</p>
+      </div>
+      <div class="feat-media">
+        <div class="frame"><div class="frame-bar"><div class="lights"><i></i><i></i><i></i></div><div class="frame-url">localhost:9410 &mdash; src/search.ts</div></div><img src="assets/comment-editor.webp" alt="The inline comment editor open on a diff line" width="1600" height="1003" loading="lazy"></div>
+      </div>
+    </div>
+
+    <div class="feature reveal">
+      <div class="feat-text">
+        <div class="num">04 / LLM in the loop</div>
+        <h3>Hand the threads to your coding agent.</h3>
+        <p>A bundled Claude Code skill lets an agent play reviewer (leave inline comments) or reviewee (address open threads, edit source, reply) by reading and writing the <code>.reviews/</code> JSON directly. No HTTP API, no running server.</p>
+        <div class="code"><span class="c"># install the skill, then just ask in plain language</span>
+<span class="k">npx</span> skills add genkio/slop-review
+
+<span class="c"># "address the open slop-review threads"</span>
+<span class="c"># "act as reviewer for this branch"</span></div>
+      </div>
+      <div class="feat-media">
+        <div class="frame"><div class="frame-bar"><div class="lights"><i></i><i></i><i></i></div><div class="frame-url">localhost:9410 &mdash; thread</div></div><img src="assets/thread-llm.webp" alt="A review thread: a reviewer question and the agent's reply" width="1600" height="1003" loading="lazy"></div>
+      </div>
+    </div>
+
+    <div class="feature reveal">
+      <div class="feat-text">
+        <div class="num">05 / Blob-keyed reviewed marks</div>
+        <h3>Sign off on a file. Keep it green until it actually changes.</h3>
+        <p>Click a file header to mark it reviewed (and collapse it). The mark is keyed to that file's blob SHA at marking time, so a later push that touches <em>one</em> file invalidates only its mark. Every untouched file stays green.</p>
+        <ul class="feat-points">
+          <li>Per-commit marking is gated to "no later changes", so you never sign off on content you weren't looking at</li>
+          <li><code>p</code> peeks the file at HEAD without leaving the commit view</li>
+        </ul>
+      </div>
+      <div class="feat-media">
+        <div class="frame"><div class="frame-bar"><div class="lights"><i></i><i></i><i></i></div><div class="frame-url">localhost:9410 &mdash; 4/8 reviewed</div></div><img src="assets/reviewed-marks.webp" alt="Files collapsed to green reviewed headers" width="1600" height="1003" loading="lazy"></div>
+        <div class="frame"><div class="frame-bar"><div class="lights"><i></i><i></i><i></i></div><div class="frame-url">peek HEAD</div></div><img src="assets/head-peek.webp" alt="The Peek HEAD modal showing the file's current state from a commit view" width="1600" height="1003" loading="lazy"></div>
+      </div>
+    </div>
+
+    <div class="feature reveal">
+      <div class="feat-text">
+        <div class="num">06 / Cross-file symbol panel</div>
+        <h3>Double-click an identifier, see every occurrence.</h3>
+        <p>Double-click any identifier in the diff to list every occurrence across changed files, with the active row highlighted in place. Open a second symbol and the first parks into a right-edge strip, match list and jump history preserved, so you can pivot between concurrent searches without losing context.</p>
+      </div>
+      <div class="feat-media">
+        <div class="frame"><div class="frame-bar"><div class="lights"><i></i><i></i><i></i></div><div class="frame-url">localhost:9410 &mdash; symbol: Note</div></div><img src="assets/symbol-panel.webp" alt="The cross-file symbol panel listing occurrences of an identifier across files" width="1600" height="1003" loading="lazy"></div>
+      </div>
+    </div>
+
+    <div class="feature reveal">
+      <div class="feat-text">
+        <div class="num">07 / Three diff modes, one page</div>
+        <h3>Full branch, any commit, or your working copy.</h3>
+        <p>Cumulative diff vs base, any single commit, or the local working-copy diff. <code>Shift+&larr;</code> / <code>Shift+&rarr;</code> steps between them; comments work in all three. Cold launch resumes the last view for the branch, or falls back to a sensible per-commit default.</p>
+      </div>
+      <div class="feat-media">
+        <div class="frame"><div class="frame-bar"><div class="lights"><i></i><i></i><i></i></div><div class="frame-url">localhost:9410 &mdash; local working copy</div></div><img src="assets/local-view.webp" alt="The local working-copy diff view" width="1600" height="1003" loading="lazy"></div>
+      </div>
+    </div>
+
+    <div class="feature reveal">
+      <div class="feat-text">
+        <div class="num">08 / One-way GitHub sync</div>
+        <h3>Pull unresolved PR threads down to local.</h3>
+        <p><code>slop --sync</code> mirrors the unresolved review threads from your branch's GitHub PR into local threads, keeping each GitHub author. Re-running mirrors GitHub: new replies flow in, resolved threads are deleted locally, and anything you've touched locally is flagged and skipped. Your work is never clobbered.</p>
+        <ul class="feat-points">
+          <li>Synced threads carry a <b style="color:var(--accent)">GitHub</b> badge and link back to the original comment</li>
+          <li>Keeps re-syncing every 5 min while the UI stays open</li>
+        </ul>
+      </div>
+      <div class="feat-media">
+        <div class="frame"><div class="frame-bar"><div class="lights"><i></i><i></i><i></i></div><div class="frame-url">localhost:9410 &mdash; synced thread</div></div><img src="assets/thread-github.webp" alt="A GitHub-synced thread showing the GitHub badge and original authors" width="1600" height="1003" loading="lazy"></div>
+      </div>
+    </div>
+
+    <div class="feature reveal">
+      <div class="feat-text">
+        <div class="num">09 / Branch overview on demand</div>
+        <h3>An LLM-generated map of the change set.</h3>
+        <p>The Overview modal generates a branch summary on demand using <code>codex exec</code> or <code>claude</code>: what changed, the mental model, before/after behavior, and a small architecture sketch rendered as a diagram.</p>
+      </div>
+      <div class="feat-media">
+        <div class="frame"><div class="frame-bar"><div class="lights"><i></i><i></i><i></i></div><div class="frame-url">localhost:9410 &mdash; overview</div></div><img src="assets/overview-modal.webp" alt="The branch overview modal with numbered what-changed cards" width="1600" height="1003" loading="lazy"></div>
+        <div class="frame"><div class="frame-bar"><div class="lights"><i></i><i></i><i></i></div><div class="frame-url">overview &mdash; sketch</div></div><img src="assets/overview-sketch.webp" alt="The overview architecture sketch rendered as a node diagram" width="1600" height="1003" loading="lazy"></div>
+      </div>
+    </div>
+  </div>
+
+  <section class="band wrap">
+    <div class="section-head reveal">
+      <div class="kicker">Everywhere you review</div>
+      <h2 class="section-title">Reads great on a phone. Reviews great in a terminal.</h2>
+      <p>The diff collapses to a single readable column on small screens, and the whole review loop, threads, replies, the <code>;;</code> submit chord, works inside Carbonyl.</p>
+    </div>
+    <div class="modes everywhere reveal">
+      <div class="mode-card" style="display:flex; flex-direction:column; align-items:center;">
+        <div class="cap" style="justify-content:center;"><span class="pill">Mobile web</span></div>
+        <div class="frame" style="max-width:300px; border-radius:22px;">
+          <div class="frame-bar" style="height:24px; justify-content:center;"><span style="width:46px;height:5px;border-radius:3px;background:var(--hairline-strong);display:block;"></span></div>
+          <img src="assets/mobile-diff.webp" alt="slop-review diff on a phone" width="520" height="1125" loading="lazy">
+        </div>
+      </div>
+      <div class="mode-card">
+        <div class="cap"><span class="pill">Terminal thread</span></div>
+        <div class="frame">
+          <div class="frame-bar"><div class="lights"><i></i><i></i><i></i></div><div class="term-label">zsh &mdash; carbonyl</div></div>
+          <img src="assets/carbonyl-thread.webp" alt="A review thread open inside the terminal via Carbonyl" width="1100" height="858" loading="lazy">
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="band wrap" id="keys">
+    <div class="section-head reveal">
+      <div class="kicker">Keyboard-first</div>
+      <h2 class="section-title">The whole loop, on the home row.</h2>
+      <p>The same bindings work in a regular browser and in Carbonyl.</p>
+    </div>
+    <div class="keys reveal">
+      <table>
+        <tr><td class="kcol"><kbd>j</kbd><kbd>k</kbd></td><td>Move cursor down / up a line (<kbd>J</kbd><kbd>K</kbd> for five)</td><td class="cb"><span class="yes">carbonyl &#10003;</span></td></tr>
+        <tr><td class="kcol"><kbd>c</kbd><kbd>C</kbd></td><td>Comment on the new-side / old-side line</td><td class="cb"><span class="yes">&#10003;</span></td></tr>
+        <tr><td class="kcol"><kbd>v</kbd><kbd>V</kbd></td><td>Start a visual-line selection</td><td class="cb"><span class="yes">&#10003;</span></td></tr>
+        <tr><td class="kcol"><kbd>y</kbd></td><td>Copy a permalink to the cursor line</td><td class="cb"><span class="yes">&#10003;</span></td></tr>
+        <tr><td class="kcol"><kbd>r</kbd></td><td>Toggle the cursor row's file as reviewed</td><td class="cb"><span class="yes">&#10003;</span></td></tr>
+        <tr><td class="kcol"><kbd>n</kbd><kbd>N</kbd></td><td>Jump to next / previous thread in view</td><td class="cb"><span class="yes">&#10003;</span></td></tr>
+        <tr><td class="kcol"><kbd>p</kbd></td><td>Peek HEAD for the cursor row (commit view)</td><td class="cb"><span class="yes">&#10003;</span></td></tr>
+        <tr><td class="kcol"><kbd>e</kbd></td><td>Expand context lines around the hunk</td><td class="cb"><span class="yes">&#10003;</span></td></tr>
+        <tr><td class="kcol"><kbd>&#8984;/Ctrl</kbd><kbd>&#8629;</kbd></td><td>Submit the comment editor</td><td class="cb">use <kbd>;;</kbd></td></tr>
+        <tr><td class="kcol"><kbd>&#8679;</kbd><kbd>&larr;</kbd><kbd>&rarr;</kbd></td><td>Step between commit / full / local</td><td class="cb">use <kbd>&#8249;</kbd> <kbd>&#8250;</kbd></td></tr>
+      </table>
+    </div>
+  </section>
+
+  <section class="band wrap" id="install">
+    <div class="section-head reveal">
+      <div class="kicker">Getting started</div>
+      <h2 class="section-title">One command inside any git repo.</h2>
+      <p>The cwd is auto-bootstrapped as the review target, the server picks a free port, and your browser opens. Threads live in <code>.reviews/</code>, gitignore it to keep them local.</p>
+    </div>
+    <div class="install-grid reveal">
+      <div class="icard">
+        <h4>Run it</h4>
+        <p>No install, no config. Node &ge; 20 and <code>git</code> on PATH.</p>
+        <div class="code"><span class="k">cd</span> /path/to/your-feature-branch
+<span class="k">npx</span> slop-review</div>
+      </div>
+      <div class="icard">
+        <h4>Terminal mode</h4>
+        <p>Render the UI straight into your TTY via Carbonyl.</p>
+        <div class="code"><span class="c"># macOS, via the genkio/tap homebrew tap</span>
+<span class="k">brew</span> install genkio/tap/carbonyl
+<span class="k">slop-review</span> --carbonyl</div>
+      </div>
+      <div class="icard">
+        <h4>Teach your agent</h4>
+        <p>Install the bundled skill so an LLM can play reviewer or reviewee.</p>
+        <div class="code"><span class="k">npx</span> skills add genkio/slop-review</div>
+      </div>
+      <div class="icard">
+        <h4>Sync a GitHub PR</h4>
+        <p>Mirror unresolved PR threads into local, then open the UI.</p>
+        <div class="code"><span class="k">slop-review</span> --sync --browser</div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap foot-in">
+    <div class="brand"><span class="bug">🐛</span> slop-review</div>
+    <div class="foot-links">
+      <a href="https://github.com/genkio/slop-review" target="_blank" rel="noopener">GitHub</a>
+      <a href="https://www.npmjs.com/package/slop-review" target="_blank" rel="noopener">npm</a>
+      <a href="https://github.com/genkio/slop-review#readme" target="_blank" rel="noopener">Docs</a>
+      <a href="https://github.com/fathyb/carbonyl" target="_blank" rel="noopener">Carbonyl</a>
+    </div>
+    <div class="foot-note">built by genkio</div>
+  </div>
+</footer>
+
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<script>
+(function () {
+  var root = document.documentElement
+  var reveals = document.querySelectorAll('.reveal')
+  function revealAll() { reveals.forEach(function (el) { el.classList.add('in') }) }
+
+  // Reveal-on-scroll, with a hard fallback: if IntersectionObserver is missing
+  // or throws, show everything immediately so content is never stuck hidden.
+  try {
+    if ('IntersectionObserver' in window) {
+      var io = new IntersectionObserver(function (entries) {
+        entries.forEach(function (e) { if (e.isIntersecting) { e.target.classList.add('in'); io.unobserve(e.target) } })
+      }, { rootMargin: '0px', threshold: 0 })
+      reveals.forEach(function (el) { io.observe(el) })
+    } else { revealAll() }
+  } catch (e) { revealAll() }
+
+  // theme toggle, with state exposed to assistive tech
+  var t = document.getElementById('theme')
+  function syncTheme() {
+    var light = root.dataset.theme === 'light'
+    t.setAttribute('aria-pressed', String(light))
+    t.setAttribute('aria-label', light ? 'Switch to dark theme' : 'Switch to light theme')
+  }
+  syncTheme()
+  t.addEventListener('click', function () {
+    root.dataset.theme = root.dataset.theme === 'dark' ? 'light' : 'dark'
+    try { localStorage.setItem('slop-theme', root.dataset.theme) } catch (e) {}
+    syncTheme()
+  })
+
+  var nav = document.querySelector('header.nav')
+  var onScroll = function () { nav.classList.toggle('scrolled', window.scrollY > 12) }
+  onScroll(); window.addEventListener('scroll', onScroll, { passive: true })
+
+  var toast = document.getElementById('toast')
+  function flash(msg) { toast.textContent = msg; toast.classList.add('show'); setTimeout(function(){ toast.classList.remove('show') }, 1400) }
+  document.getElementById('copy-install').addEventListener('click', function () {
+    navigator.clipboard.writeText('npx slop-review').then(function(){ flash('Copied: npx slop-review') }).catch(function(){ flash('npx slop-review') })
+  })
+})();
+</script>
+</body>
+</html>
