@@ -4,6 +4,7 @@
 [![npm downloads](https://img.shields.io/npm/dm/slop-review)](https://www.npmjs.com/package/slop-review)
 [![node](https://img.shields.io/node/v/slop-review)](https://nodejs.org)
 [![dependencies](https://img.shields.io/badge/dependencies-0-brightgreen)](package.json)
+[![website](https://img.shields.io/badge/website-genkio.github.io-5b6cff)](https://genkio.github.io/slop-review/)
 
 Local PR-review loop for you and your LLM. Run it in any git repo: leave inline comments on the diff, then hand the threads to an LLM (Claude Code, Cursor, Codex, etc.) acting as reviewer or reviewee via the bundled skill. Comments are JSON files under `<repo>/.reviews/` - no clipboard handoff, no running server required for the agent loop.
 
