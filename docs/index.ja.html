@@ -1,14 +1,14 @@
 <!doctype html>
-<html lang="en" data-theme="dark">
+<html lang="ja" data-theme="dark">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>slop-review the PR review loop for you and your LLM</title>
-<meta name="description" content="Open any git branch, leave inline comments on the diff, then hand the threads to your LLM. Runs in your browser or straight in your terminal via Carbonyl. Zero dependencies.">
+<title>slop-review あなたとLLMのためのPRレビューループ</title>
+<meta name="description" content="任意のgitブランチを開き、差分にインラインコメントを残して、そのスレッドをLLMに引き渡す。ブラウザでも、Carbonyl経由でターミナル内でも動作。依存ゼロ。">
 <meta property="og:title" content="slop-review">
-<meta property="og:description" content="A local pull-request review loop for you and your coding agent. Browser or terminal. Zero dependencies.">
+<meta property="og:description" content="あなたとコーディングエージェントのためのローカルなプルリクエストレビューループ。ブラウザでもターミナルでも。依存ゼロ。">
 <meta property="og:type" content="website">
-<link rel="canonical" href="https://genkio.github.io/slop-review/index.html">
+<link rel="canonical" href="https://genkio.github.io/slop-review/index.ja.html">
 <link rel="alternate" hreflang="en" href="https://genkio.github.io/slop-review/index.html">
 <link rel="alternate" hreflang="zh-Hans" href="https://genkio.github.io/slop-review/index.zh.html">
 <link rel="alternate" hreflang="ja" href="https://genkio.github.io/slop-review/index.ja.html">
@@ -232,16 +232,16 @@ section.band#keys, section.band#install { border-top:1px solid var(--hairline); 
   <div class="wrap nav-in">
     <a class="brand" href="#top"><span class="bug">🐛</span> slop-review</a>
     <nav class="nav-links">
-      <a class="navlink hide-sm" href="#modes">Modes</a>
-      <a class="navlink hide-sm" href="#features">Features</a>
-      <a class="navlink hide-sm" href="#keys">Keys</a>
-      <a class="navlink hide-sm" href="#install">Install</a>
-      <span class="lang-switch" role="group" aria-label="Language">
-        <a class="navlink lang" href="index.html" hreflang="en" lang="en" aria-current="page">EN</a>
+      <a class="navlink hide-sm" href="#modes">モード</a>
+      <a class="navlink hide-sm" href="#features">機能</a>
+      <a class="navlink hide-sm" href="#keys">キー</a>
+      <a class="navlink hide-sm" href="#install">インストール</a>
+      <span class="lang-switch" role="group" aria-label="言語">
+        <a class="navlink lang" href="index.html" hreflang="en" lang="en">EN</a>
         <a class="navlink lang" href="index.zh.html" hreflang="zh-Hans" lang="zh-Hans">中文</a>
-        <a class="navlink lang" href="index.ja.html" hreflang="ja" lang="ja">日本語</a>
+        <a class="navlink lang" href="index.ja.html" hreflang="ja" lang="ja" aria-current="page">日本語</a>
       </span>
-      <button class="icon-btn" id="theme" title="Toggle theme" aria-label="Toggle theme">&#9680;</button>
+      <button class="icon-btn" id="theme" title="テーマを切り替え" aria-label="テーマを切り替え">&#9680;</button>
       <a class="btn" href="https://github.com/genkio/slop-review" target="_blank" rel="noopener">&#9733; GitHub</a>
     </nav>
   </div>
@@ -249,21 +249,21 @@ section.band#keys, section.band#install { border-top:1px solid var(--hairline); 
 
 <main id="top">
   <section class="hero wrap">
-    <span class="eyebrow"><span class="dot"></span> Local PR-review loop &middot; human <b>&harr;</b> LLM</span>
-    <h1 class="hero-title">Review your branch like a PR. <span class="grad">Hand the threads to your agent.</span></h1>
-    <p class="hero-sub">Run it in any git repo: leave inline comments on the diff, then hand the threads to your LLM acting as reviewer or reviewee via a bundled skill. Comments are plain JSON under <code>.reviews/</code> &mdash; no clipboard handoff, no server required for the agent loop.</p>
+    <span class="eyebrow"><span class="dot"></span> ローカルPRレビューループ &middot; 人間 <b>&harr;</b> LLM</span>
+    <h1 class="hero-title">ブランチをPRのようにレビュー。 <span class="grad">スレッドはエージェントに引き渡す。</span></h1>
+    <p class="hero-sub">どんなgitリポジトリでも実行可能: 差分にインラインコメントを残し、同梱のスキル経由でレビュアーまたはレビュイーとして振る舞うLLMにスレッドを引き渡す。コメントは <code>.reviews/</code> 配下のプレーンなJSON &mdash; クリップボードでの受け渡しも、エージェントループのためのサーバーも不要。</p>
     <div class="cta">
       <div class="install">
         <span class="dollar">$</span>
         <span class="cmd mono"><b>npx</b> slop-review</span>
-        <button id="copy-install" title="Copy" aria-label="Copy npx slop-review to clipboard"><span aria-hidden="true">&#10697;</span></button>
+        <button id="copy-install" title="コピー" aria-label="npx slop-review をクリップボードにコピー"><span aria-hidden="true">&#10697;</span></button>
       </div>
-      <a class="btn primary" href="#install">Get started</a>
+      <a class="btn primary" href="#install">はじめる</a>
     </div>
     <div class="hero-meta">
-      <span><span class="dot"></span> 0 runtime dependencies</span>
+      <span><span class="dot"></span> ランタイム依存ゼロ</span>
       <span class="mono">Node &ge; 20</span>
-      <span class="mono">browser <b style="color:var(--accent)">or</b> terminal</span>
+      <span class="mono">ブラウザ <b style="color:var(--accent)">または</b> ターミナル</span>
       <span class="mono">node:http only</span>
     </div>
   </section>
@@ -271,29 +271,29 @@ section.band#keys, section.band#install { border-top:1px solid var(--hairline); 
   <div class="hero-shot wrap reveal">
     <div class="frame">
       <div class="frame-bar"><div class="lights"><i></i><i></i><i></i></div><div class="frame-url">localhost:9410 &mdash; slop-review &mdash; feat/search-ranking</div></div>
-      <img src="assets/hero-full-diff.webp" alt="slop-review full-diff view: importance-ordered files, side-by-side diff with inline comment threads" width="1600" height="1003" loading="eager">
+      <img src="assets/hero-full-diff.webp" alt="slop-review の全差分ビュー: 重要度順に並んだファイル、インラインコメントスレッド付きの並列差分" width="1600" height="1003" loading="eager">
     </div>
   </div>
 
   <section class="band wrap" id="modes">
     <div class="section-head reveal">
-      <div class="kicker">One page, two renderers</div>
-      <h2 class="section-title">In your browser. Or straight in your terminal.</h2>
-      <p>The same keyboard-driven review UI runs as a local web app, and fully inside your terminal via <a style="color:var(--accent)" href="https://github.com/fathyb/carbonyl" target="_blank" rel="noopener">Carbonyl</a> &mdash; a Chromium fork that paints into the TTY. No window switch, no context loss. Nearly every keybinding carries over (two modifier chords use terminal-friendly substitutes).</p>
+      <div class="kicker">1つのページ、2つのレンダラー</div>
+      <h2 class="section-title">ブラウザの中で。あるいはそのままターミナルの中で。</h2>
+      <p>同じキーボード駆動のレビューUIが、ローカルWebアプリとして動作し、<a style="color:var(--accent)" href="https://github.com/fathyb/carbonyl" target="_blank" rel="noopener">Carbonyl</a> 経由でターミナル内でも完全に動作します &mdash; TTYに描画するChromiumフォークです。ウィンドウの切り替えも、コンテキストの喪失もありません。ほぼすべてのキーバインドがそのまま使えます(2つの修飾キーコードはターミナルに優しい代替を使用)。</p>
     </div>
     <div class="modes reveal">
       <div class="mode-card">
-        <div class="cap"><span class="pill">Browser</span><h3>The full GUI, zero setup</h3></div>
+        <div class="cap"><span class="pill">ブラウザ</span><h3>フル機能のGUI、セットアップ不要</h3></div>
         <div class="frame">
           <div class="frame-bar"><div class="lights"><i></i><i></i><i></i></div><div class="frame-url">localhost:9410</div></div>
-          <img src="assets/commit-view.webp" alt="slop-review per-commit diff in the browser" width="1600" height="1003" loading="lazy">
+          <img src="assets/commit-view.webp" alt="ブラウザでの slop-review のコミット単位の差分" width="1600" height="1003" loading="lazy">
         </div>
       </div>
       <div class="mode-card">
-        <div class="cap"><span class="pill">Terminal</span><h3><code style="font-size:.8em">--carbonyl</code> keeps it in one pane</h3></div>
+        <div class="cap"><span class="pill">ターミナル</span><h3><code style="font-size:.8em">--carbonyl</code> で1つのペインに収める</h3></div>
         <div class="frame">
           <div class="frame-bar"><div class="lights"><i></i><i></i><i></i></div><div class="term-label">zsh &mdash; carbonyl</div></div>
-          <img src="assets/carbonyl-diff.webp" alt="slop-review diff rendered inside the terminal via Carbonyl" width="1100" height="858" loading="lazy">
+          <img src="assets/carbonyl-diff.webp" alt="Carbonyl 経由でターミナル内に描画された slop-review の差分" width="1100" height="858" loading="lazy">
         </div>
       </div>
     </div>
@@ -301,154 +301,154 @@ section.band#keys, section.band#install { border-top:1px solid var(--hairline); 
 
   <div class="wrap" id="features">
     <div class="section-head reveal">
-      <div class="kicker">Highlights</div>
-      <h2 class="section-title">Built for the review loop, not just diff-staring.</h2>
-      <p>Nine things slop-review does that a plain diff viewer doesn't.</p>
+      <div class="kicker">ハイライト</div>
+      <h2 class="section-title">差分を眺めるだけでなく、レビューループのために作られた。</h2>
+      <p>ただの差分ビューアにはできない、slop-review の9つの機能。</p>
     </div>
 
     <div class="feature reveal">
       <div class="feat-text">
-        <div class="num">01 / Importance-ordered files</div>
-        <h3>Land on the load-bearing edits first.</h3>
-        <p>Every diff sorts files by how central they are to the change set, not alphabetically. You start at the code that matters and walk outward to the tests and docs.</p>
+        <div class="num">01 / 重要度順のファイル</div>
+        <h3>まず核心となる変更にたどり着く。</h3>
+        <p>すべての差分は、アルファベット順ではなく、変更セットにおける中心度でファイルを並べ替えます。重要なコードから始め、テストやドキュメントへと外側に進んでいきます。</p>
         <ul class="feat-points">
-          <li>Incoming reference count: how many other changed files import this one</li>
-          <li>Then status (modified before added before removed)</li>
-          <li>Then source before support files (tests, docs, fixtures, configs), then path</li>
+          <li>被参照数: 他のいくつの変更ファイルがこのファイルをインポートしているか</li>
+          <li>次にステータス(修正、追加、削除の順)</li>
+          <li>次にサポートファイル(テスト、ドキュメント、フィクスチャ、設定)よりソースを優先、その後パス順</li>
         </ul>
       </div>
       <div class="feat-media">
-        <div class="frame"><div class="frame-bar"><div class="lights"><i></i><i></i><i></i></div><div class="frame-url">localhost:9410 &mdash; full diff</div></div><img src="assets/importance-order.webp" alt="Files sorted by reference count: parser.ts and types.ts first" width="1600" height="1003" loading="lazy"></div>
+        <div class="frame"><div class="frame-bar"><div class="lights"><i></i><i></i><i></i></div><div class="frame-url">localhost:9410 &mdash; full diff</div></div><img src="assets/importance-order.webp" alt="被参照数で並べ替えられたファイル: parser.ts と types.ts が先頭" width="1600" height="1003" loading="lazy"></div>
       </div>
     </div>
 
     <div class="feature reveal">
       <div class="feat-text">
-        <div class="num">02 / Vim keys + which-key hint bar</div>
-        <h3>Drive the whole review from the home row.</h3>
-        <p>Single-letter verbs handle comment, copy, deep-link, peek and delete, without leaving the keyboard. A which-key hint bar reveals on the first keypress and re-renders on every state change, showing only the keys live for your current row.</p>
+        <div class="num">02 / Vimキー + which-keyヒントバー</div>
+        <h3>レビュー全体をホームポジションから操作。</h3>
+        <p>1文字の動詞でコメント、コピー、ディープリンク、ピーク、削除を処理。キーボードから手を離す必要はありません。which-keyヒントバーは最初のキー入力で現れ、状態が変わるたびに再描画され、現在の行で有効なキーだけを表示します。</p>
         <ul class="feat-points">
-          <li>Hidden hints are strict no-ops, so the bar never advertises a dead key</li>
-          <li><code>j</code>/<code>k</code> move, <code>c</code> comment, <code>n</code> next thread, <code>r</code> reviewed, <code>p</code> peek HEAD</li>
+          <li>隠れたヒントは厳密に何もしないため、バーが死んだキーを案内することはありません</li>
+          <li><code>j</code>/<code>k</code> 移動、<code>c</code> コメント、<code>n</code> 次のスレッド、<code>r</code> レビュー済み、<code>p</code> HEADをピーク</li>
         </ul>
       </div>
       <div class="feat-media">
-        <div class="frame"><div class="frame-bar"><div class="lights"><i></i><i></i><i></i></div><div class="frame-url">localhost:9410</div></div><img src="assets/keymap-hint.webp" alt="The context-aware which-key hint bar along the bottom of the diff" width="1600" height="1003" loading="lazy"></div>
+        <div class="frame"><div class="frame-bar"><div class="lights"><i></i><i></i><i></i></div><div class="frame-url">localhost:9410</div></div><img src="assets/keymap-hint.webp" alt="差分の下部に表示される、コンテキストに応じた which-key ヒントバー" width="1600" height="1003" loading="lazy"></div>
       </div>
     </div>
 
     <div class="feature reveal">
       <div class="feat-text">
-        <div class="num">03 / Comment anywhere</div>
-        <h3>Inline threads on the new side or the old.</h3>
-        <p>Press <code>c</code> to open the comment editor on the cursor line, or <code>v</code> to select a range first. Single-line or multi-line, new-side or old-side, threads work identically across all three diff modes.</p>
+        <div class="num">03 / どこにでもコメント</div>
+        <h3>新しい側にも古い側にもインラインスレッド。</h3>
+        <p><code>c</code> を押すとカーソル行でコメントエディタが開きます。あるいは先に <code>v</code> で範囲を選択します。単一行でも複数行でも、新しい側でも古い側でも、スレッドは3つの差分モードすべてで同じように機能します。</p>
       </div>
       <div class="feat-media">
-        <div class="frame"><div class="frame-bar"><div class="lights"><i></i><i></i><i></i></div><div class="frame-url">localhost:9410 &mdash; src/search.ts</div></div><img src="assets/comment-editor.webp" alt="The inline comment editor open on a diff line" width="1600" height="1003" loading="lazy"></div>
+        <div class="frame"><div class="frame-bar"><div class="lights"><i></i><i></i><i></i></div><div class="frame-url">localhost:9410 &mdash; src/search.ts</div></div><img src="assets/comment-editor.webp" alt="差分の行で開いたインラインコメントエディタ" width="1600" height="1003" loading="lazy"></div>
       </div>
     </div>
 
     <div class="feature reveal">
       <div class="feat-text">
-        <div class="num">04 / LLM in the loop</div>
-        <h3>Hand the threads to your coding agent.</h3>
-        <p>A bundled Claude Code skill lets an agent play reviewer (leave inline comments) or reviewee (address open threads, edit source, reply) by reading and writing the <code>.reviews/</code> JSON directly. No HTTP API, no running server.</p>
-        <div class="code"><span class="c"># install the skill, then just ask in plain language</span>
+        <div class="num">04 / ループの中のLLM</div>
+        <h3>スレッドをコーディングエージェントに引き渡す。</h3>
+        <p>同梱の Claude Code スキルにより、エージェントが <code>.reviews/</code> のJSONを直接読み書きして、レビュアー(インラインコメントを残す)またはレビュイー(未解決スレッドに対応し、ソースを編集し、返信する)として振る舞えます。HTTP APIも、稼働中のサーバーも不要。</p>
+        <div class="code"><span class="c"># スキルをインストールし、あとは普通の言葉で頼むだけ</span>
 <span class="k">npx</span> skills add genkio/slop-review
 
-<span class="c"># "address the open slop-review threads"</span>
-<span class="c"># "act as reviewer for this branch"</span></div>
+<span class="c"># "未解決の slop-review スレッドに対応して"</span>
+<span class="c"># "このブランチのレビュアーとして振る舞って"</span></div>
       </div>
       <div class="feat-media">
-        <div class="frame"><div class="frame-bar"><div class="lights"><i></i><i></i><i></i></div><div class="frame-url">localhost:9410 &mdash; thread</div></div><img src="assets/thread-llm.webp" alt="A review thread: a reviewer question and the agent's reply" width="1600" height="1003" loading="lazy"></div>
+        <div class="frame"><div class="frame-bar"><div class="lights"><i></i><i></i><i></i></div><div class="frame-url">localhost:9410 &mdash; thread</div></div><img src="assets/thread-llm.webp" alt="レビュースレッド: レビュアーの質問とエージェントの返信" width="1600" height="1003" loading="lazy"></div>
       </div>
     </div>
 
     <div class="feature reveal">
       <div class="feat-text">
-        <div class="num">05 / Blob-keyed reviewed marks</div>
-        <h3>Sign off on a file. Keep it green until it actually changes.</h3>
-        <p>Click a file header to mark it reviewed (and collapse it). The mark is keyed to that file's blob SHA at marking time, so a later push that touches <em>one</em> file invalidates only its mark. Every untouched file stays green.</p>
+        <div class="num">05 / blob単位のレビュー済みマーク</div>
+        <h3>ファイルを承認。実際に変更されるまで緑のまま。</h3>
+        <p>ファイルヘッダーをクリックしてレビュー済みにマーク(そして折りたたみ)します。マークはマーク時点のそのファイルのblob SHAに紐づくため、後で <em>1つ</em> のファイルに触れるプッシュがあっても、そのマークだけが無効になります。触れられていないファイルはすべて緑のままです。</p>
         <ul class="feat-points">
-          <li>Per-commit marking is gated to "no later changes", so you never sign off on content you weren't looking at</li>
-          <li><code>p</code> peeks the file at HEAD without leaving the commit view</li>
+          <li>コミット単位のマークは「以降の変更がない」ことが条件なので、見ていなかった内容を承認してしまうことはありません</li>
+          <li><code>p</code> でコミットビューを離れずにHEADのファイルをピークできます</li>
         </ul>
       </div>
       <div class="feat-media">
-        <div class="frame"><div class="frame-bar"><div class="lights"><i></i><i></i><i></i></div><div class="frame-url">localhost:9410 &mdash; 4/8 reviewed</div></div><img src="assets/reviewed-marks.webp" alt="Files collapsed to green reviewed headers" width="1600" height="1003" loading="lazy"></div>
-        <div class="frame"><div class="frame-bar"><div class="lights"><i></i><i></i><i></i></div><div class="frame-url">peek HEAD</div></div><img src="assets/head-peek.webp" alt="The Peek HEAD modal showing the file's current state from a commit view" width="1600" height="1003" loading="lazy"></div>
+        <div class="frame"><div class="frame-bar"><div class="lights"><i></i><i></i><i></i></div><div class="frame-url">localhost:9410 &mdash; 4/8 reviewed</div></div><img src="assets/reviewed-marks.webp" alt="緑のレビュー済みヘッダーに折りたたまれたファイル" width="1600" height="1003" loading="lazy"></div>
+        <div class="frame"><div class="frame-bar"><div class="lights"><i></i><i></i><i></i></div><div class="frame-url">peek HEAD</div></div><img src="assets/head-peek.webp" alt="コミットビューからファイルの現在の状態を表示する Peek HEAD モーダル" width="1600" height="1003" loading="lazy"></div>
       </div>
     </div>
 
     <div class="feature reveal">
       <div class="feat-text">
-        <div class="num">06 / Cross-file symbol panel</div>
-        <h3>Double-click an identifier, see every occurrence.</h3>
-        <p>Double-click any identifier in the diff to list every occurrence across changed files, with the active row highlighted in place. Open a second symbol and the first parks into a right-edge strip, match list and jump history preserved, so you can pivot between concurrent searches without losing context.</p>
+        <div class="num">06 / ファイル横断のシンボルパネル</div>
+        <h3>識別子をダブルクリックすれば、すべての出現箇所が見える。</h3>
+        <p>差分内の任意の識別子をダブルクリックすると、変更されたファイル全体での出現箇所がすべて一覧表示され、アクティブな行はその場でハイライトされます。2つ目のシンボルを開くと、1つ目は右端のストリップに退避し、マッチ一覧とジャンプ履歴は保持されるため、コンテキストを失わずに同時進行の検索を切り替えられます。</p>
       </div>
       <div class="feat-media">
-        <div class="frame"><div class="frame-bar"><div class="lights"><i></i><i></i><i></i></div><div class="frame-url">localhost:9410 &mdash; symbol: Note</div></div><img src="assets/symbol-panel.webp" alt="The cross-file symbol panel listing occurrences of an identifier across files" width="1600" height="1003" loading="lazy"></div>
+        <div class="frame"><div class="frame-bar"><div class="lights"><i></i><i></i><i></i></div><div class="frame-url">localhost:9410 &mdash; symbol: Note</div></div><img src="assets/symbol-panel.webp" alt="ファイル横断で識別子の出現箇所を一覧表示するシンボルパネル" width="1600" height="1003" loading="lazy"></div>
       </div>
     </div>
 
     <div class="feature reveal">
       <div class="feat-text">
-        <div class="num">07 / Three diff modes, one page</div>
-        <h3>Full branch, any commit, or your working copy.</h3>
-        <p>Cumulative diff vs base, any single commit, or the local working-copy diff. <code>Shift+&larr;</code> / <code>Shift+&rarr;</code> steps between them; comments work in all three. Cold launch resumes the last view for the branch, or falls back to a sensible per-commit default.</p>
+        <div class="num">07 / 3つの差分モード、1つのページ</div>
+        <h3>ブランチ全体、任意のコミット、あるいは作業コピー。</h3>
+        <p>ベースとの累積差分、任意の単一コミット、またはローカルの作業コピーの差分。<code>Shift+&larr;</code> / <code>Shift+&rarr;</code> でこれらを切り替えられ、コメントは3つすべてで機能します。コールドスタート時はそのブランチの最後のビューを再開するか、適切なコミット単位のデフォルトにフォールバックします。</p>
       </div>
       <div class="feat-media">
-        <div class="frame"><div class="frame-bar"><div class="lights"><i></i><i></i><i></i></div><div class="frame-url">localhost:9410 &mdash; local working copy</div></div><img src="assets/local-view.webp" alt="The local working-copy diff view" width="1600" height="1003" loading="lazy"></div>
+        <div class="frame"><div class="frame-bar"><div class="lights"><i></i><i></i><i></i></div><div class="frame-url">localhost:9410 &mdash; local working copy</div></div><img src="assets/local-view.webp" alt="ローカルの作業コピーの差分ビュー" width="1600" height="1003" loading="lazy"></div>
       </div>
     </div>
 
     <div class="feature reveal">
       <div class="feat-text">
-        <div class="num">08 / One-way GitHub sync</div>
-        <h3>Pull unresolved PR threads down to local.</h3>
-        <p><code>slop-review --sync</code> mirrors the unresolved review threads from your branch's GitHub PR into local threads, keeping each GitHub author. Re-running mirrors GitHub: new replies flow in, resolved threads are deleted locally, and anything you've touched locally is flagged so your edits stay put &mdash; new GitHub replies still append, but your work is never overwritten.</p>
+        <div class="num">08 / 一方向のGitHub同期</div>
+        <h3>未解決のPRスレッドをローカルに取り込む。</h3>
+        <p><code>slop-review --sync</code> は、ブランチのGitHub PRから未解決のレビュースレッドをローカルスレッドにミラーし、各GitHubの作者を保持します。再実行するとGitHubをミラーします: 新しい返信が流れ込み、解決済みのスレッドはローカルで削除され、ローカルで触れたものはフラグが立てられて編集内容が保持されます &mdash; 新しいGitHubの返信は引き続き追記されますが、あなたの作業が上書きされることはありません。</p>
         <ul class="feat-points">
-          <li>Synced threads carry a <b style="color:var(--accent)">GitHub</b> badge and link back to the original comment</li>
-          <li>Keeps re-syncing every 5 min while the UI stays open</li>
+          <li>同期されたスレッドには <b style="color:var(--accent)">GitHub</b> バッジが付き、元のコメントへリンクします</li>
+          <li>UIを開いている間は5分ごとに再同期し続けます</li>
         </ul>
       </div>
       <div class="feat-media">
-        <div class="frame"><div class="frame-bar"><div class="lights"><i></i><i></i><i></i></div><div class="frame-url">localhost:9410 &mdash; synced thread</div></div><img src="assets/thread-github.webp" alt="A GitHub-synced thread showing the GitHub badge and original authors" width="1600" height="1003" loading="lazy"></div>
+        <div class="frame"><div class="frame-bar"><div class="lights"><i></i><i></i><i></i></div><div class="frame-url">localhost:9410 &mdash; synced thread</div></div><img src="assets/thread-github.webp" alt="GitHubバッジと元の作者を表示する、GitHub同期されたスレッド" width="1600" height="1003" loading="lazy"></div>
       </div>
     </div>
 
     <div class="feature reveal">
       <div class="feat-text">
-        <div class="num">09 / Branch overview on demand</div>
-        <h3>An LLM-generated map of the change set.</h3>
-        <p>The Overview modal generates a branch summary on demand using <code>codex exec</code> or <code>claude</code>: what changed, the mental model, before/after behavior, and a small architecture sketch rendered as a diagram.</p>
+        <div class="num">09 / オンデマンドのブランチ概要</div>
+        <h3>LLMが生成する変更セットのマップ。</h3>
+        <p>概要モーダルは、<code>codex exec</code> または <code>claude</code> を使ってオンデマンドでブランチの要約を生成します: 何が変わったか、メンタルモデル、変更前後の挙動、そして図として描画された小さなアーキテクチャのスケッチ。</p>
       </div>
       <div class="feat-media">
-        <div class="frame"><div class="frame-bar"><div class="lights"><i></i><i></i><i></i></div><div class="frame-url">localhost:9410 &mdash; overview</div></div><img src="assets/overview-modal.webp" alt="The branch overview modal with numbered what-changed cards" width="1600" height="1003" loading="lazy"></div>
-        <div class="frame"><div class="frame-bar"><div class="lights"><i></i><i></i><i></i></div><div class="frame-url">overview &mdash; sketch</div></div><img src="assets/overview-sketch.webp" alt="The overview architecture sketch rendered as a node diagram" width="1600" height="1003" loading="lazy"></div>
+        <div class="frame"><div class="frame-bar"><div class="lights"><i></i><i></i><i></i></div><div class="frame-url">localhost:9410 &mdash; overview</div></div><img src="assets/overview-modal.webp" alt="番号付きの変更内容カードを備えたブランチ概要モーダル" width="1600" height="1003" loading="lazy"></div>
+        <div class="frame"><div class="frame-bar"><div class="lights"><i></i><i></i><i></i></div><div class="frame-url">overview &mdash; sketch</div></div><img src="assets/overview-sketch.webp" alt="ノード図として描画された概要のアーキテクチャスケッチ" width="1600" height="1003" loading="lazy"></div>
       </div>
     </div>
   </div>
 
   <section class="band wrap">
     <div class="section-head reveal">
-      <div class="kicker">Everywhere you review</div>
-      <h2 class="section-title">Reads great on a phone. Reviews great in a terminal.</h2>
-      <p>The diff collapses to a single readable column on small screens, and the whole review loop, threads, replies, the <code>;;</code> submit chord, works inside Carbonyl.</p>
+      <div class="kicker">レビューする、あらゆる場所で</div>
+      <h2 class="section-title">スマホで読みやすく。ターミナルでレビューしやすく。</h2>
+      <p>小さな画面では差分が読みやすい1カラムに折りたたまれ、スレッド、返信、<code>;;</code> の送信コードを含むレビューループ全体が Carbonyl 内で機能します。</p>
     </div>
     <div class="modes everywhere reveal">
       <div class="mode-card" style="display:flex; flex-direction:column; align-items:center;">
-        <div class="cap" style="justify-content:center;"><span class="pill">Mobile web</span></div>
+        <div class="cap" style="justify-content:center;"><span class="pill">モバイルWeb</span></div>
         <div class="frame" style="max-width:300px; border-radius:22px;">
           <div class="frame-bar" style="height:24px; justify-content:center;"><span style="width:46px;height:5px;border-radius:3px;background:var(--hairline-strong);display:block;"></span></div>
-          <img src="assets/mobile-diff.webp" alt="slop-review diff on a phone" width="520" height="1125" loading="lazy">
+          <img src="assets/mobile-diff.webp" alt="スマホ上の slop-review の差分" width="520" height="1125" loading="lazy">
         </div>
       </div>
       <div class="mode-card">
-        <div class="cap"><span class="pill">Terminal thread</span></div>
+        <div class="cap"><span class="pill">ターミナルのスレッド</span></div>
         <div class="frame">
           <div class="frame-bar"><div class="lights"><i></i><i></i><i></i></div><div class="term-label">zsh &mdash; carbonyl</div></div>
-          <img src="assets/carbonyl-thread.webp" alt="A review thread open inside the terminal via Carbonyl" width="1100" height="858" loading="lazy">
+          <img src="assets/carbonyl-thread.webp" alt="Carbonyl 経由でターミナル内に開かれたレビュースレッド" width="1100" height="858" loading="lazy">
         </div>
       </div>
     </div>
@@ -456,54 +456,54 @@ section.band#keys, section.band#install { border-top:1px solid var(--hairline); 
 
   <section class="band wrap" id="keys">
     <div class="section-head reveal">
-      <div class="kicker">Keyboard-first</div>
-      <h2 class="section-title">The whole loop, on the home row.</h2>
-      <p>The same bindings work in a regular browser and in Carbonyl.</p>
+      <div class="kicker">キーボードファースト</div>
+      <h2 class="section-title">ループ全体を、ホームポジションで。</h2>
+      <p>同じバインドが通常のブラウザでも Carbonyl でも機能します。</p>
     </div>
     <div class="keys reveal">
       <table>
-        <tr><td class="kcol"><kbd>j</kbd><kbd>k</kbd></td><td>Move cursor down / up a line (<kbd>J</kbd><kbd>K</kbd> for five)</td><td class="cb"><span class="yes">carbonyl &#10003;</span></td></tr>
-        <tr><td class="kcol"><kbd>c</kbd><kbd>C</kbd></td><td>Comment on the new-side / old-side line</td><td class="cb"><span class="yes">&#10003;</span></td></tr>
-        <tr><td class="kcol"><kbd>v</kbd><kbd>V</kbd></td><td>Start a visual-line selection</td><td class="cb"><span class="yes">&#10003;</span></td></tr>
-        <tr><td class="kcol"><kbd>y</kbd></td><td>Copy a <code>path:line</code> reference to the cursor line</td><td class="cb"><span class="yes">&#10003;</span></td></tr>
-        <tr><td class="kcol"><kbd>r</kbd></td><td>Toggle the cursor row's file as reviewed</td><td class="cb"><span class="yes">&#10003;</span></td></tr>
-        <tr><td class="kcol"><kbd>n</kbd><kbd>N</kbd></td><td>Jump to next / previous thread in view</td><td class="cb"><span class="yes">&#10003;</span></td></tr>
-        <tr><td class="kcol"><kbd>p</kbd></td><td>Peek HEAD for the cursor row (commit view)</td><td class="cb"><span class="yes">&#10003;</span></td></tr>
-        <tr><td class="kcol"><kbd>e</kbd></td><td>Expand context lines around the hunk</td><td class="cb"><span class="yes">&#10003;</span></td></tr>
-        <tr><td class="kcol"><kbd>&#8984;/Ctrl</kbd><kbd>&#8629;</kbd></td><td>Submit the comment editor</td><td class="cb">use <kbd>;;</kbd></td></tr>
-        <tr><td class="kcol"><kbd>&#8679;</kbd><kbd>&larr;</kbd><kbd>&rarr;</kbd></td><td>Step between commit / full / local</td><td class="cb">use <kbd>&#8249;</kbd> <kbd>&#8250;</kbd></td></tr>
+        <tr><td class="kcol"><kbd>j</kbd><kbd>k</kbd></td><td>カーソルを1行下 / 上へ移動(<kbd>J</kbd><kbd>K</kbd> で5行)</td><td class="cb"><span class="yes">carbonyl &#10003;</span></td></tr>
+        <tr><td class="kcol"><kbd>c</kbd><kbd>C</kbd></td><td>新しい側 / 古い側の行にコメント</td><td class="cb"><span class="yes">&#10003;</span></td></tr>
+        <tr><td class="kcol"><kbd>v</kbd><kbd>V</kbd></td><td>ビジュアル行選択を開始</td><td class="cb"><span class="yes">&#10003;</span></td></tr>
+        <tr><td class="kcol"><kbd>y</kbd></td><td>カーソル行への <code>path:line</code> 参照をコピー</td><td class="cb"><span class="yes">&#10003;</span></td></tr>
+        <tr><td class="kcol"><kbd>r</kbd></td><td>カーソル行のファイルのレビュー済みを切り替え</td><td class="cb"><span class="yes">&#10003;</span></td></tr>
+        <tr><td class="kcol"><kbd>n</kbd><kbd>N</kbd></td><td>表示内の次 / 前のスレッドへジャンプ</td><td class="cb"><span class="yes">&#10003;</span></td></tr>
+        <tr><td class="kcol"><kbd>p</kbd></td><td>カーソル行のHEADをピーク(コミットビュー)</td><td class="cb"><span class="yes">&#10003;</span></td></tr>
+        <tr><td class="kcol"><kbd>e</kbd></td><td>ハンク周辺のコンテキスト行を展開</td><td class="cb"><span class="yes">&#10003;</span></td></tr>
+        <tr><td class="kcol"><kbd>&#8984;/Ctrl</kbd><kbd>&#8629;</kbd></td><td>コメントエディタを送信</td><td class="cb"><kbd>;;</kbd> を使用</td></tr>
+        <tr><td class="kcol"><kbd>&#8679;</kbd><kbd>&larr;</kbd><kbd>&rarr;</kbd></td><td>コミット / 全体 / ローカルを切り替え</td><td class="cb"><kbd>&#8249;</kbd> <kbd>&#8250;</kbd> を使用</td></tr>
       </table>
     </div>
   </section>
 
   <section class="band wrap" id="install">
     <div class="section-head reveal">
-      <div class="kicker">Getting started</div>
-      <h2 class="section-title">One command inside any git repo.</h2>
-      <p>The cwd is auto-bootstrapped as the review target, the server picks a free port, and your browser opens. Threads live in <code>.reviews/</code>, gitignore it to keep them local.</p>
+      <div class="kicker">はじめる</div>
+      <h2 class="section-title">どんなgitリポジトリでも、コマンド1つ。</h2>
+      <p>cwdが自動でレビュー対象としてブートストラップされ、サーバーが空きポートを選び、ブラウザが開きます。スレッドは <code>.reviews/</code> に保存されます。ローカルに留めておくにはgitignoreしてください。</p>
     </div>
     <div class="install-grid reveal">
       <div class="icard">
-        <h4>Run it</h4>
-        <p>No install, no config. Node &ge; 20 and <code>git</code> on PATH.</p>
+        <h4>実行する</h4>
+        <p>インストール不要、設定不要。Node &ge; 20 とPATH上の <code>git</code> があればOK。</p>
         <div class="code"><span class="k">cd</span> /path/to/your-feature-branch
 <span class="k">npx</span> slop-review</div>
       </div>
       <div class="icard">
-        <h4>Terminal mode</h4>
-        <p>Render the UI straight into your TTY via Carbonyl.</p>
-        <div class="code"><span class="c"># macOS, via the genkio/tap homebrew tap</span>
+        <h4>ターミナルモード</h4>
+        <p>Carbonyl 経由でUIをそのままTTYに描画します。</p>
+        <div class="code"><span class="c"># macOS、genkio/tap の homebrew tap 経由</span>
 <span class="k">brew</span> install genkio/tap/carbonyl
 <span class="k">slop-review</span> --carbonyl</div>
       </div>
       <div class="icard">
-        <h4>Teach your agent</h4>
-        <p>Install the bundled skill so an LLM can play reviewer or reviewee.</p>
+        <h4>エージェントに教える</h4>
+        <p>同梱のスキルをインストールして、LLMがレビュアーやレビュイーとして振る舞えるようにします。</p>
         <div class="code"><span class="k">npx</span> skills add genkio/slop-review</div>
       </div>
       <div class="icard">
-        <h4>Sync a GitHub PR</h4>
-        <p>Mirror unresolved PR threads into local, then open the UI.</p>
+        <h4>GitHub PRを同期する</h4>
+        <p>未解決のPRスレッドをローカルにミラーし、UIを開きます。</p>
         <div class="code"><span class="k">slop-review</span> --sync --browser</div>
       </div>
     </div>
@@ -516,7 +516,7 @@ section.band#keys, section.band#install { border-top:1px solid var(--hairline); 
     <div class="foot-links">
       <a href="https://github.com/genkio/slop-review" target="_blank" rel="noopener">GitHub</a>
       <a href="https://www.npmjs.com/package/slop-review" target="_blank" rel="noopener">npm</a>
-      <a href="https://github.com/genkio/slop-review#readme" target="_blank" rel="noopener">Docs</a>
+      <a href="https://github.com/genkio/slop-review#readme" target="_blank" rel="noopener">ドキュメント</a>
       <a href="https://github.com/fathyb/carbonyl" target="_blank" rel="noopener">Carbonyl</a>
     </div>
     <div class="foot-note">built by genkio</div>

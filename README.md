@@ -6,6 +6,8 @@
 [![dependencies](https://img.shields.io/badge/dependencies-0-brightgreen)](package.json)
 [![website](https://img.shields.io/badge/website-genkio.github.io-5b6cff)](https://genkio.github.io/slop-review/)
 
+**English** · [简体中文](./README.zh.md) · [日本語](./README.ja.md)
+
 Local PR-review loop for you and your LLM. Run it in any git repo: leave inline comments on the diff, then hand the threads to an LLM (Claude Code, Cursor, Codex, etc.) acting as reviewer or reviewee via the bundled skill. Comments are JSON files under `<repo>/.reviews/` - no clipboard handoff, no running server required for the agent loop.
 
 One diff page: pick the full branch diff, the local working-copy diff, or any single commit. Threads and the LLM-generated branch overview both open as modals from the header. Agent replies land in the JSON directly - refresh or reopen a thread to see them.
@@ -18,7 +20,7 @@ https://github.com/user-attachments/assets/3058c57d-74b0-4bba-9c99-73cca13925f0
 
 - **Blob-keyed "reviewed" marks, with HEAD peek.** Click a file header to mark it reviewed (also collapses it). The mark is keyed to that file's blob SHA at marking time, so a later push that touches *one* file invalidates only its mark - every untouched file stays green. Marking from a per-commit view is gated to "no later changes", so you never sign off on content you weren't looking at. When the gate fires, `p` peeks the file at HEAD without leaving the commit view - a focused window centered on your cursor line, walked through the commit-to-HEAD diff so intervening edits don't drift you off it.
 
-- **Importance-ordered files in every diff.** Both the full diff and per-commit diffs sort files by how central they are to the change set: incoming reference count (how many *other changed files* import this one), then status (modified before added before removed), then source-before-support (source files before tests / docs / fixtures), then path. You land on the load-bearing edits first instead of alphabetical noise. Ported from [pi-slopchop](https://github.com/robzolkos/pi-slopchop) PR #2.
+- **Importance-ordered files in every diff.** Both the full diff and per-commit diffs sort files by how central they are to the change set: incoming reference count (how many *other changed files* import this one), then status (modified before added before removed), then source-before-support (source files before tests, docs, fixtures, changesets, and config/data files like JSON / YAML / TOML or lockfiles), then path. You land on the load-bearing edits first instead of alphabetical noise. Ported from [pi-slopchop](https://github.com/robzolkos/pi-slopchop) PR #2.
 
 - **LLM-in-the-loop via a bundled skill.** The Claude Code skill at `skills/slop-review/SKILL.md` lets an agent play reviewer (leave inline comments) or reviewee (address open threads, edit source, reply) by reading and writing the `.reviews/` JSON directly - no HTTP integration.
 
@@ -30,7 +32,7 @@ https://github.com/user-attachments/assets/3058c57d-74b0-4bba-9c99-73cca13925f0
 
 - **Terminal-only review via Carbonyl.** `--carbonyl` (short: `-c`) renders the diff UI straight into the TTY via [Carbonyl](https://github.com/fathyb/carbonyl), a Chromium fork that paints into the terminal, so the whole loop stays in one pane beside your editor and agent - no browser, no context switch. Every keybinding carries over (a shim covers the few modifier chords Carbonyl strips). See [Carbonyl integration](#carbonyl-integration).
 
-- **One-way GitHub review-thread sync.** `slop --sync` pulls the *unresolved* review threads from the current branch's GitHub PR into local threads on the full diff, keeping each GitHub author. Re-running mirrors GitHub: new replies flow in, threads resolved on GitHub are deleted locally, and any thread you've edited / replied-to / resolved locally is flagged and skipped, so your local work is never clobbered. See [GitHub review-thread sync](#github-review-thread-sync).
+- **One-way GitHub review-thread sync.** `slop-review --sync` pulls the *unresolved* review threads from the current branch's GitHub PR into local threads on the full diff, keeping each GitHub author. Re-running mirrors GitHub: new replies flow in, threads resolved on GitHub are deleted locally, and any thread you've edited / replied-to / resolved locally is flagged so your edits stay put - new GitHub replies still append, but your work is never overwritten or re-ordered. See [GitHub review-thread sync](#github-review-thread-sync).
 
 ## Getting started
 
@@ -58,7 +60,7 @@ All flags are optional:
 
 Prerequisites: Node ≥ 20, `git` on `PATH`. No runtime dependencies - the server is `node:http` + the standard library only, so `npx slop-review` pulls no transitive packages.
 
-The Overview modal generates a branch summary on demand using `codex exec` or `claude` (read-only, non-interactive). When both CLIs are on `PATH` the modal lets you pick; when one is, it's a single-button confirm; when neither is available or logged in, it shows the captured CLI error and a retry button.
+The Overview modal generates a branch summary on demand using `codex exec` (read-only sandbox) or `claude` (granted `Read`/`Grep`/`Glob`/`LS`/`Write`/`Bash` so it can write the overview to a temp file). When both CLIs are on `PATH` the modal lets you pick; when one is, it's a single-button confirm. When a CLI is on `PATH` but generation fails (e.g. not logged in), it shows the captured CLI error and a Retry button; when neither CLI is on `PATH` it shows the availability error with no action.
 
 State lives at `~/.config/slop-review/state.json` (honors `XDG_CONFIG_HOME`): schema version plus per-repo UI state (last view + thread-resume cursors).
 
@@ -72,7 +74,7 @@ Cold launch first tries to resume the last view for this branch, then falls back
 
 | Scenario                                              | Lands on                        |
 |-------------------------------------------------------|---------------------------------|
-| URL explicitly names a sha or `local`                 | Honored as-is                   |
+| URL explicitly names a sha or `local`                 | Honored when it resolves (else falls through below) |
 | Saved last view exists and still resolves             | Resumes that view               |
 | Feature branch, commits ahead of base                 | First commit (oldest in branch) |
 | On `main`/`master`, no commits ahead                  | Latest commit                   |
@@ -116,7 +118,7 @@ The diff view is fully keyboard-driven. The same bindings work in a regular brow
 | `J` / `K`             | Move cursor down / up five lines                   | yes                            |
 | `c` / `C`             | Open comment editor on new-side / old-side line    | yes                            |
 | `v` / `V`             | Start visual-line selection (new / old side)       | yes                            |
-| `y` / `Y`             | Copy permalink to cursor line (new / old side)     | yes                            |
+| `y` / `Y`             | Copy a `path:line` reference to the cursor line (new / old side) | yes               |
 | `o` / `O`             | Open the cursor line in the forge (new / old side) | yes                            |
 | `r`                   | Toggle the cursor row's file as reviewed           | yes                            |
 | `n` / `N`             | Jump to next / previous thread in view             | yes                            |
@@ -130,16 +132,16 @@ The diff view is fully keyboard-driven. The same bindings work in a regular brow
 | `Shift+←` / `Shift+→` | Step to previous / next commit (or local / full)   | use the `‹` / `›` nav buttons  |
 | `←` / `→`             | Previous / next thread inside the thread modal     | yes                            |
 
-`;;` (two semicolons within 400ms while the editor is focused) is handled by `public/carbonyl-key-shim.js`: it detects the double-tap, splices the first `;` back out of the textarea, and dispatches a synthetic `Cmd+Enter` so the existing submit handler fires unchanged. The shim loads unconditionally but only triggers on Carbonyl's modifier-stripped event signature, so in a regular browser it's a no-op.
+`;;` (two semicolons within 400ms while the editor is focused) is handled by `public/carbonyl-key-shim.js`: it detects the double-tap, splices the first `;` back out of the textarea, and dispatches a synthetic `Ctrl+Enter` so the existing submit handler (which keys off `Enter` with `metaKey` or `ctrlKey`) fires unchanged. The shim loads unconditionally but only triggers on Carbonyl's modifier-stripped event signature, so in a regular browser it's a no-op.
 
 For a literal `;;` in a comment body, pause >400ms between the two characters (or type `; ;` with a space and edit it out).
 
 ## GitHub review-thread sync
 
-`slop --sync` is a one-shot, one-directional mirror: it pulls the **unresolved** review threads from your branch's GitHub PR into local threads, then exits (no server, no browser). It uses the `gh` CLI for auth and data (GraphQL - the only place GitHub exposes thread *resolved* state), so `gh` must be installed and logged in. A non-GitHub origin or a branch with no open PR is a no-op.
+`slop-review --sync` is a one-shot, one-directional mirror: it pulls the **unresolved** review threads from your branch's GitHub PR into local threads, then exits (no server, no browser). It uses the `gh` CLI for auth and data (GraphQL - the only place GitHub exposes thread *resolved* state), so `gh` must be installed and logged in. A non-GitHub origin or a branch with no open PR is a no-op.
 
 ```bash
-slop --sync
+slop-review --sync
 ```
 
 Semantics:
@@ -147,9 +149,9 @@ Semantics:
 - **Anchoring.** GitHub review threads live on the PR "Files" tab, so they land on slop's **full diff** (`view: "full"`). GitHub's `RIGHT` / `LEFT` maps to slop's `new` / `old`; multi-line ranges are kept. File-level comments (no line anchor) are reported as skipped.
 - **Authorship.** Synced comments keep the GitHub author's login as `user`, the thread shows a **GitHub** badge, and each comment's timestamp links back to the original on GitHub.
 - **Mirror on re-run.** Each sync refreshes existing synced threads (new replies appear), **deletes** local threads resolved on GitHub, and **creates** newly-opened ones.
-- **Local edits win.** Edit, reply to, delete a comment from, or resolve a synced thread and it's flagged `locally_modified`; every later sync **skips** it, never overwriting your work. The badge goes muted to show it diverged.
+- **Local edits win.** Edit, reply to, delete a comment from, or resolve a synced thread and it's flagged `locally_modified`; every later sync leaves your edits untouched, only **appending** any new GitHub replies - it never overwrites or re-orders your work. The badge goes muted to show it diverged.
 - **One direction.** Sync never writes back to GitHub.
-- **Open straight into review.** Chain `--browser` or `--carbonyl` (e.g. `slop --sync --browser`) to launch the UI when the sync finishes, landing on the full diff with the first unresolved thread's modal open. Plain `slop --sync` just prints the summary and exits.
+- **Open straight into review.** Chain `--browser` or `--carbonyl` (e.g. `slop-review --sync --browser`) to launch the UI when the sync finishes, landing on the full diff with the first unresolved thread's modal open. Plain `slop-review --sync` just prints the summary and exits.
 - **Keeps mirroring while open.** When `--sync` opens the UI (chained with `--browser` / `--carbonyl` / `--threads`), the server re-syncs from GitHub every 5 minutes so new replies and resolutions keep flowing in. A **"Synced …"** badge in the diff header shows when the last pull landed (it renders in carbonyl too); a failed pull shows **"Sync failed"**. The loop runs in the server process, so quitting slop-review (Ctrl-C, in the terminal or the carbonyl pane) stops the pull with it. The page doesn't live-reload threads, so once a background sync has changed threads the badge appends **"· N behind"** (amber) to tell you a manual reload is worth it; reloading or navigating clears it.
 
 Each run prints a summary: created / updated / deleted / skipped, plus the GitHub unresolved total.

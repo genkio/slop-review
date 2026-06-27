@@ -1,14 +1,14 @@
 <!doctype html>
-<html lang="en" data-theme="dark">
+<html lang="zh-Hans" data-theme="dark">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>slop-review the PR review loop for you and your LLM</title>
-<meta name="description" content="Open any git branch, leave inline comments on the diff, then hand the threads to your LLM. Runs in your browser or straight in your terminal via Carbonyl. Zero dependencies.">
+<title>slop-review 为你和你的 LLM 打造的 PR 评审闭环</title>
+<meta name="description" content="打开任意 git 分支，在 diff 上留下行内评论，然后把这些讨论交给你的 LLM。可在浏览器中运行，也可通过 Carbonyl 直接在终端里运行。零依赖。">
 <meta property="og:title" content="slop-review">
-<meta property="og:description" content="A local pull-request review loop for you and your coding agent. Browser or terminal. Zero dependencies.">
+<meta property="og:description" content="为你和你的编码 agent 打造的本地 pull-request 评审闭环。浏览器或终端皆可。零依赖。">
 <meta property="og:type" content="website">
-<link rel="canonical" href="https://genkio.github.io/slop-review/index.html">
+<link rel="canonical" href="https://genkio.github.io/slop-review/index.zh.html">
 <link rel="alternate" hreflang="en" href="https://genkio.github.io/slop-review/index.html">
 <link rel="alternate" hreflang="zh-Hans" href="https://genkio.github.io/slop-review/index.zh.html">
 <link rel="alternate" hreflang="ja" href="https://genkio.github.io/slop-review/index.ja.html">
@@ -232,16 +232,16 @@ section.band#keys, section.band#install { border-top:1px solid var(--hairline); 
   <div class="wrap nav-in">
     <a class="brand" href="#top"><span class="bug">🐛</span> slop-review</a>
     <nav class="nav-links">
-      <a class="navlink hide-sm" href="#modes">Modes</a>
-      <a class="navlink hide-sm" href="#features">Features</a>
-      <a class="navlink hide-sm" href="#keys">Keys</a>
-      <a class="navlink hide-sm" href="#install">Install</a>
-      <span class="lang-switch" role="group" aria-label="Language">
-        <a class="navlink lang" href="index.html" hreflang="en" lang="en" aria-current="page">EN</a>
-        <a class="navlink lang" href="index.zh.html" hreflang="zh-Hans" lang="zh-Hans">中文</a>
+      <a class="navlink hide-sm" href="#modes">模式</a>
+      <a class="navlink hide-sm" href="#features">功能</a>
+      <a class="navlink hide-sm" href="#keys">快捷键</a>
+      <a class="navlink hide-sm" href="#install">安装</a>
+      <span class="lang-switch" role="group" aria-label="语言">
+        <a class="navlink lang" href="index.html" hreflang="en" lang="en">EN</a>
+        <a class="navlink lang" href="index.zh.html" hreflang="zh-Hans" lang="zh-Hans" aria-current="page">中文</a>
         <a class="navlink lang" href="index.ja.html" hreflang="ja" lang="ja">日本語</a>
       </span>
-      <button class="icon-btn" id="theme" title="Toggle theme" aria-label="Toggle theme">&#9680;</button>
+      <button class="icon-btn" id="theme" title="切换主题" aria-label="切换主题">&#9680;</button>
       <a class="btn" href="https://github.com/genkio/slop-review" target="_blank" rel="noopener">&#9733; GitHub</a>
     </nav>
   </div>
@@ -249,21 +249,21 @@ section.band#keys, section.band#install { border-top:1px solid var(--hairline); 
 
 <main id="top">
   <section class="hero wrap">
-    <span class="eyebrow"><span class="dot"></span> Local PR-review loop &middot; human <b>&harr;</b> LLM</span>
-    <h1 class="hero-title">Review your branch like a PR. <span class="grad">Hand the threads to your agent.</span></h1>
-    <p class="hero-sub">Run it in any git repo: leave inline comments on the diff, then hand the threads to your LLM acting as reviewer or reviewee via a bundled skill. Comments are plain JSON under <code>.reviews/</code> &mdash; no clipboard handoff, no server required for the agent loop.</p>
+    <span class="eyebrow"><span class="dot"></span> 本地 PR 评审闭环 &middot; 人类 <b>&harr;</b> LLM</span>
+    <h1 class="hero-title">像评审 PR 一样评审你的分支。<span class="grad">把这些讨论交给你的 agent。</span></h1>
+    <p class="hero-sub">在任意 git 仓库中运行：在 diff 上留下行内评论，再通过内置 skill 把这些讨论交给你的 LLM，让它充当评审者或被评审者。评论就是 <code>.reviews/</code> 下的纯 JSON &mdash; 无需剪贴板交接，agent 闭环也不需要任何服务器。</p>
     <div class="cta">
       <div class="install">
         <span class="dollar">$</span>
         <span class="cmd mono"><b>npx</b> slop-review</span>
-        <button id="copy-install" title="Copy" aria-label="Copy npx slop-review to clipboard"><span aria-hidden="true">&#10697;</span></button>
+        <button id="copy-install" title="复制" aria-label="复制 npx slop-review 到剪贴板"><span aria-hidden="true">&#10697;</span></button>
       </div>
-      <a class="btn primary" href="#install">Get started</a>
+      <a class="btn primary" href="#install">开始使用</a>
     </div>
     <div class="hero-meta">
-      <span><span class="dot"></span> 0 runtime dependencies</span>
+      <span><span class="dot"></span> 0 运行时依赖</span>
       <span class="mono">Node &ge; 20</span>
-      <span class="mono">browser <b style="color:var(--accent)">or</b> terminal</span>
+      <span class="mono">浏览器 <b style="color:var(--accent)">或</b> 终端</span>
       <span class="mono">node:http only</span>
     </div>
   </section>
@@ -271,29 +271,29 @@ section.band#keys, section.band#install { border-top:1px solid var(--hairline); 
   <div class="hero-shot wrap reveal">
     <div class="frame">
       <div class="frame-bar"><div class="lights"><i></i><i></i><i></i></div><div class="frame-url">localhost:9410 &mdash; slop-review &mdash; feat/search-ranking</div></div>
-      <img src="assets/hero-full-diff.webp" alt="slop-review full-diff view: importance-ordered files, side-by-side diff with inline comment threads" width="1600" height="1003" loading="eager">
+      <img src="assets/hero-full-diff.webp" alt="slop-review 完整 diff 视图：按重要性排序的文件、带行内评论讨论的并排 diff" width="1600" height="1003" loading="eager">
     </div>
   </div>
 
   <section class="band wrap" id="modes">
     <div class="section-head reveal">
-      <div class="kicker">One page, two renderers</div>
-      <h2 class="section-title">In your browser. Or straight in your terminal.</h2>
-      <p>The same keyboard-driven review UI runs as a local web app, and fully inside your terminal via <a style="color:var(--accent)" href="https://github.com/fathyb/carbonyl" target="_blank" rel="noopener">Carbonyl</a> &mdash; a Chromium fork that paints into the TTY. No window switch, no context loss. Nearly every keybinding carries over (two modifier chords use terminal-friendly substitutes).</p>
+      <div class="kicker">一套页面，两种渲染</div>
+      <h2 class="section-title">在浏览器里。或者直接在终端里。</h2>
+      <p>同一套键盘驱动的评审界面，既可作为本地 web 应用运行，也可通过 <a style="color:var(--accent)" href="https://github.com/fathyb/carbonyl" target="_blank" rel="noopener">Carbonyl</a> 完整运行于你的终端 &mdash; 它是一个把画面绘制到 TTY 的 Chromium 分支。无需切换窗口，不会丢失上下文。几乎所有快捷键都能照常使用（两个修饰键组合改用了对终端更友好的替代方案）。</p>
     </div>
     <div class="modes reveal">
       <div class="mode-card">
-        <div class="cap"><span class="pill">Browser</span><h3>The full GUI, zero setup</h3></div>
+        <div class="cap"><span class="pill">浏览器</span><h3>完整的图形界面，零配置</h3></div>
         <div class="frame">
           <div class="frame-bar"><div class="lights"><i></i><i></i><i></i></div><div class="frame-url">localhost:9410</div></div>
-          <img src="assets/commit-view.webp" alt="slop-review per-commit diff in the browser" width="1600" height="1003" loading="lazy">
+          <img src="assets/commit-view.webp" alt="浏览器中 slop-review 的逐 commit diff" width="1600" height="1003" loading="lazy">
         </div>
       </div>
       <div class="mode-card">
-        <div class="cap"><span class="pill">Terminal</span><h3><code style="font-size:.8em">--carbonyl</code> keeps it in one pane</h3></div>
+        <div class="cap"><span class="pill">终端</span><h3><code style="font-size:.8em">--carbonyl</code> 让一切留在同一个窗格</h3></div>
         <div class="frame">
           <div class="frame-bar"><div class="lights"><i></i><i></i><i></i></div><div class="term-label">zsh &mdash; carbonyl</div></div>
-          <img src="assets/carbonyl-diff.webp" alt="slop-review diff rendered inside the terminal via Carbonyl" width="1100" height="858" loading="lazy">
+          <img src="assets/carbonyl-diff.webp" alt="通过 Carbonyl 在终端内渲染的 slop-review diff" width="1100" height="858" loading="lazy">
         </div>
       </div>
     </div>
@@ -301,154 +301,154 @@ section.band#keys, section.band#install { border-top:1px solid var(--hairline); 
 
   <div class="wrap" id="features">
     <div class="section-head reveal">
-      <div class="kicker">Highlights</div>
-      <h2 class="section-title">Built for the review loop, not just diff-staring.</h2>
-      <p>Nine things slop-review does that a plain diff viewer doesn't.</p>
+      <div class="kicker">亮点</div>
+      <h2 class="section-title">为评审闭环而生，不只是盯着 diff 看。</h2>
+      <p>普通 diff 查看器做不到，而 slop-review 能做到的九件事。</p>
     </div>
 
     <div class="feature reveal">
       <div class="feat-text">
-        <div class="num">01 / Importance-ordered files</div>
-        <h3>Land on the load-bearing edits first.</h3>
-        <p>Every diff sorts files by how central they are to the change set, not alphabetically. You start at the code that matters and walk outward to the tests and docs.</p>
+        <div class="num">01 / 按重要性排序的文件</div>
+        <h3>先落在最关键的改动上。</h3>
+        <p>每个 diff 都按文件对整组改动的核心程度排序，而非按字母顺序。你从最重要的代码开始，再逐步走向测试和文档。</p>
         <ul class="feat-points">
-          <li>Incoming reference count: how many other changed files import this one</li>
-          <li>Then status (modified before added before removed)</li>
-          <li>Then source before support files (tests, docs, fixtures, configs), then path</li>
+          <li>被引用次数：有多少其他已改动的文件 import 了这个文件</li>
+          <li>其次是状态（modified 优先于 added，added 优先于 removed）</li>
+          <li>再是源码优先于辅助文件（tests、docs、fixtures、configs），最后是路径</li>
         </ul>
       </div>
       <div class="feat-media">
-        <div class="frame"><div class="frame-bar"><div class="lights"><i></i><i></i><i></i></div><div class="frame-url">localhost:9410 &mdash; full diff</div></div><img src="assets/importance-order.webp" alt="Files sorted by reference count: parser.ts and types.ts first" width="1600" height="1003" loading="lazy"></div>
+        <div class="frame"><div class="frame-bar"><div class="lights"><i></i><i></i><i></i></div><div class="frame-url">localhost:9410 &mdash; 完整 diff</div></div><img src="assets/importance-order.webp" alt="按被引用次数排序的文件：parser.ts 和 types.ts 居前" width="1600" height="1003" loading="lazy"></div>
       </div>
     </div>
 
     <div class="feature reveal">
       <div class="feat-text">
-        <div class="num">02 / Vim keys + which-key hint bar</div>
-        <h3>Drive the whole review from the home row.</h3>
-        <p>Single-letter verbs handle comment, copy, deep-link, peek and delete, without leaving the keyboard. A which-key hint bar reveals on the first keypress and re-renders on every state change, showing only the keys live for your current row.</p>
+        <div class="num">02 / Vim 快捷键 + which-key 提示栏</div>
+        <h3>不离开主键位，完成整场评审。</h3>
+        <p>单字母命令即可完成评论、复制、深链、窥视和删除，全程不离开键盘。which-key 提示栏在你第一次按键时出现，并在每次状态变化时重新渲染，只显示当前行可用的快捷键。</p>
         <ul class="feat-points">
-          <li>Hidden hints are strict no-ops, so the bar never advertises a dead key</li>
-          <li><code>j</code>/<code>k</code> move, <code>c</code> comment, <code>n</code> next thread, <code>r</code> reviewed, <code>p</code> peek HEAD</li>
+          <li>隐藏的提示是严格的空操作，因此提示栏绝不会宣传一个失效的按键</li>
+          <li><code>j</code>/<code>k</code> 移动，<code>c</code> 评论，<code>n</code> 下一条讨论，<code>r</code> 标记已评审，<code>p</code> 窥视 HEAD</li>
         </ul>
       </div>
       <div class="feat-media">
-        <div class="frame"><div class="frame-bar"><div class="lights"><i></i><i></i><i></i></div><div class="frame-url">localhost:9410</div></div><img src="assets/keymap-hint.webp" alt="The context-aware which-key hint bar along the bottom of the diff" width="1600" height="1003" loading="lazy"></div>
+        <div class="frame"><div class="frame-bar"><div class="lights"><i></i><i></i><i></i></div><div class="frame-url">localhost:9410</div></div><img src="assets/keymap-hint.webp" alt="diff 底部随上下文变化的 which-key 提示栏" width="1600" height="1003" loading="lazy"></div>
       </div>
     </div>
 
     <div class="feature reveal">
       <div class="feat-text">
-        <div class="num">03 / Comment anywhere</div>
-        <h3>Inline threads on the new side or the old.</h3>
-        <p>Press <code>c</code> to open the comment editor on the cursor line, or <code>v</code> to select a range first. Single-line or multi-line, new-side or old-side, threads work identically across all three diff modes.</p>
+        <div class="num">03 / 在任意位置评论</div>
+        <h3>新侧或旧侧都能开行内讨论。</h3>
+        <p>按 <code>c</code> 在光标所在行打开评论编辑器，或先按 <code>v</code> 选中一段范围。无论单行还是多行、新侧还是旧侧，讨论在三种 diff 模式下的表现完全一致。</p>
       </div>
       <div class="feat-media">
-        <div class="frame"><div class="frame-bar"><div class="lights"><i></i><i></i><i></i></div><div class="frame-url">localhost:9410 &mdash; src/search.ts</div></div><img src="assets/comment-editor.webp" alt="The inline comment editor open on a diff line" width="1600" height="1003" loading="lazy"></div>
+        <div class="frame"><div class="frame-bar"><div class="lights"><i></i><i></i><i></i></div><div class="frame-url">localhost:9410 &mdash; src/search.ts</div></div><img src="assets/comment-editor.webp" alt="在某一 diff 行上打开的行内评论编辑器" width="1600" height="1003" loading="lazy"></div>
       </div>
     </div>
 
     <div class="feature reveal">
       <div class="feat-text">
-        <div class="num">04 / LLM in the loop</div>
-        <h3>Hand the threads to your coding agent.</h3>
-        <p>A bundled Claude Code skill lets an agent play reviewer (leave inline comments) or reviewee (address open threads, edit source, reply) by reading and writing the <code>.reviews/</code> JSON directly. No HTTP API, no running server.</p>
-        <div class="code"><span class="c"># install the skill, then just ask in plain language</span>
+        <div class="num">04 / 闭环中的 LLM</div>
+        <h3>把这些讨论交给你的编码 agent。</h3>
+        <p>内置的 Claude Code skill 让 agent 直接读写 <code>.reviews/</code> 中的 JSON，从而充当评审者（留下行内评论）或被评审者（处理未结讨论、修改源码、回复）。无需 HTTP API，无需运行服务器。</p>
+        <div class="code"><span class="c"># 安装 skill，然后直接用自然语言提出请求</span>
 <span class="k">npx</span> skills add genkio/slop-review
 
-<span class="c"># "address the open slop-review threads"</span>
-<span class="c"># "act as reviewer for this branch"</span></div>
+<span class="c"># “处理 slop-review 中尚未结的讨论”</span>
+<span class="c"># “为这个分支担任评审者”</span></div>
       </div>
       <div class="feat-media">
-        <div class="frame"><div class="frame-bar"><div class="lights"><i></i><i></i><i></i></div><div class="frame-url">localhost:9410 &mdash; thread</div></div><img src="assets/thread-llm.webp" alt="A review thread: a reviewer question and the agent's reply" width="1600" height="1003" loading="lazy"></div>
+        <div class="frame"><div class="frame-bar"><div class="lights"><i></i><i></i><i></i></div><div class="frame-url">localhost:9410 &mdash; 讨论</div></div><img src="assets/thread-llm.webp" alt="一条评审讨论：评审者的提问和 agent 的回复" width="1600" height="1003" loading="lazy"></div>
       </div>
     </div>
 
     <div class="feature reveal">
       <div class="feat-text">
-        <div class="num">05 / Blob-keyed reviewed marks</div>
-        <h3>Sign off on a file. Keep it green until it actually changes.</h3>
-        <p>Click a file header to mark it reviewed (and collapse it). The mark is keyed to that file's blob SHA at marking time, so a later push that touches <em>one</em> file invalidates only its mark. Every untouched file stays green.</p>
+        <div class="num">05 / 按 blob 绑定的已评审标记</div>
+        <h3>对某个文件签字确认。在它真正改动之前一直保持绿色。</h3>
+        <p>点击文件头即可将其标记为已评审（并折叠）。该标记绑定到标记当时该文件的 blob SHA，因此之后只触及<em>某一个</em>文件的 push 只会使该文件的标记失效。所有未被触及的文件依然保持绿色。</p>
         <ul class="feat-points">
-          <li>Per-commit marking is gated to "no later changes", so you never sign off on content you weren't looking at</li>
-          <li><code>p</code> peeks the file at HEAD without leaving the commit view</li>
+          <li>逐 commit 的标记受“此后无更改”约束，因此你绝不会对自己没看过的内容签字确认</li>
+          <li><code>p</code> 在不离开 commit 视图的情况下窥视该文件在 HEAD 处的状态</li>
         </ul>
       </div>
       <div class="feat-media">
-        <div class="frame"><div class="frame-bar"><div class="lights"><i></i><i></i><i></i></div><div class="frame-url">localhost:9410 &mdash; 4/8 reviewed</div></div><img src="assets/reviewed-marks.webp" alt="Files collapsed to green reviewed headers" width="1600" height="1003" loading="lazy"></div>
-        <div class="frame"><div class="frame-bar"><div class="lights"><i></i><i></i><i></i></div><div class="frame-url">peek HEAD</div></div><img src="assets/head-peek.webp" alt="The Peek HEAD modal showing the file's current state from a commit view" width="1600" height="1003" loading="lazy"></div>
+        <div class="frame"><div class="frame-bar"><div class="lights"><i></i><i></i><i></i></div><div class="frame-url">localhost:9410 &mdash; 4/8 已评审</div></div><img src="assets/reviewed-marks.webp" alt="折叠为绿色已评审文件头的文件" width="1600" height="1003" loading="lazy"></div>
+        <div class="frame"><div class="frame-bar"><div class="lights"><i></i><i></i><i></i></div><div class="frame-url">peek HEAD</div></div><img src="assets/head-peek.webp" alt="从 commit 视图中弹出的 Peek HEAD 模态框，显示该文件的当前状态" width="1600" height="1003" loading="lazy"></div>
       </div>
     </div>
 
     <div class="feature reveal">
       <div class="feat-text">
-        <div class="num">06 / Cross-file symbol panel</div>
-        <h3>Double-click an identifier, see every occurrence.</h3>
-        <p>Double-click any identifier in the diff to list every occurrence across changed files, with the active row highlighted in place. Open a second symbol and the first parks into a right-edge strip, match list and jump history preserved, so you can pivot between concurrent searches without losing context.</p>
+        <div class="num">06 / 跨文件符号面板</div>
+        <h3>双击一个标识符，看到它的每一处出现。</h3>
+        <p>双击 diff 中的任意标识符，即可列出它在所有已改动文件中的每一处出现，当前所在行就地高亮。打开第二个符号时，第一个会停靠到右侧边条，匹配列表和跳转历史都被保留，于是你可以在多个并行搜索之间切换而不丢失上下文。</p>
       </div>
       <div class="feat-media">
-        <div class="frame"><div class="frame-bar"><div class="lights"><i></i><i></i><i></i></div><div class="frame-url">localhost:9410 &mdash; symbol: Note</div></div><img src="assets/symbol-panel.webp" alt="The cross-file symbol panel listing occurrences of an identifier across files" width="1600" height="1003" loading="lazy"></div>
+        <div class="frame"><div class="frame-bar"><div class="lights"><i></i><i></i><i></i></div><div class="frame-url">localhost:9410 &mdash; symbol: Note</div></div><img src="assets/symbol-panel.webp" alt="跨文件符号面板，列出某个标识符在各文件中的出现" width="1600" height="1003" loading="lazy"></div>
       </div>
     </div>
 
     <div class="feature reveal">
       <div class="feat-text">
-        <div class="num">07 / Three diff modes, one page</div>
-        <h3>Full branch, any commit, or your working copy.</h3>
-        <p>Cumulative diff vs base, any single commit, or the local working-copy diff. <code>Shift+&larr;</code> / <code>Shift+&rarr;</code> steps between them; comments work in all three. Cold launch resumes the last view for the branch, or falls back to a sensible per-commit default.</p>
+        <div class="num">07 / 三种 diff 模式，同一页面</div>
+        <h3>整个分支、任意 commit，或你的工作副本。</h3>
+        <p>相对 base 的累积 diff、任意单个 commit，或本地工作副本的 diff。<code>Shift+&larr;</code> / <code>Shift+&rarr;</code> 在它们之间切换；评论在三种模式下都有效。冷启动会恢复该分支上次的视图，或回退到一个合理的逐 commit 默认值。</p>
       </div>
       <div class="feat-media">
-        <div class="frame"><div class="frame-bar"><div class="lights"><i></i><i></i><i></i></div><div class="frame-url">localhost:9410 &mdash; local working copy</div></div><img src="assets/local-view.webp" alt="The local working-copy diff view" width="1600" height="1003" loading="lazy"></div>
+        <div class="frame"><div class="frame-bar"><div class="lights"><i></i><i></i><i></i></div><div class="frame-url">localhost:9410 &mdash; 本地工作副本</div></div><img src="assets/local-view.webp" alt="本地工作副本的 diff 视图" width="1600" height="1003" loading="lazy"></div>
       </div>
     </div>
 
     <div class="feature reveal">
       <div class="feat-text">
-        <div class="num">08 / One-way GitHub sync</div>
-        <h3>Pull unresolved PR threads down to local.</h3>
-        <p><code>slop-review --sync</code> mirrors the unresolved review threads from your branch's GitHub PR into local threads, keeping each GitHub author. Re-running mirrors GitHub: new replies flow in, resolved threads are deleted locally, and anything you've touched locally is flagged so your edits stay put &mdash; new GitHub replies still append, but your work is never overwritten.</p>
+        <div class="num">08 / 单向 GitHub 同步</div>
+        <h3>把未结的 PR 讨论拉到本地。</h3>
+        <p><code>slop-review --sync</code> 把你分支对应的 GitHub PR 中未结的评审讨论镜像到本地讨论，并保留各自的 GitHub 作者。再次运行会以 GitHub 为准：新回复流入，已解决的讨论在本地被删除，而你在本地动过的内容会被标记，以便你的编辑保持原样 &mdash; GitHub 的新回复仍会追加，但你的成果绝不会被覆盖。</p>
         <ul class="feat-points">
-          <li>Synced threads carry a <b style="color:var(--accent)">GitHub</b> badge and link back to the original comment</li>
-          <li>Keeps re-syncing every 5 min while the UI stays open</li>
+          <li>同步而来的讨论带有 <b style="color:var(--accent)">GitHub</b> 徽章，并链接回原始评论</li>
+          <li>只要界面保持打开，每 5 分钟就会持续重新同步</li>
         </ul>
       </div>
       <div class="feat-media">
-        <div class="frame"><div class="frame-bar"><div class="lights"><i></i><i></i><i></i></div><div class="frame-url">localhost:9410 &mdash; synced thread</div></div><img src="assets/thread-github.webp" alt="A GitHub-synced thread showing the GitHub badge and original authors" width="1600" height="1003" loading="lazy"></div>
+        <div class="frame"><div class="frame-bar"><div class="lights"><i></i><i></i><i></i></div><div class="frame-url">localhost:9410 &mdash; 已同步的讨论</div></div><img src="assets/thread-github.webp" alt="一条 GitHub 同步而来的讨论，显示 GitHub 徽章和原始作者" width="1600" height="1003" loading="lazy"></div>
       </div>
     </div>
 
     <div class="feature reveal">
       <div class="feat-text">
-        <div class="num">09 / Branch overview on demand</div>
-        <h3>An LLM-generated map of the change set.</h3>
-        <p>The Overview modal generates a branch summary on demand using <code>codex exec</code> or <code>claude</code>: what changed, the mental model, before/after behavior, and a small architecture sketch rendered as a diagram.</p>
+        <div class="num">09 / 按需生成的分支总览</div>
+        <h3>一张由 LLM 生成的改动地图。</h3>
+        <p>Overview 模态框使用 <code>codex exec</code> 或 <code>claude</code> 按需生成分支摘要：改了什么、心智模型、前后行为对比，以及一张渲染成图示的小型架构草图。</p>
       </div>
       <div class="feat-media">
-        <div class="frame"><div class="frame-bar"><div class="lights"><i></i><i></i><i></i></div><div class="frame-url">localhost:9410 &mdash; overview</div></div><img src="assets/overview-modal.webp" alt="The branch overview modal with numbered what-changed cards" width="1600" height="1003" loading="lazy"></div>
-        <div class="frame"><div class="frame-bar"><div class="lights"><i></i><i></i><i></i></div><div class="frame-url">overview &mdash; sketch</div></div><img src="assets/overview-sketch.webp" alt="The overview architecture sketch rendered as a node diagram" width="1600" height="1003" loading="lazy"></div>
+        <div class="frame"><div class="frame-bar"><div class="lights"><i></i><i></i><i></i></div><div class="frame-url">localhost:9410 &mdash; 总览</div></div><img src="assets/overview-modal.webp" alt="带编号“改了什么”卡片的分支总览模态框" width="1600" height="1003" loading="lazy"></div>
+        <div class="frame"><div class="frame-bar"><div class="lights"><i></i><i></i><i></i></div><div class="frame-url">overview &mdash; 草图</div></div><img src="assets/overview-sketch.webp" alt="渲染成节点图的总览架构草图" width="1600" height="1003" loading="lazy"></div>
       </div>
     </div>
   </div>
 
   <section class="band wrap">
     <div class="section-head reveal">
-      <div class="kicker">Everywhere you review</div>
-      <h2 class="section-title">Reads great on a phone. Reviews great in a terminal.</h2>
-      <p>The diff collapses to a single readable column on small screens, and the whole review loop, threads, replies, the <code>;;</code> submit chord, works inside Carbonyl.</p>
+      <div class="kicker">无论你在哪里评审</div>
+      <h2 class="section-title">在手机上阅读体验出色。在终端里评审体验出色。</h2>
+      <p>在小屏幕上 diff 会收起为单列以便阅读，而整个评审闭环（讨论、回复、<code>;;</code> 提交组合键）都能在 Carbonyl 内运行。</p>
     </div>
     <div class="modes everywhere reveal">
       <div class="mode-card" style="display:flex; flex-direction:column; align-items:center;">
-        <div class="cap" style="justify-content:center;"><span class="pill">Mobile web</span></div>
+        <div class="cap" style="justify-content:center;"><span class="pill">移动端 web</span></div>
         <div class="frame" style="max-width:300px; border-radius:22px;">
           <div class="frame-bar" style="height:24px; justify-content:center;"><span style="width:46px;height:5px;border-radius:3px;background:var(--hairline-strong);display:block;"></span></div>
-          <img src="assets/mobile-diff.webp" alt="slop-review diff on a phone" width="520" height="1125" loading="lazy">
+          <img src="assets/mobile-diff.webp" alt="手机上的 slop-review diff" width="520" height="1125" loading="lazy">
         </div>
       </div>
       <div class="mode-card">
-        <div class="cap"><span class="pill">Terminal thread</span></div>
+        <div class="cap"><span class="pill">终端中的讨论</span></div>
         <div class="frame">
           <div class="frame-bar"><div class="lights"><i></i><i></i><i></i></div><div class="term-label">zsh &mdash; carbonyl</div></div>
-          <img src="assets/carbonyl-thread.webp" alt="A review thread open inside the terminal via Carbonyl" width="1100" height="858" loading="lazy">
+          <img src="assets/carbonyl-thread.webp" alt="通过 Carbonyl 在终端内打开的一条评审讨论" width="1100" height="858" loading="lazy">
         </div>
       </div>
     </div>
@@ -456,54 +456,54 @@ section.band#keys, section.band#install { border-top:1px solid var(--hairline); 
 
   <section class="band wrap" id="keys">
     <div class="section-head reveal">
-      <div class="kicker">Keyboard-first</div>
-      <h2 class="section-title">The whole loop, on the home row.</h2>
-      <p>The same bindings work in a regular browser and in Carbonyl.</p>
+      <div class="kicker">键盘优先</div>
+      <h2 class="section-title">整个闭环，都在主键位上。</h2>
+      <p>同一套快捷键在普通浏览器和 Carbonyl 中都能用。</p>
     </div>
     <div class="keys reveal">
       <table>
-        <tr><td class="kcol"><kbd>j</kbd><kbd>k</kbd></td><td>Move cursor down / up a line (<kbd>J</kbd><kbd>K</kbd> for five)</td><td class="cb"><span class="yes">carbonyl &#10003;</span></td></tr>
-        <tr><td class="kcol"><kbd>c</kbd><kbd>C</kbd></td><td>Comment on the new-side / old-side line</td><td class="cb"><span class="yes">&#10003;</span></td></tr>
-        <tr><td class="kcol"><kbd>v</kbd><kbd>V</kbd></td><td>Start a visual-line selection</td><td class="cb"><span class="yes">&#10003;</span></td></tr>
-        <tr><td class="kcol"><kbd>y</kbd></td><td>Copy a <code>path:line</code> reference to the cursor line</td><td class="cb"><span class="yes">&#10003;</span></td></tr>
-        <tr><td class="kcol"><kbd>r</kbd></td><td>Toggle the cursor row's file as reviewed</td><td class="cb"><span class="yes">&#10003;</span></td></tr>
-        <tr><td class="kcol"><kbd>n</kbd><kbd>N</kbd></td><td>Jump to next / previous thread in view</td><td class="cb"><span class="yes">&#10003;</span></td></tr>
-        <tr><td class="kcol"><kbd>p</kbd></td><td>Peek HEAD for the cursor row (commit view)</td><td class="cb"><span class="yes">&#10003;</span></td></tr>
-        <tr><td class="kcol"><kbd>e</kbd></td><td>Expand context lines around the hunk</td><td class="cb"><span class="yes">&#10003;</span></td></tr>
-        <tr><td class="kcol"><kbd>&#8984;/Ctrl</kbd><kbd>&#8629;</kbd></td><td>Submit the comment editor</td><td class="cb">use <kbd>;;</kbd></td></tr>
-        <tr><td class="kcol"><kbd>&#8679;</kbd><kbd>&larr;</kbd><kbd>&rarr;</kbd></td><td>Step between commit / full / local</td><td class="cb">use <kbd>&#8249;</kbd> <kbd>&#8250;</kbd></td></tr>
+        <tr><td class="kcol"><kbd>j</kbd><kbd>k</kbd></td><td>光标下移 / 上移一行（<kbd>J</kbd><kbd>K</kbd> 移动五行）</td><td class="cb"><span class="yes">carbonyl &#10003;</span></td></tr>
+        <tr><td class="kcol"><kbd>c</kbd><kbd>C</kbd></td><td>在新侧 / 旧侧的行上评论</td><td class="cb"><span class="yes">&#10003;</span></td></tr>
+        <tr><td class="kcol"><kbd>v</kbd><kbd>V</kbd></td><td>开始按行的可视选择</td><td class="cb"><span class="yes">&#10003;</span></td></tr>
+        <tr><td class="kcol"><kbd>y</kbd></td><td>复制光标所在行的 <code>path:line</code> 引用</td><td class="cb"><span class="yes">&#10003;</span></td></tr>
+        <tr><td class="kcol"><kbd>r</kbd></td><td>切换光标所在行所属文件的已评审状态</td><td class="cb"><span class="yes">&#10003;</span></td></tr>
+        <tr><td class="kcol"><kbd>n</kbd><kbd>N</kbd></td><td>跳到视图中的下一条 / 上一条讨论</td><td class="cb"><span class="yes">&#10003;</span></td></tr>
+        <tr><td class="kcol"><kbd>p</kbd></td><td>窥视光标所在行的 HEAD 状态（commit 视图）</td><td class="cb"><span class="yes">&#10003;</span></td></tr>
+        <tr><td class="kcol"><kbd>e</kbd></td><td>展开 hunk 周围的上下文行</td><td class="cb"><span class="yes">&#10003;</span></td></tr>
+        <tr><td class="kcol"><kbd>&#8984;/Ctrl</kbd><kbd>&#8629;</kbd></td><td>提交评论编辑器</td><td class="cb">用 <kbd>;;</kbd></td></tr>
+        <tr><td class="kcol"><kbd>&#8679;</kbd><kbd>&larr;</kbd><kbd>&rarr;</kbd></td><td>在 commit / 完整 / 本地之间切换</td><td class="cb">用 <kbd>&#8249;</kbd> <kbd>&#8250;</kbd></td></tr>
       </table>
     </div>
   </section>
 
   <section class="band wrap" id="install">
     <div class="section-head reveal">
-      <div class="kicker">Getting started</div>
-      <h2 class="section-title">One command inside any git repo.</h2>
-      <p>The cwd is auto-bootstrapped as the review target, the server picks a free port, and your browser opens. Threads live in <code>.reviews/</code>, gitignore it to keep them local.</p>
+      <div class="kicker">开始使用</div>
+      <h2 class="section-title">在任意 git 仓库中，一条命令搞定。</h2>
+      <p>当前工作目录会被自动初始化为评审目标，服务器挑选一个空闲端口，然后打开你的浏览器。讨论存放在 <code>.reviews/</code> 中，把它加入 gitignore 即可让它们保持本地。</p>
     </div>
     <div class="install-grid reveal">
       <div class="icard">
-        <h4>Run it</h4>
-        <p>No install, no config. Node &ge; 20 and <code>git</code> on PATH.</p>
+        <h4>运行它</h4>
+        <p>无需安装，无需配置。Node &ge; 20 且 PATH 中有 <code>git</code>。</p>
         <div class="code"><span class="k">cd</span> /path/to/your-feature-branch
 <span class="k">npx</span> slop-review</div>
       </div>
       <div class="icard">
-        <h4>Terminal mode</h4>
-        <p>Render the UI straight into your TTY via Carbonyl.</p>
-        <div class="code"><span class="c"># macOS, via the genkio/tap homebrew tap</span>
+        <h4>终端模式</h4>
+        <p>通过 Carbonyl 把界面直接渲染到你的 TTY。</p>
+        <div class="code"><span class="c"># macOS，通过 genkio/tap homebrew tap</span>
 <span class="k">brew</span> install genkio/tap/carbonyl
 <span class="k">slop-review</span> --carbonyl</div>
       </div>
       <div class="icard">
-        <h4>Teach your agent</h4>
-        <p>Install the bundled skill so an LLM can play reviewer or reviewee.</p>
+        <h4>教会你的 agent</h4>
+        <p>安装内置 skill，让 LLM 可以充当评审者或被评审者。</p>
         <div class="code"><span class="k">npx</span> skills add genkio/slop-review</div>
       </div>
       <div class="icard">
-        <h4>Sync a GitHub PR</h4>
-        <p>Mirror unresolved PR threads into local, then open the UI.</p>
+        <h4>同步一个 GitHub PR</h4>
+        <p>把未结的 PR 讨论镜像到本地，然后打开界面。</p>
         <div class="code"><span class="k">slop-review</span> --sync --browser</div>
       </div>
     </div>
@@ -516,7 +516,7 @@ section.band#keys, section.band#install { border-top:1px solid var(--hairline); 
     <div class="foot-links">
       <a href="https://github.com/genkio/slop-review" target="_blank" rel="noopener">GitHub</a>
       <a href="https://www.npmjs.com/package/slop-review" target="_blank" rel="noopener">npm</a>
-      <a href="https://github.com/genkio/slop-review#readme" target="_blank" rel="noopener">Docs</a>
+      <a href="https://github.com/genkio/slop-review#readme" target="_blank" rel="noopener">文档</a>
       <a href="https://github.com/fathyb/carbonyl" target="_blank" rel="noopener">Carbonyl</a>
     </div>
     <div class="foot-note">built by genkio</div>
