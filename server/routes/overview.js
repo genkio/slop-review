@@ -3,6 +3,7 @@ import {
   ensureOverviewGeneration,
   getOverviewStatus,
   readOverviewDocument,
+  SUPPORTED_TOOLS,
 } from '../overview.js'
 
 const MAX_ADDITIONAL_PROMPT_LENGTH = 2000
@@ -31,7 +32,7 @@ export function registerOverviewRoutes(app) {
     const { repo, error } = await withRepo(c)
     if (error) return error
     try {
-      const content = await readOverviewDocument(repo.path)
+      const content = await readOverviewDocument(repo.path, c.req.query('tool'))
       if (!content) return c.json({ error: 'overview not found' }, 404)
       c.header('Content-Security-Policy', "default-src 'none'; script-src 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'unsafe-inline'; img-src data:; connect-src 'none'; font-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'self'")
       c.header('Cache-Control', 'no-store')
@@ -49,6 +50,13 @@ export function registerOverviewRoutes(app) {
     const { repo, error } = await withRepo(c)
     if (error) return error
     const body = await c.req.json().catch(() => ({}))
+    if (body?.tools != null && (
+      !Array.isArray(body.tools) ||
+      !body.tools.length ||
+      body.tools.some((tool) => typeof tool !== 'string' || !SUPPORTED_TOOLS.includes(tool))
+    )) {
+      return c.json({ error: `tools must be a non-empty array containing only: ${SUPPORTED_TOOLS.join(', ')}` }, 400)
+    }
     if (body?.additional_prompt != null && typeof body.additional_prompt !== 'string') {
       return c.json({ error: 'additional_prompt must be a string' }, 400)
     }
@@ -59,6 +67,7 @@ export function registerOverviewRoutes(app) {
     try {
       return c.json(await ensureOverviewGeneration(repo.path, {
         force: !!body?.force,
+        requestedTools: Array.isArray(body?.tools) ? body.tools : null,
         tool: typeof body?.tool === 'string' ? body.tool : null,
         additionalPrompt,
       }))

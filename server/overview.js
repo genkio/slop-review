@@ -20,10 +20,9 @@ import { branchDir, sanitizeBranchId } from './reviews.js'
 
 const pExecFile = promisify(execFile)
 
-const OVERVIEW_STATE_VERSION = 2
+const OVERVIEW_STATE_VERSION = 3
 const OVERVIEW_PROMPT_VERSION = 4
 const OVERVIEW_FILE = '_overview.json'
-const OVERVIEW_DOCUMENT_FILE = '_overview.html'
 const CODEX_TIMEOUT_MS = 10 * 60 * 1000
 const GIT_TIMEOUT_MS = 30000
 const GIT_MAXBUF = 64 * 1024 * 1024
@@ -34,7 +33,7 @@ let codexAvailabilityPromise = null
 let claudeAvailabilityPromise = null
 let opencodeAvailabilityPromise = null
 
-const SUPPORTED_TOOLS = ['codex', 'claude', 'opencode']
+export const SUPPORTED_TOOLS = ['codex', 'claude', 'opencode']
 const SKILL_DIR = join(dirname(fileURLToPath(import.meta.url)), '..', 'skills', 'explain-diff-html')
 
 function sha1(value) {
@@ -54,8 +53,8 @@ function overviewPath(repoPath, branchId) {
   return join(branchDir(repoPath, branchId), OVERVIEW_FILE)
 }
 
-function overviewDocumentPath(repoPath, branchId) {
-  return join(branchDir(repoPath, branchId), OVERVIEW_DOCUMENT_FILE)
+function overviewDocumentPath(repoPath, branchId, tool) {
+  return join(branchDir(repoPath, branchId), `_overview-${tool}.html`)
 }
 
 function jobKey(repoPath, branchId) {
@@ -254,7 +253,10 @@ function stateForClient(context, data, statusOverride = null, tools = null) {
     ...clientMeta(context),
     started_at: data?.started_at || null,
     completed_at: data?.completed_at || null,
-    has_content: !!data?.has_content,
+    generated_tools: Array.isArray(data?.generated_tools) ? data.generated_tools : [],
+    requested_tools: Array.isArray(data?.requested_tools) ? data.requested_tools : [],
+    generations: data?.generations || {},
+    has_content: Object.values(data?.generations || {}).some((generation) => generation?.has_content),
     additional_prompt: data?.additional_prompt || '',
     error: data?.error || null,
   }
@@ -285,6 +287,7 @@ export async function getOverviewStatus(repoPath) {
 
 export async function ensureOverviewGeneration(repoPath, {
   force = false,
+  requestedTools = null,
   tool = null,
   additionalPrompt = '',
 } = {}) {
@@ -295,8 +298,8 @@ export async function ensureOverviewGeneration(repoPath, {
     return stateForClient(context, { status: 'idle' }, null, tools)
   }
 
-  const selected = resolveTool(tool, tools)
-  if (!selected) {
+  const selectedTools = resolveTools(requestedTools || (tool ? [tool] : null), tools)
+  if (!selectedTools.length) {
     return stateForClient(context, { status: 'idle' }, null, tools)
   }
 
@@ -304,99 +307,142 @@ export async function ensureOverviewGeneration(repoPath, {
   const existing = jobs.get(key)
   if (existing) {
     if (existing.cacheKey === context.cacheKey) return stateForClient(context, existing, 'generating', tools)
-    try { existing.child?.kill('SIGTERM') } catch {}
+    for (const child of existing.children || []) {
+      try { child.kill('SIGTERM') } catch {}
+    }
     jobs.delete(key)
   }
 
+  const cached = await readOverviewState(repoPath, context.branchId)
   if (!force) {
-    const cached = await readOverviewState(repoPath, context.branchId)
     if (cached?.cache_key === context.cacheKey && cached.status === 'ready') {
       return stateForClient(context, cached, null, tools)
     }
   }
 
-  const job = startOverviewGeneration(repoPath, context, selected, additionalPrompt)
+  const previous = cached?.cache_key === context.cacheKey ? cached : null
+  const job = startOverviewGeneration(
+    repoPath,
+    context,
+    selectedTools,
+    additionalPrompt,
+    previous
+  )
   return stateForClient(context, job, 'generating', tools)
 }
 
-function resolveTool(requested, tools) {
-  if (requested && SUPPORTED_TOOLS.includes(requested)) {
-    if (requested === 'codex' && tools.codex.available) return 'codex'
-    if (requested === 'claude' && tools.claude.available) return 'claude'
-    if (requested === 'opencode' && tools.opencode.available) return 'opencode'
-    return null
-  }
-  if (tools.codex.available) return 'codex'
-  if (tools.claude.available) return 'claude'
-  if (tools.opencode.available) return 'opencode'
-  return null
+export function resolveTools(requested, tools) {
+  const candidates = Array.isArray(requested) && requested.length
+    ? requested
+    : SUPPORTED_TOOLS
+  return SUPPORTED_TOOLS.filter((tool) => (
+    candidates.includes(tool) && tools?.[tool]?.available
+  ))
 }
 
-function startOverviewGeneration(repoPath, context, tool, additionalPrompt) {
+export function mergeOverviewGenerations(previous, selectedTools, startedAt) {
+  const previousGenerations = previous?.generations || {}
+  const generations = {}
+  for (const tool of SUPPORTED_TOOLS) {
+    if (previousGenerations[tool]) generations[tool] = { ...previousGenerations[tool] }
+  }
+  for (const tool of selectedTools) {
+    generations[tool] = {
+      status: 'generating',
+      started_at: startedAt,
+      completed_at: null,
+      has_content: !!previousGenerations[tool]?.has_content,
+      error: null,
+    }
+  }
+  return generations
+}
+
+function startOverviewGeneration(
+  repoPath,
+  context,
+  selectedTools,
+  additionalPrompt,
+  previous
+) {
   const key = jobKey(repoPath, context.branchId)
   const startedAt = new Date().toISOString()
+  const generations = mergeOverviewGenerations(previous, selectedTools, startedAt)
   const job = {
     status: 'generating',
     cacheKey: context.cacheKey,
-    tool,
+    generated_tools: SUPPORTED_TOOLS.filter((tool) => generations[tool]),
+    requested_tools: selectedTools,
+    generations,
     started_at: startedAt,
     completed_at: null,
-    has_content: false,
     additional_prompt: additionalPrompt,
     error: null,
-    child: null,
+    children: new Set(),
   }
   jobs.set(key, job)
 
-  const runner = {
+  const runners = {
     codex: runCodexOverview,
     claude: runClaudeOverview,
     opencode: runOpenCodeOverview,
-  }[tool]
+  }
   job.promise = (async () => {
+    await Promise.all(selectedTools.map(async (tool) => {
+      try {
+        const content = await runners[tool](repoPath, context, additionalPrompt, job)
+        await writeOverviewDocument(repoPath, context.branchId, tool, content)
+        job.generations[tool] = {
+          ...job.generations[tool],
+          status: 'ready',
+          completed_at: new Date().toISOString(),
+          has_content: true,
+        }
+      } catch (e) {
+        job.generations[tool] = {
+          ...job.generations[tool],
+          status: 'error',
+          completed_at: new Date().toISOString(),
+          error: e?.message || `${tool} overview generation failed`,
+        }
+      }
+    }))
+
+    // A newer branch snapshot may have replaced this job while its children
+    // were shutting down. Never let the superseded result overwrite it.
+    if (jobs.get(key) !== job) return null
+
+    const completedAt = new Date().toISOString()
+    const hasContent = Object.values(job.generations)
+      .some((generation) => generation.has_content)
+    const errors = job.generated_tools
+      .map((tool) => job.generations[tool]?.error)
+      .filter(Boolean)
+    const data = {
+      version: OVERVIEW_STATE_VERSION,
+      status: hasContent ? 'ready' : 'error',
+      cache_key: context.cacheKey,
+      prompt_version: OVERVIEW_PROMPT_VERSION,
+      branch_id: context.branchId,
+      branch: context.branchInfo.current_branch,
+      base_branch: context.branchInfo.base_branch,
+      base_sha: context.branchInfo.base_sha,
+      merge_base_sha: context.branchInfo.merge_base_sha,
+      head_sha: context.branchInfo.head_sha,
+      has_local_changes: !!context.branchInfo.has_local_changes,
+      started_at: startedAt,
+      completed_at: completedAt,
+      generated_tools: job.generated_tools,
+      requested_tools: selectedTools,
+      generations: job.generations,
+      additional_prompt: additionalPrompt,
+      error: hasContent ? null : errors.join('\n\n'),
+    }
     try {
-      const content = await runner(repoPath, context, additionalPrompt, job)
-      await writeOverviewDocument(repoPath, context.branchId, content)
-      const data = {
-        version: OVERVIEW_STATE_VERSION,
-        status: 'ready',
-        cache_key: context.cacheKey,
-        prompt_version: OVERVIEW_PROMPT_VERSION,
-        branch_id: context.branchId,
-        branch: context.branchInfo.current_branch,
-        base_branch: context.branchInfo.base_branch,
-        base_sha: context.branchInfo.base_sha,
-        merge_base_sha: context.branchInfo.merge_base_sha,
-        head_sha: context.branchInfo.head_sha,
-        has_local_changes: !!context.branchInfo.has_local_changes,
-        started_at: startedAt,
-        completed_at: new Date().toISOString(),
-        has_content: true,
-        additional_prompt: additionalPrompt,
-        error: null,
-      }
       await writeOverviewState(repoPath, context.branchId, data)
-      return data
-    } catch (e) {
-      const data = {
-        version: OVERVIEW_STATE_VERSION,
-        status: 'error',
-        cache_key: context.cacheKey,
-        prompt_version: OVERVIEW_PROMPT_VERSION,
-        branch_id: context.branchId,
-        branch: context.branchInfo.current_branch,
-        base_branch: context.branchInfo.base_branch,
-        base_sha: context.branchInfo.base_sha,
-        merge_base_sha: context.branchInfo.merge_base_sha,
-        head_sha: context.branchInfo.head_sha,
-        has_local_changes: !!context.branchInfo.has_local_changes,
-        started_at: startedAt,
-        completed_at: new Date().toISOString(),
-        has_content: false,
-        additional_prompt: additionalPrompt,
-        error: e?.message || 'Overview generation failed',
-      }
-      await writeOverviewState(repoPath, context.branchId, data)
+      try {
+        await removeUnusedOverviewDocuments(repoPath, context.branchId, job.generations)
+      } catch {} // Orphan cleanup must not invalidate successfully cached output.
       return data
     } finally {
       if (jobs.get(key) === job) jobs.delete(key)
@@ -621,7 +667,8 @@ function driveClaudePty(repoPath, prompt, outputFile, tmpDir, job) {
       env: { ...process.env, TERM: 'xterm-256color', NO_COLOR: '1' },
       stdio: ['pipe', 'pipe', 'pipe'],
     })
-    job.child = child
+    trackChild(job, child)
+    child.once('close', () => untrackChild(job, child))
 
     let screen = ''
     let stderr = ''
@@ -657,6 +704,7 @@ function driveClaudePty(repoPath, prompt, outputFile, tmpDir, job) {
       if (settled) return
       settled = true
       clearTimeout(timer)
+      untrackChild(job, child)
       const hint = e?.code === 'ENOENT'
         ? `python3 is not available on PATH; Claude Code overview requires it to allocate a PTY.`
         : e.message
@@ -666,6 +714,7 @@ function driveClaudePty(repoPath, prompt, outputFile, tmpDir, job) {
       if (settled) return
       settled = true
       clearTimeout(timer)
+      untrackChild(job, child)
       const detail = (stderr || `exit ${code}${signal ? ` (${signal})` : ''}`).trim()
       reject(new Error(`Claude Code CLI exited before producing an overview: ${detail || 'no output captured'}`))
     })
@@ -762,8 +811,8 @@ async function readGeneratedOverview(outputFile, label) {
   return content
 }
 
-async function writeOverviewDocument(repoPath, branchId, content) {
-  const target = overviewDocumentPath(repoPath, branchId)
+async function writeOverviewDocument(repoPath, branchId, tool, content) {
+  const target = overviewDocumentPath(repoPath, branchId, tool)
   await mkdir(dirname(target), { recursive: true })
   const tmp = `${target}.tmp.${process.pid}.${Date.now()}`
   await writeFile(tmp, content)
@@ -771,12 +820,19 @@ async function writeOverviewDocument(repoPath, branchId, content) {
   try { await chmod(target, 0o600) } catch {}
 }
 
-export async function readOverviewDocument(repoPath) {
+async function removeUnusedOverviewDocuments(repoPath, branchId, generations) {
+  await Promise.all(SUPPORTED_TOOLS
+    .filter((tool) => !generations[tool]?.has_content)
+    .map((tool) => rm(overviewDocumentPath(repoPath, branchId, tool), { force: true })))
+}
+
+export async function readOverviewDocument(repoPath, tool) {
+  if (!SUPPORTED_TOOLS.includes(tool)) return null
   const context = await getOverviewContext(repoPath)
   const state = await readOverviewState(repoPath, context.branchId)
-  if (!state?.has_content) return null
+  if (!state?.generations?.[tool]?.has_content) return null
   try {
-    return await readFile(overviewDocumentPath(repoPath, context.branchId), 'utf8')
+    return await readFile(overviewDocumentPath(repoPath, context.branchId, tool), 'utf8')
   } catch {
     return null
   }
@@ -799,7 +855,8 @@ function runProcess(command, args, stdin, cwd, job, label = 'Codex') {
       env: { ...process.env, NO_COLOR: '1' },
       stdio: ['pipe', 'pipe', 'pipe'],
     })
-    job.child = child
+    trackChild(job, child)
+    child.once('close', () => untrackChild(job, child))
 
     let stdout = ''
     let stderr = ''
@@ -818,12 +875,14 @@ function runProcess(command, args, stdin, cwd, job, label = 'Codex') {
       if (settled) return
       settled = true
       clearTimeout(timer)
+      untrackChild(job, child)
       reject(new Error(`Failed to start ${label} CLI: ${e.message}`))
     })
     child.on('close', (code, signal) => {
       if (settled) return
       settled = true
       clearTimeout(timer)
+      untrackChild(job, child)
       if (timedOut) {
         reject(new Error(`${label} overview timed out after ${Math.round(CODEX_TIMEOUT_MS / 60000)} minutes.`))
         return
@@ -845,9 +904,19 @@ function runProcess(command, args, stdin, cwd, job, label = 'Codex') {
   })
 }
 
+function trackChild(job, child) {
+  job.children?.add(child)
+}
+
+function untrackChild(job, child) {
+  job.children?.delete(child)
+}
+
 export function shutdownAllOverviewJobs() {
   for (const job of jobs.values()) {
-    try { job.child?.kill('SIGTERM') } catch {}
+    for (const child of job.children || []) {
+      try { child.kill('SIGTERM') } catch {}
+    }
   }
   jobs.clear()
 }

@@ -1127,15 +1127,56 @@ a.card-file:hover .card-file-mark {
 .modal.modal-wide { max-width: 1200px; }
 .overview-modal-head {
   display: flex;
-  align-items: baseline;
+  align-items: center;
+  justify-content: space-between;
   gap: 14px;
   flex-wrap: wrap;
   margin: 0 0 18px;
   padding-right: 32px;             /* keep clear of the × close button */
 }
+.overview-modal-title {
+  display: flex;
+  align-items: baseline;
+  gap: 14px;
+  min-width: 0;
+}
 .overview-modal-head h2 {
   margin: 0;
   padding-right: 0;
+}
+.overview-result-tabs {
+  display: flex;
+  gap: 4px;
+  max-width: 100%;
+  overflow-x: auto;
+  padding: 3px;
+  border: 1px solid var(--hairline);
+  border-radius: 999px;
+  background: var(--bg-deep);
+}
+.overview-result-tabs[hidden] { display: none; }
+.overview-result-tab {
+  flex: 0 0 auto;
+  min-height: 30px;
+  padding: 5px 11px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--fg-soft);
+  font-size: 12px;
+  font-weight: 600;
+}
+.overview-result-tab[aria-selected="true"] {
+  background: var(--card);
+  color: var(--ink);
+  box-shadow: 0 1px 4px color-mix(in srgb, var(--ink) 14%, transparent);
+}
+.overview-result-tab.is-ready { color: var(--lane-done); }
+.overview-result-tab.is-running { color: var(--lane-review); }
+.overview-result-tab.is-error { color: var(--lane-removed); }
+.overview-result-tab:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
 }
 .overview-modal-body { min-height: 80px; }
 .overview-frame {
@@ -1145,6 +1186,10 @@ a.card-file:hover .card-file-mark {
   border: 1px solid var(--hairline-strong);
   border-radius: var(--radius-md);
   background: #fff;
+}
+.overview-preserved-result > p {
+  color: var(--fg-muted);
+  font-size: 12px;
 }
 .overview-modal-body .overview-actions {
   margin-top: 24px;
@@ -4490,9 +4535,7 @@ body:has(.diff-page) main {
     transform: rotate(90deg);
   }
 }
-/* Picker shown before overview generation. When both Codex and Claude
-   Code CLIs are available the user picks one; when only one is present
-   the modal renders as a plain confirm without the radio group. */
+/* Multi-select picker shown before overview generation. */
 .overview-tool-picker {
   display: flex;
   flex-direction: column;
@@ -4513,13 +4556,18 @@ body:has(.diff-page) main {
   border-color: var(--accent);
   background: var(--bg-deep);
 }
-.overview-tool-option input[type="radio"] {
+.overview-tool-option input[type="checkbox"] {
   margin: 0;
 }
 .overview-tool-name {
   font-weight: 500;
   color: var(--ink);
 }
+.overview-tool-result {
+  color: var(--lane-done);
+  font-size: 11px;
+}
+.overview-tool-result.is-error { color: var(--lane-removed); }
 .overview-tool-version {
   margin-left: auto;
   font-family: var(--font-mono);
@@ -4567,6 +4615,11 @@ body:has(.diff-page) main {
   color: var(--fg-soft);
   border-top: 1px solid var(--hairline);
   border-bottom: 1px solid var(--hairline);
+}
+.overview-pending.has-content {
+  padding: 10px 0;
+  border-top: 0;
+  font-size: 12px;
 }
 .overview-empty,
 .overview-error {

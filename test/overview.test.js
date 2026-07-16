@@ -1,6 +1,11 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { buildOverviewPrompt, openCodeConfig } from '../server/overview.js'
+import {
+  buildOverviewPrompt,
+  mergeOverviewGenerations,
+  openCodeConfig,
+  resolveTools,
+} from '../server/overview.js'
 
 function context() {
   return {
@@ -59,4 +64,69 @@ test('OpenCode can write scratch output but not the repository or bundled skill'
     .find((pattern) => pattern.endsWith('/skills/explain-diff-html/**'))
   assert.ok(skillPattern)
   assert.equal(permission.edit[skillPattern], 'deny')
+})
+
+test('overview generation keeps each selected available tool in stable tab order', () => {
+  const availability = {
+    codex: { available: true },
+    claude: { available: false },
+    opencode: { available: true },
+  }
+
+  assert.deepEqual(resolveTools(['opencode', 'codex', 'opencode'], availability), ['codex', 'opencode'])
+  assert.deepEqual(resolveTools(null, availability), ['codex', 'opencode'])
+  assert.deepEqual(resolveTools(['claude'], availability), [])
+})
+
+test('regeneration replaces only selected agents and retains prior results', () => {
+  const previous = {
+    generations: {
+      codex: {
+        status: 'error',
+        started_at: '2026-07-16T10:00:00.000Z',
+        completed_at: '2026-07-16T10:01:00.000Z',
+        has_content: false,
+        error: 'Codex failed',
+      },
+      opencode: {
+        status: 'ready',
+        started_at: '2026-07-16T10:00:00.000Z',
+        completed_at: '2026-07-16T10:02:00.000Z',
+        has_content: true,
+        error: null,
+      },
+    },
+  }
+
+  const generations = mergeOverviewGenerations(
+    previous,
+    ['codex'],
+    '2026-07-17T10:00:00.000Z'
+  )
+
+  assert.deepEqual(generations.opencode, previous.generations.opencode)
+  assert.deepEqual(generations.codex, {
+    status: 'generating',
+    started_at: '2026-07-17T10:00:00.000Z',
+    completed_at: null,
+    has_content: false,
+    error: null,
+  })
+})
+
+test('regenerating an existing result preserves its content until replacement succeeds', () => {
+  const generations = mergeOverviewGenerations({
+    generations: {
+      opencode: {
+        status: 'ready',
+        started_at: '2026-07-16T10:00:00.000Z',
+        completed_at: '2026-07-16T10:02:00.000Z',
+        has_content: true,
+        error: null,
+      },
+    },
+  }, ['opencode'], '2026-07-17T10:00:00.000Z')
+
+  assert.equal(generations.opencode.status, 'generating')
+  assert.equal(generations.opencode.has_content, true)
 })

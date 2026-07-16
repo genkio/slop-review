@@ -1,6 +1,6 @@
 import { api } from './api.js'
 import { escapeHtml, toast } from './util.js'
-import { openOverviewModal, confirmOverviewTool } from './overview-modal.js'
+import { openOverviewModal, confirmOverviewTools } from './overview-modal.js'
 
 const POLL_MS = 2500
 
@@ -78,7 +78,7 @@ export function setupOverviewNav(container, repoId) {
 
   async function generate() {
     if (disposed) return
-    const selection = await confirmOverviewTool(lastStatus)
+    const selection = await confirmOverviewTools(lastStatus)
     if (!selection || disposed) return
     container.innerHTML = '<button type="button" class="btn overview-nav-generating" disabled>Generating overview…</button>'
     try {
@@ -86,7 +86,7 @@ export function setupOverviewNav(container, repoId) {
         method: 'POST',
         body: JSON.stringify({
           force: true,
-          tool: selection.tool,
+          tools: selection.tools,
           additional_prompt: selection.additionalPrompt,
         }),
       })
