@@ -58,9 +58,9 @@ npx slop-review
 
 `--sync` 在镜像完成后会退出，除非你接上 `--browser`、`--carbonyl` 或 `--threads`，这些会打开界面并每 5 分钟持续重新同步。`--threads` 无需同步即可到达同一个续看视图。
 
-前置条件：Node ≥ 20，`PATH` 中有 `git`。无运行时依赖，服务器仅由 `node:http` 加标准库构成，因此 `npx slop-review` 不会拉取任何间接依赖包。
+前置条件：Node ≥ 20，`PATH` 中有 `git`；生成概览时还需要 Python 3。无运行时依赖，服务器仅由 `node:http` 加标准库构成，因此 `npx slop-review` 不会拉取任何间接依赖包。
 
-概览模态框会按需生成分支摘要，使用 `codex exec`（只读沙箱）或 `claude`（被授予 `Read`/`Grep`/`Glob`/`LS`/`Write`/`Bash`，以便把概览写入临时文件）。当两个 CLI 都在 `PATH` 中时，模态框让你选择；当只有一个时，则是单按钮确认。当某个 CLI 在 `PATH` 中但生成失败时（例如未登录），它会显示捕获到的 CLI 错误以及一个 Retry 按钮；当两个 CLI 都不在 `PATH` 中时，它会显示可用性错误，且不提供任何操作。
+概览模态框会通过 `codex exec` 或 `claude` 运行内置的 `explain-diff-html` skill，生成包含背景、直觉说明、代码导读、必要的图表和交互式测验的自包含 HTML。生成器选择界面还可填写“同时使用英文和中文说明”等附加指令，以启用 skill 的完整多语言阅读模式。生成的 HTML 缓存在 `.reviews/` 下，并显示在沙箱化的 frame 中。
 
 状态保存在 `~/.config/slop-review/state.json`（遵循 `XDG_CONFIG_HOME`）：包含 schema 版本以及每个仓库的 UI 状态（最近视图 + 线程续看游标）。
 

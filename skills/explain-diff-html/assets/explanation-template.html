@@ -1,0 +1,439 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="@@PAGE_DESCRIPTION@@">
+  <title>@@PAGE_TITLE@@</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --ink: #172033;
+      --muted: #5c667a;
+      --paper: #f7f3eb;
+      --surface: #fffdf8;
+      --surface-2: #eef3f0;
+      --line: #d8d3c8;
+      --navy: #153149;
+      --teal: #147d74;
+      --teal-dark: #0e615b;
+      --amber: #c67522;
+      --amber-soft: #fff0d7;
+      --red: #a73a3a;
+      --red-soft: #fde8e5;
+      --green: #216c48;
+      --green-soft: #e6f4ea;
+      --blue-soft: #e8f0f7;
+      --shadow: 0 14px 40px rgba(21, 49, 73, .09);
+      --radius: 18px;
+    }
+
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      background:
+        radial-gradient(circle at 10% 0%, rgba(20, 125, 116, .10), transparent 26rem),
+        linear-gradient(180deg, #fbf8f1 0, var(--paper) 38rem);
+      color: var(--ink);
+      font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+      line-height: 1.65;
+    }
+
+    a { color: var(--teal-dark); text-underline-offset: 3px; }
+    a:hover { color: var(--amber); }
+    button, a { -webkit-tap-highlight-color: transparent; }
+    button:focus-visible, a:focus-visible, summary:focus-visible {
+      outline: 3px solid #f4af55;
+      outline-offset: 3px;
+    }
+    [hidden] { display: none !important; }
+
+    .shell { width: min(1120px, calc(100% - 32px)); margin: 0 auto; }
+    .hero { padding: 76px 0 42px; }
+    .eyebrow {
+      display: inline-flex;
+      gap: 9px;
+      align-items: center;
+      padding: 6px 11px;
+      border: 1px solid rgba(20, 125, 116, .3);
+      border-radius: 999px;
+      color: var(--teal-dark);
+      background: rgba(255, 255, 255, .65);
+      font-size: .78rem;
+      font-weight: 800;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+    }
+    .eyebrow::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--teal); }
+    h1, h2, h3, h4 { line-height: 1.16; color: var(--navy); }
+    h1 { max-width: 900px; margin: 20px 0 16px; font-size: clamp(2.7rem, 8vw, 5.8rem); letter-spacing: -.055em; }
+    .hero-sub { max-width: 840px; margin: 0; color: var(--muted); font-size: clamp(1.05rem, 2.2vw, 1.32rem); }
+    .meta-row { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 28px; }
+    .meta { padding: 7px 11px; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; font-size: .86rem; color: var(--muted); }
+    .meta strong { color: var(--ink); }
+
+    .reading-controls {
+      position: sticky;
+      top: 12px;
+      z-index: 20;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 14px;
+      margin: 18px auto 34px;
+      padding: 11px 13px;
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      background: rgba(255, 253, 248, .92);
+      box-shadow: 0 8px 24px rgba(21, 49, 73, .08);
+      backdrop-filter: blur(12px);
+    }
+    .reading-controls > span { color: var(--muted); font-size: .84rem; font-weight: 700; }
+    .segmented { display: flex; flex-wrap: wrap; gap: 5px; }
+    .segmented button {
+      border: 0;
+      border-radius: 9px;
+      padding: 8px 12px;
+      background: transparent;
+      color: var(--muted);
+      cursor: pointer;
+      font: inherit;
+      font-size: .84rem;
+      font-weight: 750;
+    }
+    .segmented button[aria-pressed="true"] { color: white; background: var(--navy); }
+
+    .toc {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      overflow: hidden;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: var(--surface);
+      box-shadow: var(--shadow);
+    }
+    .toc a { padding: 20px; text-decoration: none; border-right: 1px solid var(--line); }
+    .toc a:last-child { border-right: 0; }
+    .toc-index { display: block; color: var(--amber); font-weight: 850; font-size: .76rem; letter-spacing: .08em; }
+    .toc-title { display: block; color: var(--navy); font-size: 1.05rem; font-weight: 850; }
+    .toc-sub { display: block; margin-top: 2px; color: var(--muted); font-size: .83rem; }
+
+    main { padding-bottom: 80px; }
+    section { scroll-margin-top: 95px; padding-top: 90px; }
+    .section-kicker { margin: 0 0 8px; color: var(--amber); font-size: .76rem; font-weight: 850; letter-spacing: .12em; text-transform: uppercase; }
+    h2 { margin: 0 0 14px; font-size: clamp(2rem, 5vw, 3.65rem); letter-spacing: -.04em; }
+    .section-lead { max-width: 800px; margin: 0 0 34px; color: var(--muted); font-size: 1.08rem; }
+    .bilingual { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 22px; align-items: start; }
+    .lang-card { min-width: 0; }
+    .lang-label { display: block; margin-bottom: 8px; color: var(--teal-dark); font-size: .72rem; font-weight: 900; letter-spacing: .11em; text-transform: uppercase; }
+
+    .callout {
+      margin: 26px 0;
+      padding: 20px 22px;
+      border: 1px solid var(--line);
+      border-left: 5px solid var(--teal);
+      border-radius: 12px;
+      background: var(--surface);
+    }
+    .callout.warning { border-left-color: var(--amber); background: var(--amber-soft); }
+    .callout.danger { border-left-color: var(--red); background: var(--red-soft); }
+    .callout strong { color: var(--navy); }
+
+    .cards { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; margin: 28px 0; }
+    .card { padding: 19px; border: 1px solid var(--line); border-radius: 14px; background: var(--surface); box-shadow: 0 8px 22px rgba(21, 49, 73, .05); }
+    .card small { display: block; color: var(--amber); font-weight: 850; text-transform: uppercase; letter-spacing: .07em; }
+    .card strong { display: block; margin: 5px 0; color: var(--navy); font-size: 1.03rem; }
+    .card p { margin: 0; color: var(--muted); font-size: .87rem; }
+
+    .before-after, .tests { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; margin: 30px 0; }
+    .panel { border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); overflow: hidden; }
+    .panel-head { padding: 15px 18px; color: white; background: var(--navy); font-weight: 850; }
+    .panel.before .panel-head { background: #7f4440; }
+    .panel.after .panel-head { background: var(--teal-dark); }
+    .panel-body { padding: 20px; }
+
+    .data-table { width: 100%; border-collapse: collapse; table-layout: fixed; margin: 26px 0; background: var(--surface); }
+    .data-table th, .data-table td { padding: 13px 14px; border: 1px solid var(--line); text-align: left; vertical-align: top; overflow-wrap: anywhere; }
+    .data-table th { color: var(--navy); background: var(--surface-2); font-size: .82rem; }
+    .data-table td { font-size: .88rem; }
+    .tag { display: inline-block; padding: 2px 7px; border-radius: 999px; background: var(--blue-soft); color: var(--navy); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .77rem; font-weight: 800; }
+
+    .code-step { margin: 28px 0 44px; padding: 24px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); box-shadow: 0 10px 28px rgba(21, 49, 73, .05); }
+    .step-num { display: inline-grid; place-items: center; width: 31px; height: 31px; margin-right: 8px; border-radius: 50%; color: white; background: var(--teal); font-weight: 900; }
+    .code-step h3 { margin: 0 0 16px; font-size: 1.42rem; }
+    .file-ref { display: inline-block; max-width: 100%; margin: 0 0 14px; overflow-wrap: anywhere; color: var(--muted); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .78rem; }
+    pre {
+      max-width: 100%;
+      overflow-x: auto;
+      margin: 18px 0;
+      padding: 18px;
+      border: 1px solid #2e4558;
+      border-radius: 12px;
+      background: #132536;
+      color: #e9f2f5;
+      font: .84rem/1.6 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      white-space: pre;
+    }
+    code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+    :not(pre) > code { padding: 2px 5px; border-radius: 5px; color: #0b5b55; background: #e4f0ed; font-size: .88em; }
+
+    .diagram-card { margin: 30px 0; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); overflow: hidden; box-shadow: var(--shadow); }
+    .diagram-heading { margin: 0; padding: 18px 20px 0; font-size: 1.15rem; }
+    .mermaid-render { padding: 18px 20px 6px; }
+    .diagram-output-wrap { max-width: 100%; overflow-x: auto; border-radius: 12px; background: #14161c; }
+    pre.mermaid-output { min-height: 72px; margin: 0; border: 0; border-radius: 0; background: transparent; color: #e6edf3; line-height: 1.25; font-variant-ligatures: none; }
+    .mermaid-output .b { color: #8b949e; }
+    .mermaid-output .n { color: #f0f6fc; }
+    .mermaid-output .e { color: #7d8590; }
+    .mermaid-output .el { color: #e3b341; }
+    .mermaid-output .t { color: #79c0ff; font-weight: 800; }
+    .mermaid-output .i { font-style: italic; }
+    .mermaid-error { color: #ff9b93; }
+    .diagram-source { margin: 10px 20px 16px; }
+    .diagram-source summary { width: max-content; max-width: 100%; cursor: pointer; color: var(--teal-dark); font-size: .82rem; font-weight: 800; }
+    .diagram-source pre { margin: 10px 0 0; background: #f6f7f5; color: var(--ink); border-color: var(--line); }
+    .diagram-card figcaption { padding: 0 20px 18px; color: var(--muted); font-size: .86rem; }
+
+    .quiz-list { display: grid; gap: 20px; margin-top: 30px; }
+    .quiz-card { padding: 23px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); box-shadow: 0 8px 24px rgba(21, 49, 73, .05); }
+    .quiz-num { color: var(--amber); font-size: .74rem; font-weight: 900; letter-spacing: .08em; text-transform: uppercase; }
+    .quiz-card h3 { margin: 6px 0 16px; font-size: 1.12rem; line-height: 1.45; }
+    .options { display: grid; gap: 9px; }
+    .option { width: 100%; padding: 12px 14px; border: 1px solid var(--line); border-radius: 10px; background: #fff; color: var(--ink); cursor: pointer; font: inherit; text-align: left; }
+    .option:hover:not(:disabled) { border-color: var(--teal); background: #f4faf8; }
+    .option.selected { border-width: 2px; border-color: var(--navy); }
+    .option.correct { border-color: var(--green); background: var(--green-soft); }
+    .option.incorrect { border-color: var(--red); background: var(--red-soft); }
+    .option:disabled { cursor: default; color: var(--ink); opacity: 1; }
+    .feedback { display: none; margin-top: 14px; padding: 14px; border-radius: 10px; font-size: .91rem; }
+    .feedback.show { display: block; }
+    .feedback.good { border-left: 4px solid var(--green); background: var(--green-soft); }
+    .feedback.bad { border-left: 4px solid var(--red); background: var(--red-soft); }
+
+    .scope-note { margin-top: 50px; padding-top: 22px; border-top: 1px solid var(--line); color: var(--muted); font-size: .82rem; }
+    footer { padding: 30px 0 50px; color: var(--muted); font-size: .78rem; }
+
+    @media (max-width: 780px) {
+      .hero { padding-top: 50px; }
+      .toc { grid-template-columns: 1fr 1fr; }
+      .toc a:nth-child(2n) { border-right: 0; }
+      .bilingual, .before-after, .tests, .cards { grid-template-columns: 1fr; }
+    }
+    @media (max-width: 520px) {
+      .shell { width: min(100% - 22px, 1120px); }
+      .reading-controls { position: static; align-items: flex-start; flex-direction: column; }
+      .toc { grid-template-columns: 1fr; }
+      .toc a { border-right: 0; border-bottom: 1px solid var(--line); }
+      .toc a:last-child { border-bottom: 0; }
+      .code-step, .quiz-card { padding: 18px; }
+      .mermaid-render { padding-inline: 12px; }
+    }
+    @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+  </style>
+</head>
+<body>
+  @@CONTENT_HTML@@
+
+  <footer class="shell">
+    <span>Self-contained branch explanation.</span>
+    <span> Diagram renderer derived from <a href="https://github.com/simonw/tools/tree/main/grok-mermaid">grok-mermaid</a>, Apache-2.0, source commit 6cd0acaaed4e8adc6578be35898d916bfc3f138e.</span>
+  </footer>
+
+  <script id="page-data" type="application/json">@@PAGE_DATA_JSON@@</script>
+  <script id="mermaid-wasm" type="application/octet-stream">@@MERMAID_WASM_BASE64@@</script>
+  <script>
+    (() => {
+      "use strict";
+
+      const pageData = JSON.parse(document.getElementById("page-data").textContent);
+
+      function initializeLanguages() {
+        const host = document.getElementById("language-controls");
+        if (!host || pageData.languageModes.length < 2) {
+          if (host) host.hidden = true;
+          return;
+        }
+
+        host.hidden = false;
+        host.classList.add("reading-controls", "shell");
+        const label = document.createElement("span");
+        label.textContent = host.dataset.label || "Reading mode";
+        const buttons = document.createElement("div");
+        buttons.className = "segmented";
+        buttons.setAttribute("role", "group");
+        buttons.setAttribute("aria-label", label.textContent);
+
+        function activate(mode, activeButton) {
+          const visible = new Set(mode.show);
+          document.querySelectorAll("[data-language]").forEach(element => {
+            element.hidden = !visible.has(element.dataset.language);
+          });
+          buttons.querySelectorAll("button").forEach(button => {
+            button.setAttribute("aria-pressed", String(button === activeButton));
+          });
+          document.body.dataset.languageMode = mode.id;
+        }
+
+        pageData.languageModes.forEach((mode, index) => {
+          const button = document.createElement("button");
+          button.type = "button";
+          button.textContent = mode.label;
+          button.setAttribute("aria-pressed", String(index === 0));
+          button.addEventListener("click", () => activate(mode, button));
+          buttons.appendChild(button);
+          if (index === 0) activate(mode, button);
+        });
+        host.replaceChildren(label, buttons);
+      }
+
+      function decodeWasm() {
+        const encoded = document.getElementById("mermaid-wasm").textContent.trim();
+        const binary = atob(encoded);
+        const bytes = new Uint8Array(binary.length);
+        for (let index = 0; index < binary.length; index += 1) {
+          bytes[index] = binary.charCodeAt(index);
+        }
+        return bytes;
+      }
+
+      function measureColumns(output, wrap) {
+        const probe = document.createElement("span");
+        probe.textContent = "0".repeat(100);
+        probe.style.visibility = "hidden";
+        output.appendChild(probe);
+        const characterWidth = probe.getBoundingClientRect().width / 100;
+        probe.remove();
+        const usableWidth = Math.max(160, wrap.clientWidth - 36);
+        return Math.max(20, Math.floor(usableWidth / characterWidth));
+      }
+
+      async function initializeDiagrams() {
+        const definitions = new Map(pageData.diagrams.map(diagram => [diagram.id, diagram]));
+        const targets = [...document.querySelectorAll("[data-diagram-id]")];
+        if (!targets.length) return;
+
+        let module;
+        let instance;
+        try {
+          module = await WebAssembly.compile(decodeWasm());
+          instance = await WebAssembly.instantiate(module, {});
+        } catch (error) {
+          targets.forEach(target => renderFallback(target, definitions.get(target.dataset.diagramId), error));
+          return;
+        }
+
+        function renderHtml(source, maxWidth) {
+          const exports = instance.exports;
+          const bytes = new TextEncoder().encode(source);
+          const pointer = exports.wasm_alloc(bytes.length);
+          new Uint8Array(exports.memory.buffer, pointer, bytes.length).set(bytes);
+          const length = exports.wasm_render_html(pointer, bytes.length, maxWidth);
+          return new TextDecoder().decode(
+            new Uint8Array(instance.exports.memory.buffer, exports.wasm_result_ptr(), length)
+          );
+        }
+
+        function renderTarget(target) {
+          const definition = definitions.get(target.dataset.diagramId);
+          if (!definition) return;
+          const output = target.querySelector(".mermaid-output");
+          const wrap = target.querySelector(".diagram-output-wrap");
+          const maxWidth = Number.isInteger(definition.maxWidth)
+            ? definition.maxWidth
+            : Math.max(80, measureColumns(output, wrap));
+          try {
+            output.innerHTML = renderHtml(definition.source, maxWidth);
+          } catch (error) {
+            WebAssembly.instantiate(module, {}).then(fresh => { instance = fresh; });
+            renderFallback(target, definition, error);
+          }
+        }
+
+        targets.forEach(target => {
+          const definition = definitions.get(target.dataset.diagramId);
+          if (!definition) return;
+          target.setAttribute("role", "img");
+          target.setAttribute("aria-label", definition.ariaLabel || definition.id);
+
+          const wrap = document.createElement("div");
+          wrap.className = "diagram-output-wrap";
+          const output = document.createElement("pre");
+          output.className = "mermaid-output";
+          output.setAttribute("aria-live", "polite");
+          wrap.appendChild(output);
+
+          const details = document.createElement("details");
+          details.className = "diagram-source";
+          const summary = document.createElement("summary");
+          summary.textContent = definition.sourceLabel || "Mermaid source";
+          const source = document.createElement("pre");
+          const code = document.createElement("code");
+          code.textContent = definition.source;
+          source.appendChild(code);
+          details.append(summary, source);
+          target.replaceChildren(wrap, details);
+          renderTarget(target);
+        });
+
+        let resizeTimer;
+        window.addEventListener("resize", () => {
+          clearTimeout(resizeTimer);
+          resizeTimer = setTimeout(() => targets.forEach(renderTarget), 150);
+        });
+      }
+
+      function renderFallback(target, definition, error) {
+        if (!target || !definition) return;
+        const output = target.querySelector(".mermaid-output") || document.createElement("pre");
+        output.className = "mermaid-output mermaid-error";
+        output.textContent = `${definition.source}\n\nRenderer unavailable: ${error}`;
+        if (!output.parentNode) target.replaceChildren(output);
+      }
+
+      function initializeQuiz() {
+        const list = document.getElementById("quiz-list");
+        if (!list) return;
+
+        pageData.quiz.forEach((item, index) => {
+          const card = document.createElement("article");
+          card.className = "quiz-card";
+          const number = document.createElement("div");
+          number.className = "quiz-num";
+          number.textContent = `Question ${index + 1} / ${pageData.quiz.length}`;
+          const heading = document.createElement("h3");
+          heading.textContent = item.question;
+          const options = document.createElement("div");
+          options.className = "options";
+          const feedback = document.createElement("div");
+          feedback.className = "feedback";
+          feedback.setAttribute("role", "status");
+
+          item.order.forEach(key => {
+            const button = document.createElement("button");
+            button.type = "button";
+            button.className = "option";
+            button.textContent = item.options[key];
+            button.setAttribute("aria-label", item.options[key]);
+            button.addEventListener("click", () => {
+              const correct = key === item.correct;
+              options.querySelectorAll("button").forEach(option => { option.disabled = true; });
+              button.classList.add("selected", correct ? "correct" : "incorrect");
+              feedback.className = `feedback show ${correct ? "good" : "bad"}`;
+              feedback.textContent = `${correct ? "✓ Correct. " : "✕ Not quite. "}${item.explanation}`;
+            }, { once: true });
+            options.appendChild(button);
+          });
+
+          card.append(number, heading, options, feedback);
+          list.appendChild(card);
+        });
+      }
+
+      initializeLanguages();
+      initializeQuiz();
+      initializeDiagrams();
+    })();
+  </script>
+</body>
+</html>

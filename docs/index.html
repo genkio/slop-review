@@ -421,7 +421,7 @@ section.band#keys, section.band#install { border-top:1px solid var(--hairline); 
       <div class="feat-text">
         <div class="num">09 / Branch overview on demand</div>
         <h3>An LLM-generated map of the change set.</h3>
-        <p>The Overview modal generates a branch summary on demand using <code>codex exec</code> or <code>claude</code>: what changed, the mental model, before/after behavior, and a small architecture sketch rendered as a diagram.</p>
+        <p>The Overview modal runs the bundled <code>explain-diff-html</code> skill with <code>codex exec</code> or <code>claude</code>, producing a self-contained explainer with background, intuition, a code walkthrough, useful diagrams, and an interactive quiz. Optional instructions can request complete multilingual output.</p>
       </div>
       <div class="feat-media">
         <div class="frame"><div class="frame-bar"><div class="lights"><i></i><i></i><i></i></div><div class="frame-url">localhost:9410 &mdash; overview</div></div><img src="assets/overview-modal.webp" alt="The branch overview modal with numbered what-changed cards" width="1600" height="1003" loading="lazy"></div>

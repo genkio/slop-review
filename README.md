@@ -58,9 +58,9 @@ All flags are optional:
 
 `--sync` exits after mirroring unless you chain `--browser`, `--carbonyl`, or `--threads` - those open the UI and keep re-syncing every 5 min. `--threads` reaches that same resume view without syncing.
 
-Prerequisites: Node ≥ 20, `git` on `PATH`. No runtime dependencies - the server is `node:http` + the standard library only, so `npx slop-review` pulls no transitive packages.
+Prerequisites: Node ≥ 20, `git` on `PATH`, and Python 3 when generating an Overview. No runtime dependencies - the server is `node:http` + the standard library only, so `npx slop-review` pulls no transitive packages.
 
-The Overview modal generates a branch summary on demand using `codex exec` (read-only sandbox) or `claude` (granted `Read`/`Grep`/`Glob`/`LS`/`Write`/`Bash` so it can write the overview to a temp file). When both CLIs are on `PATH` the modal lets you pick; when one is, it's a single-button confirm. When a CLI is on `PATH` but generation fails (e.g. not logged in), it shows the captured CLI error and a Retry button; when neither CLI is on `PATH` it shows the availability error with no action.
+The Overview modal uses the bundled `explain-diff-html` skill with `codex exec` or `claude` to generate a self-contained branch explainer with background, intuition, a code walkthrough, diagrams where useful, and an interactive quiz. The generator picker also accepts optional instructions such as “Explain it in both English and Chinese”; the skill turns requested languages into a complete multilingual reading mode. Generated HTML is cached under `.reviews/` and displayed in a sandboxed frame. When both CLIs are on `PATH` the modal lets you pick; when one is, it's a single-button confirm. Generation errors include the captured CLI output and a Retry button.
 
 State lives at `~/.config/slop-review/state.json` (honors `XDG_CONFIG_HOME`): schema version plus per-repo UI state (last view + thread-resume cursors).
 

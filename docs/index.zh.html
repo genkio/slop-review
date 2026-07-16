@@ -421,7 +421,7 @@ section.band#keys, section.band#install { border-top:1px solid var(--hairline); 
       <div class="feat-text">
         <div class="num">09 / 按需生成的分支总览</div>
         <h3>一张由 LLM 生成的改动地图。</h3>
-        <p>Overview 模态框使用 <code>codex exec</code> 或 <code>claude</code> 按需生成分支摘要：改了什么、心智模型、前后行为对比，以及一张渲染成图示的小型架构草图。</p>
+        <p>Overview 模态框会通过 <code>codex exec</code> 或 <code>claude</code> 运行内置的 <code>explain-diff-html</code> skill，生成包含背景、直觉说明、代码导读、必要图表和交互式测验的自包含说明。还可通过附加指令请求完整的多语言输出。</p>
       </div>
       <div class="feat-media">
         <div class="frame"><div class="frame-bar"><div class="lights"><i></i><i></i><i></i></div><div class="frame-url">localhost:9410 &mdash; 总览</div></div><img src="assets/overview-modal.webp" alt="带编号“改了什么”卡片的分支总览模态框" width="1600" height="1003" loading="lazy"></div>

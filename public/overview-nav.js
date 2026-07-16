@@ -78,13 +78,17 @@ export function setupOverviewNav(container, repoId) {
 
   async function generate() {
     if (disposed) return
-    const tool = await confirmOverviewTool(lastStatus)
-    if (!tool || disposed) return
+    const selection = await confirmOverviewTool(lastStatus)
+    if (!selection || disposed) return
     container.innerHTML = '<button type="button" class="btn overview-nav-generating" disabled>Generating overview…</button>'
     try {
       const status = await api(`/api/repos/${encodeURIComponent(repoId)}/overview`, {
         method: 'POST',
-        body: JSON.stringify({ force: true, tool }),
+        body: JSON.stringify({
+          force: true,
+          tool: selection.tool,
+          additional_prompt: selection.additionalPrompt,
+        }),
       })
       if (disposed) return
       lastStatus = status

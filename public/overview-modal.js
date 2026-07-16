@@ -11,9 +11,9 @@ const TOOL_LABELS = {
 
 /**
  * Show a confirmation / picker before kicking off overview generation.
- * Resolves to the chosen tool id ('codex' | 'claude') or null if the user
- * cancels. When only one CLI is available the modal degenerates to a
- * single-button confirm; when both are present the user picks one.
+ * Resolves to the chosen tool and optional presentation instructions, or null
+ * if the user cancels. When only one CLI is available the modal degenerates
+ * to a single-button confirm; when both are present the user picks one.
  */
 export function confirmOverviewTool(status) {
   return new Promise((resolve) => {
@@ -27,6 +27,12 @@ export function confirmOverviewTool(status) {
       codex: status?.codex_version || '',
       claude: status?.claude_version || '',
     }
+    const additionalPrompt = escapeHtml(status?.additional_prompt || '')
+    const promptField = `
+      <label class="overview-extra-prompt">
+        <span>Additional instructions <span class="overview-extra-optional">optional</span></span>
+        <input type="text" data-overview-extra maxlength="2000" value="${additionalPrompt}" placeholder="e.g. Explain it in both English and Chinese">
+      </label>`
 
     let body
     if (tools.length === 1) {
@@ -36,6 +42,7 @@ export function confirmOverviewTool(status) {
         <h2>Generate overview</h2>
         <p class="modal-text">Use ${escapeHtml(TOOL_LABELS[tool])}${version} to generate the overview for this branch?</p>
         <input type="hidden" data-tool-choice value="${escapeHtml(tool)}">
+        ${promptField}
         <div class="modal-actions is-reversed">
           <button type="button" class="primary" data-confirm>Generate</button>
           <button type="button" data-close>Cancel</button>
@@ -54,6 +61,7 @@ export function confirmOverviewTool(status) {
         <h2>Generate overview</h2>
         <p class="modal-text">Choose which CLI should generate the overview.</p>
         <div class="overview-tool-picker" role="radiogroup" aria-label="Overview generator">${options}</div>
+        ${promptField}
         <div class="modal-actions is-reversed">
           <button type="button" class="primary" data-confirm>Generate</button>
           <button type="button" data-close>Cancel</button>
@@ -71,19 +79,19 @@ export function confirmOverviewTool(status) {
       const radio = backdrop.querySelector('input[name="overview-tool"]:checked')
       const hidden = backdrop.querySelector('input[data-tool-choice]')
       const choice = radio?.value || hidden?.getAttribute('value') || tools[0]
+      const extra = backdrop.querySelector('[data-overview-extra]')?.value.trim() || ''
       settled = true
       backdrop.remove()
-      resolve(choice)
+      resolve({ tool: choice, additionalPrompt: extra })
     })
   })
 }
 
 /**
- * Open the generated branch overview inside a modal. Reuses makeModal's
- * backdrop + Esc handling and the existing section-aware markdown render.
- * The polling lifecycle (idle → generating → ready, plus stale + error
- * paths) lives entirely inside this function so the modal own-disposes
- * its poll timer when the user dismisses it.
+ * Open the generated branch overview inside a sandboxed frame in a modal.
+ * The polling lifecycle (idle → generating → ready, plus stale + error paths)
+ * lives entirely inside this function so the modal own-disposes its poll
+ * timer when the user dismisses it.
  */
 export function openOverviewModal(repoId) {
   if (!repoId) return
@@ -105,9 +113,7 @@ export function openOverviewModal(repoId) {
     </div>`, {
     onClose: () => { disposed = true; clearTimer() },
   })
-  // Widen the modal so the Mental Model two-column grid + What-Changed
-  // card grid have breathing room — the default 600px max-width crams
-  // every section into a single column.
+  // Give the self-contained explainer enough room for its editorial layout.
   backdrop.querySelector('.modal')?.classList.add('modal-wide')
 
   const body = backdrop.querySelector('[data-overview-body]')
@@ -132,9 +138,8 @@ export function openOverviewModal(repoId) {
     updateGeneratedStamp(status)
 
     if (status.status === 'ready') {
-      const rendered = renderOverview(status.content || '')
       body.innerHTML = `
-        <article class="overview-content">${rendered}</article>
+        ${renderOverviewFrame(repoId, status)}
         <div class="overview-actions">
           <button type="button" data-regenerate-overview>Regenerate</button>
         </div>`
@@ -173,8 +178,8 @@ export function openOverviewModal(repoId) {
       const action = canRegen
         ? '<button type="button" class="primary" data-regenerate-overview>Regenerate overview</button>'
         : ''
-      const article = status.content
-        ? `<article class="overview-content overview-content-stale" aria-label="Previous overview, out of date">${renderOverview(status.content)}</article>`
+      const article = status.has_content
+        ? `<div class="overview-content-stale" aria-label="Previous overview, out of date">${renderOverviewFrame(repoId, status)}</div>`
         : ''
       body.innerHTML = `
         <div class="overview-stale" role="status">
@@ -217,8 +222,8 @@ export function openOverviewModal(repoId) {
   }
 
   async function regenerate() {
-    const tool = await confirmOverviewTool(lastStatus)
-    if (!tool || disposed) return
+    const selection = await confirmOverviewTool(lastStatus)
+    if (!selection || disposed) return
     body.innerHTML = `
       <div class="overview-pending">
         <span class="wt-spinner" aria-hidden="true"></span>
@@ -227,7 +232,11 @@ export function openOverviewModal(repoId) {
     try {
       const status = await api(`/api/repos/${encodeURIComponent(repoId)}/overview`, {
         method: 'POST',
-        body: JSON.stringify({ force: true, tool }),
+        body: JSON.stringify({
+          force: true,
+          tool: selection.tool,
+          additional_prompt: selection.additionalPrompt,
+        }),
       })
       if (disposed) return
       lastStatus = status
@@ -254,252 +263,10 @@ function unavailableReason(status) {
   return parts.join(' ') || 'No supported CLI (Codex or Claude Code) is available on PATH.'
 }
 
-function renderOverview(markdown) {
-  const { sketch, markdown: withoutSketch } = extractSketch(markdown)
-  const sections = parseSections(withoutSketch)
-  const whatChanged = sections.get('What Changed') || ''
-  const mentalModel = sections.get('Mental Model') || ''
-  const beforeAfter = sections.get('Before vs After Behavior') || sections.get('Contract Changes') || ''
-
-  return `
-    ${renderSection('01', 'What Changed', renderFactList(whatChanged))}
-    ${renderSection('02', 'Mental Model', `
-      <div class="overview-mental-grid">
-        <div class="overview-mental-copy">${renderMentalProse(mentalModel)}</div>
-        ${renderSketch(sketch)}
-      </div>`)}
-    ${renderSection('03', 'Before vs After', renderCompareList(beforeAfter))}
-  `
-}
-
-function renderSection(eyebrow, title, body) {
-  return `
-    <section class="overview-section">
-      <header class="overview-section-head">
-        <span class="overview-section-eyebrow">${escapeHtml(eyebrow)}</span>
-        <h2>${escapeHtml(title)}</h2>
-      </header>
-      ${body}
-    </section>`
-}
-
-function extractBullets(markdown) {
-  const text = String(markdown || '').replace(/\r\n/g, '\n')
-  const bullets = []
-  let cur = null
-  const flush = () => { if (cur != null) { bullets.push(cur.trim()); cur = null } }
-  for (const line of text.split('\n')) {
-    const m = line.match(/^\s*[-*]\s+(.+)$/)
-    if (m) { flush(); cur = m[1] }
-    else if (cur != null && line.trim()) cur += ' ' + line.trim()
-    else if (!line.trim()) flush()
+function renderOverviewFrame(repoId, status) {
+  if (!status?.has_content) {
+    return '<div class="overview-empty"><p>The generated overview is unavailable.</p></div>'
   }
-  flush()
-  return bullets.filter(Boolean)
-}
-
-function renderFactList(markdown) {
-  const bullets = extractBullets(markdown)
-  if (!bullets.length) {
-    const fallback = renderMarkdown(markdown)
-    return fallback || '<p class="overview-muted">No summary provided.</p>'
-  }
-  const items = bullets.map((body, i) => `
-    <li class="overview-fact">
-      <span class="overview-fact-num">${String(i + 1).padStart(2, '0')}</span>
-      <div class="overview-fact-body">${inlineMarkdown(body)}</div>
-    </li>`).join('')
-  return `<ol class="overview-facts">${items}</ol>`
-}
-
-function renderCompareList(markdown) {
-  const bullets = extractBullets(markdown)
-  if (!bullets.length) {
-    const fallback = renderMarkdown(markdown)
-    return fallback || '<p class="overview-muted">No summary provided.</p>'
-  }
-  const splitRe = /\s\/\s+after\s*:\s*/i
-  const beforeRe = /^before\s*:\s*/i
-  const rows = bullets.map((bullet) => {
-    const split = bullet.split(splitRe)
-    if (split.length === 2 && beforeRe.test(split[0])) {
-      return {
-        kind: 'compare',
-        before: split[0].replace(beforeRe, '').trim(),
-        after: split[1].trim(),
-      }
-    }
-    return { kind: 'note', body: bullet }
-  })
-  const html = rows.map((r) => {
-    if (r.kind === 'compare') return `
-      <div class="overview-compare-row">
-        <div class="overview-compare-side overview-compare-before">
-          <div class="overview-compare-tag">Before</div>
-          <div class="overview-compare-body">${inlineMarkdown(r.before)}</div>
-        </div>
-        <div class="overview-compare-arrow" aria-hidden="true">→</div>
-        <div class="overview-compare-side overview-compare-after">
-          <div class="overview-compare-tag">After</div>
-          <div class="overview-compare-body">${inlineMarkdown(r.after)}</div>
-        </div>
-      </div>`
-    return `<div class="overview-compare-note">${inlineMarkdown(r.body)}</div>`
-  }).join('')
-  return `<div class="overview-compare">${html}</div>`
-}
-
-function renderMentalProse(markdown) {
-  const html = renderMarkdown(markdown)
-  if (!html) return '<p class="overview-muted">No summary provided.</p>'
-  return html.replace(/^<p>/, '<p class="overview-lead">')
-}
-
-function extractSketch(markdown) {
-  let sketch = null
-  const text = String(markdown || '')
-  const fenceRe = /```json\s*([\s\S]*?)```/i
-  const match = text.match(fenceRe)
-  if (match) {
-    try { sketch = normalizeSketch(JSON.parse(match[1])) } catch {}
-  }
-  return { sketch, markdown: text.replace(fenceRe, '').replace(/^##\s+Sketch\s*$/im, '').trim() }
-}
-
-function normalizeSketch(input) {
-  const rawNodes = Array.isArray(input?.nodes) ? input.nodes : []
-  const nodes = rawNodes
-    .map((n) => ({
-      id: String(n?.id || '').trim(),
-      label: String(n?.label || '').trim(),
-      detail: String(n?.detail || '').trim(),
-    }))
-    .filter((n) => /^[a-z0-9_-]{1,40}$/.test(n.id) && n.label)
-    .slice(0, 6)
-  const ids = new Set(nodes.map((n) => n.id))
-  const edges = (Array.isArray(input?.edges) ? input.edges : [])
-    .map((e) => Array.isArray(e) ? [String(e[0] || ''), String(e[1] || '')] : null)
-    .filter((e) => e && ids.has(e[0]) && ids.has(e[1]) && e[0] !== e[1])
-    .slice(0, 7)
-  return nodes.length ? { nodes, edges } : null
-}
-
-function parseSections(markdown) {
-  const sections = new Map()
-  let current = null
-  const buf = []
-  const flush = () => {
-    if (!current) return
-    sections.set(current, buf.join('\n').trim())
-    buf.length = 0
-  }
-  for (const line of String(markdown || '').replace(/\r\n/g, '\n').split('\n')) {
-    const heading = line.match(/^##\s+(.+)$/)
-    if (heading) {
-      flush()
-      current = heading[1].trim()
-      continue
-    }
-    if (/^#\s+/.test(line)) continue
-    if (current) buf.push(line)
-  }
-  flush()
-  return sections
-}
-
-function renderSketch(sketch) {
-  if (!sketch?.nodes?.length) return '<div class="overview-sketch overview-sketch-empty">No sketch generated.</div>'
-  const incoming = new Map()
-  const outgoing = new Map()
-  for (const node of sketch.nodes) {
-    incoming.set(node.id, [])
-    outgoing.set(node.id, [])
-  }
-  for (const [from, to] of sketch.edges || []) {
-    outgoing.get(from)?.push(to)
-    incoming.get(to)?.push(from)
-  }
-  return `
-    <div class="overview-sketch" aria-label="Change sketch">
-      ${sketch.nodes.map((node) => renderSketchNode(node, incoming.get(node.id) || [], outgoing.get(node.id) || [], sketch.nodes)).join('')}
-    </div>`
-}
-
-function renderSketchNode(node, incoming, outgoing, nodes) {
-  const byId = new Map(nodes.map((n) => [n.id, n]))
-  const inLabel = incoming.map((id) => byId.get(id)?.label).filter(Boolean).join(', ')
-  const outLabel = outgoing.map((id) => byId.get(id)?.label).filter(Boolean).join(', ')
-  return `
-    <div class="overview-sketch-node">
-      <div class="overview-sketch-card">
-        <div class="overview-sketch-label">${escapeHtml(node.label)}</div>
-        ${node.detail ? `<div class="overview-sketch-detail">${escapeHtml(node.detail)}</div>` : ''}
-      </div>
-      ${outgoing.length ? `<div class="overview-sketch-arrow" title="Feeds into ${escapeHtml(outLabel)}">↓</div>` : ''}
-      ${incoming.length ? `<div class="overview-sketch-in" title="From ${escapeHtml(inLabel)}"></div>` : ''}
-    </div>`
-}
-
-function renderMarkdown(markdown) {
-  const lines = String(markdown || '').replace(/\r\n/g, '\n').split('\n')
-  const out = []
-  let list = null
-  let para = []
-
-  const closePara = () => {
-    if (!para.length) return
-    out.push(`<p>${inlineMarkdown(para.join(' '))}</p>`)
-    para = []
-  }
-  const closeList = () => {
-    if (!list) return
-    out.push(`</${list}>`)
-    list = null
-  }
-  const openList = (kind) => {
-    closePara()
-    if (list === kind) return
-    closeList()
-    list = kind
-    out.push(`<${kind}>`)
-  }
-
-  for (const line of lines) {
-    if (!line.trim()) {
-      closePara()
-      closeList()
-      continue
-    }
-    const h = line.match(/^(#{1,3})\s+(.+)$/)
-    if (h) {
-      closePara()
-      closeList()
-      const level = h[1].length === 1 ? 2 : h[1].length
-      out.push(`<h${level}>${inlineMarkdown(h[2].trim())}</h${level}>`)
-      continue
-    }
-    const bullet = line.match(/^\s*[-*]\s+(.+)$/)
-    if (bullet) {
-      openList('ul')
-      out.push(`<li>${inlineMarkdown(bullet[1].trim())}</li>`)
-      continue
-    }
-    const numbered = line.match(/^\s*\d+\.\s+(.+)$/)
-    if (numbered) {
-      openList('ol')
-      out.push(`<li>${inlineMarkdown(numbered[1].trim())}</li>`)
-      continue
-    }
-    para.push(line.trim())
-  }
-  closePara()
-  closeList()
-  return out.join('')
-}
-
-function inlineMarkdown(s) {
-  let out = escapeHtml(s)
-  out = out.replace(/`([^`\n]+)`/g, '<code>$1</code>')
-  out = out.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
-  return out
+  const src = `/api/repos/${encodeURIComponent(repoId)}/overview/content?cache=${encodeURIComponent(status.cache_key || '')}`
+  return `<iframe class="overview-frame" src="${escapeHtml(src)}" sandbox="allow-scripts" title="Generated branch overview"></iframe>`
 }
