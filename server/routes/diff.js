@@ -14,6 +14,7 @@ import {
 } from '../git.js'
 import { parseRemoteUrl, getPullRequestUrl } from '../host.js'
 import {
+  computePrioritiesForIndex,
   computePrioritiesAtSha,
   computePrioritiesForWorktree,
 } from '../diff-priorities.js'
@@ -121,7 +122,7 @@ export function registerDiffRoutes(app) {
 
   // Fetch a line range from a file at a given ref, used by the diff
   // view's "expand context" buttons on hunk headers. `ref` may be a
-  // sha/branch name OR the sentinel 'WORKTREE' (local diff's new side).
+  // sha/branch name, 'INDEX', or 'WORKTREE' (the two local diff sources).
   // start/end are 1-indexed and inclusive; the server clamps end to the
   // file's actual length and reports `total_lines` so the client can
   // tell when there's nothing more to expand.
@@ -198,9 +199,15 @@ export function registerDiffRoutes(app) {
   app.get('/api/repos/:id/local-diff', async (c) => {
     const { repo, error } = await withRepo(c)
     if (error) return error
+    const scope = c.req.query('scope') || 'all'
+    if (!['all', 'staged', 'unstaged'].includes(scope)) {
+      return c.json({ error: 'invalid local diff scope' }, 400)
+    }
     try {
-      const diff = await getLocalDiff(repo.path)
-      diff.priorities = await computePrioritiesForWorktree(repo.path, diff.files)
+      const diff = await getLocalDiff(repo.path, scope)
+      diff.priorities = scope === 'staged'
+        ? await computePrioritiesForIndex(repo.path, diff.files)
+        : await computePrioritiesForWorktree(repo.path, diff.files)
       return c.json(diff)
     } catch (e) {
       return c.json({ error: e.message || 'local diff failed' }, 500)

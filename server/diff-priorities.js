@@ -201,8 +201,13 @@ export function buildPriorities(files, contentsByPath) {
  * still works, the file just lands lower than it might otherwise.
  */
 export async function readPathsAtSha(repoRoot, sha, paths, { concurrency = 8 } = {}) {
+  if (!sha) return new Map(paths.map((p) => [p, null]))
+  return readPathsFromGit(repoRoot, paths, (p) => `${sha}:${p}`, concurrency)
+}
+
+async function readPathsFromGit(repoRoot, paths, specForPath, concurrency) {
   const out = new Map(paths.map((p) => [p, null]))
-  if (!repoRoot || !sha || !paths.length) return out
+  if (!repoRoot || !paths.length) return out
 
   let cursor = 0
   const worker = async () => {
@@ -212,7 +217,7 @@ export async function readPathsAtSha(repoRoot, sha, paths, { concurrency = 8 } =
       try {
         const { stdout } = await pExecFile(
           'git',
-          ['-C', repoRoot, 'show', `${sha}:${p}`],
+          ['-C', repoRoot, 'show', specForPath(p)],
           { timeout: 8000, maxBuffer: 8 * 1024 * 1024, encoding: 'utf8' }
         )
         out.set(p, stdout)
@@ -224,6 +229,10 @@ export async function readPathsAtSha(repoRoot, sha, paths, { concurrency = 8 } =
   const lanes = Math.min(concurrency, paths.length)
   await Promise.all(Array.from({ length: lanes }, worker))
   return out
+}
+
+export async function readPathsFromIndex(repoRoot, paths, { concurrency = 8 } = {}) {
+  return readPathsFromGit(repoRoot, paths, (p) => `:${p}`, concurrency)
 }
 
 /**
@@ -290,6 +299,17 @@ export async function computePrioritiesForWorktree(worktreePath, files) {
   try {
     const candidates = readableFiles(files).map((f) => f.path)
     const contents   = await readPathsFromWorktree(worktreePath, candidates)
+    return buildPriorities(files, contents)
+  } catch {
+    return null
+  }
+}
+
+export async function computePrioritiesForIndex(repoRoot, files) {
+  if (!repoRoot || !files?.length) return null
+  try {
+    const candidates = readableFiles(files).map((f) => f.path)
+    const contents   = await readPathsFromIndex(repoRoot, candidates)
     return buildPriorities(files, contents)
   } catch {
     return null

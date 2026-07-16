@@ -78,14 +78,16 @@ Cold launch first tries to resume the last view for this branch, then falls back
 | Saved last view exists and still resolves             | Resumes that view               |
 | Feature branch, commits ahead of base                 | First commit (oldest in branch) |
 | On `main`/`master`, no commits ahead                  | Latest commit                   |
-| On `main`/`master`, no commits ahead, has local edits | Local view                      |
+| On `main`/`master`, no commits ahead, has local edits | Unstaged view                   |
 | Empty branch (no commits at all)                      | Full diff (degenerate fallback) |
 
 Rationale: feature-branch review walks forward from base, so first-commit is the natural entry. The on-base path uses an empty-tree merge-base fallback that can synthesize the whole repo history, where the latest commit beats the dawn of the project. The full diff is always one `Shift+→` away.
 
 ### Resume
 
-Each navigation (Shift+←/→, the nav buttons, or a fresh hash URL) stamps the current view under `state.config.repo_ui_state.<repoId>.last_view:<branchId>` as `full`, `local`, or `commit:<sha>`. The next cold launch rehydrates it - unless the saved commit no longer exists (force-push, rebase, GC'd sha), in which case the smart-default table above kicks in. Per-branch scoping means switching branches never carries the wrong sha across.
+Each navigation (Shift+←/→, the nav buttons, or a fresh hash URL) stamps the current view under `state.config.repo_ui_state.<repoId>.last_view:<branchId>` as `full`, `local`, `local:<scope>`, or `commit:<sha>`. The next cold launch rehydrates it - unless the saved commit no longer exists (force-push, rebase, GC'd sha), in which case the smart-default table above kicks in. Per-branch scoping means switching branches never carries the wrong sha across.
+
+Local changes extend the normal diff timeline: **Full diff → Staged → Unstaged**. The same previous/next buttons and `h`/`l` bindings walk through all three positions. Staged shows `HEAD` → index; Unstaged shows index → working tree plus the untracked-file banner. Both are bookmarkable at `#/diff/local/staged` and `#/diff/local/unstaged`, and the selected position is restored across launches.
 
 ## Carbonyl integration
 

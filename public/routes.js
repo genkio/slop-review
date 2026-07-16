@@ -1,5 +1,5 @@
 // Hash-route URL builders. With the threads + overview pages folded into
-// the diff page, the only routes left address the three diff variants.
+// the diff page, the only routes left address the diff timeline variants.
 // Threads are reopened on the diff page via `?thread=<id>`; the overview
 // is a modal triggered from the diff header, not a route.
 //
@@ -10,9 +10,9 @@
 //                        file filter and reopens the modal.
 
 export const ROUTES = {
-  diffFull:   (q)      => withQuery('#/diff', q),
-  diffLocal:  (q)      => withQuery('#/diff/local', q),
-  diffCommit: (sha, q) => withQuery(`#/diff/${sha.slice(0, 12)}`, q),
+  diffFull:       (q)        => withQuery('#/diff', q),
+  diffLocalScope: (scope, q) => withQuery(`#/diff/local/${scope === 'staged' ? 'staged' : 'unstaged'}`, q),
+  diffCommit:     (sha, q)   => withQuery(`#/diff/${sha.slice(0, 12)}`, q),
 }
 
 function withQuery(path, q) {

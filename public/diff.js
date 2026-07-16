@@ -488,7 +488,7 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
   if (!isCurrent()) return
 
   const isMobile = window.matchMedia('(max-width: 768px)').matches
-  const maxIdx = commits.length + (hasLocal ? 1 : 0)
+  const maxIdx = commits.length + (hasLocal ? 2 : 0)
   // Wrap default. Desktop is unconditionally on: the wrap toggle is hidden
   // on desktop (see .diff-wrap-toggle hide rule in app.css), so any stored
   // `false` from a past mobile session would otherwise leave a desktop user
@@ -649,7 +649,7 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
    */
   const currentCursorKey = () => {
     let viewTag
-    if (isLocalIndex(state.index))     viewTag = 'local'
+    if (isLocalIndex(state.index))     viewTag = `local:${localScopeForIndex(state.index)}`
     else if (isFullIndex(state.index)) viewTag = 'full'
     else                               viewTag = `commit:${state.commits[state.index].sha}`
     return `thread_cursor:${branchId}:${viewTag}`
@@ -786,7 +786,7 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
   // so prev/next nav doesn't add 100 history entries when walking commits.
   // ------------------------------------------------------------------
   function urlForIndex(idx) {
-    if (state.hasLocal && idx === state.commits.length + 1) return ROUTES.diffLocal()
+    if (isLocalIndex(idx)) return ROUTES.diffLocalScope(localScopeForIndex(idx))
     if (idx === state.commits.length) return ROUTES.diffFull()
     const c = state.commits[idx]
     return c?.sha ? ROUTES.diffCommit(c.sha) : ROUTES.diffFull()
@@ -797,7 +797,7 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
   // level resolver validates `commit:<sha>` against the live commit list,
   // so a force-push that removed the sha self-heals to the smart default.
   function viewTagForIndex(idx) {
-    if (state.hasLocal && idx === state.commits.length + 1) return 'local'
+    if (isLocalIndex(idx)) return `local:${localScopeForIndex(idx)}`
     if (idx === state.commits.length) return 'full'
     const c = state.commits[idx]
     return c?.sha ? `commit:${c.sha}` : 'full'
@@ -1678,7 +1678,7 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
   $('[data-prev]').addEventListener('click', () => goto(state.index - 1))
   $('[data-next]').addEventListener('click', () => goto(state.index + 1))
   // First-commit + Full-diff shortcuts. `»` targets Full (state.commits.length),
-  // not maxIndex(): the Local view is its own thing and isn't really "the end".
+  // not maxIndex(): Staged/Unstaged follow Full but aren't commit history.
   // No-op when already at the target (matches prev/next click semantics).
   $('[data-first]').addEventListener('click', () => goto(0))
   $('[data-last]').addEventListener('click', () => goto(state.commits.length))
@@ -3061,10 +3061,15 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
     }
   })
 
-  const isFullIndex   = (idx) => idx === state.commits.length
-  const isCommitIndex = (idx) => idx >= 0 && idx < state.commits.length
-  const isLocalIndex  = (idx) => state.hasLocal && idx === state.commits.length + 1
-  const maxIndex      = ()    => state.commits.length + (state.hasLocal ? 1 : 0)
+  function isFullIndex(idx) { return idx === state.commits.length }
+  function isCommitIndex(idx) { return idx >= 0 && idx < state.commits.length }
+  function isLocalIndex(idx) {
+    return state.hasLocal && idx > state.commits.length && idx <= state.commits.length + 2
+  }
+  function localScopeForIndex(idx) {
+    return idx === state.commits.length + 1 ? 'staged' : 'unstaged'
+  }
+  function maxIndex() { return state.commits.length + (state.hasLocal ? 2 : 0) }
 
   async function goto(idx) {
     if (idx < 0 || idx > maxIndex()) return
@@ -3839,17 +3844,22 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
     $('[data-next]').title =
       state.index >= maxIndex() ? '' :
       state.index === state.commits.length - 1 ? 'Full diff →' :
-      isFull && state.hasLocal ? 'Local changes →' :
-      isFull || isLocal ? '' : 'Next commit'
+      isFull && state.hasLocal ? 'Staged changes →' :
+      isLocal && localScopeForIndex(state.index) === 'staged' ? 'Unstaged changes →' :
+      isLocal ? '' : 'Next commit'
 
     if (isLocal) {
-      $('[data-position]').textContent = 'Local'
-      shaEl.textContent     = 'local'
+      const scope = localScopeForIndex(state.index)
+      const scopeLabel = scope[0].toUpperCase() + scope.slice(1)
+      $('[data-position]').textContent = scopeLabel
+      shaEl.textContent     = scope
       shaEl.dataset.shaFull = ''
-      $('[data-headline]').textContent = state.branch ? `${state.branch} · uncommitted` : 'Uncommitted changes'
-      $('[data-author]').textContent   = fd?.sha ? `vs HEAD ${fd.sha.slice(0, 7)}` : ''
+      $('[data-headline]').textContent = state.branch ? `${state.branch} · ${scopeLabel.toLowerCase()} changes` : `${scopeLabel} changes`
+      $('[data-author]').textContent   = scope === 'staged'
+        ? (fd?.sha ? `HEAD ${fd.sha.slice(0, 7)} → index` : 'HEAD → index')
+        : 'index → working tree'
       const untracked = fd?.untracked_files?.length || 0
-      $('[data-when]').textContent     = untracked ? `${untracked} untracked` : 'working tree'
+      $('[data-when]').textContent     = untracked ? `${untracked} untracked` : scopeLabel.toLowerCase()
       const fcount = fd?.files?.length || 0
       $('[data-stats]').textContent    = fd
         ? `${fcount} file${fcount === 1 ? '' : 's'}`
@@ -3939,7 +3949,9 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
     if (!visibleFiles.length) {
       let emptyMsg
       if (isLocal && untracked.length) {
-        emptyMsg = '<div class="diff-empty">No tracked changes vs HEAD.</div>'
+        emptyMsg = '<div class="diff-empty">No tracked unstaged changes.</div>'
+      } else if (isLocal) {
+        emptyMsg = `<div class="diff-empty">No ${localScopeForIndex(state.index)} changes.</div>`
       } else if (isFull && filterAnchor) {
         emptyMsg = '<div class="diff-empty">No related files found for this anchor.</div>'
       } else {
@@ -3975,11 +3987,9 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
         else if (importedByAnchor)               relationship = 'imported-by'
       }
       // Pick the ref the expand-context endpoint reads unchanged lines
-      // from. Local view has no ref for its new side — the working tree
-      // *is* the new side — so we pass 'WORKTREE' (the server branches
-      // to fs.readFile for that sentinel). Full + Commit both use the
-      // diff's `sha` (head_sha and the commit's sha respectively).
-      const newRef = isLocal ? 'WORKTREE' : (state.diff.sha || null)
+      // from. Local payloads name either INDEX (staged) or WORKTREE
+      // (all/unstaged); Full + Commit use the diff's sha.
+      const newRef = isLocal ? (state.diff.new_ref || 'WORKTREE') : (state.diff.sha || null)
       return renderFileSection(f, state.mode, state.diff.sha, {
         isReviewed: state.reviewed.has(f.path),
         isCollapsed: state.collapsedPaths.has(f.path),
@@ -4436,6 +4446,7 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
 
   async function loadDiff({ cacheKey, fetchUrl, errorPrefix }) {
     if (isStale()) return
+    const expectedIndex = state.index
     const cached = cacheKey ? loadCachedDiff(cacheKey) : null
     if (cached) {
       // Hydrate the reviewed set before the first paint so cached-diff
@@ -4453,7 +4464,6 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
       renderBody()
       return
     }
-    const expectedIndex = state.index
     state.loading = true
     renderBody()
     try {
@@ -4492,9 +4502,10 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
     if (isStale()) return
     renderHead()
     if (isLocalIndex(state.index)) {
+      const scope = localScopeForIndex(state.index)
       await loadDiff({
         cacheKey:    null,
-        fetchUrl:    `/api/repos/${encodeURIComponent(repo.id)}/local-diff`,
+        fetchUrl:    `/api/repos/${encodeURIComponent(repo.id)}/local-diff?scope=${scope}`,
         errorPrefix: 'Failed to load local diff',
       })
     } else if (isFullIndex(state.index)) {

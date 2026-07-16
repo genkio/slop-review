@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { execFileSync } from 'node:child_process'
 
-import { getLocalDiff } from '../server/git.js'
+import { getFileLines, getLocalDiff } from '../server/git.js'
 
 function makeRepo() {
   const root = mkdtempSync(join(tmpdir(), 'slop-local-diff-'))
@@ -75,6 +75,54 @@ test('getLocalDiff excludes tracked .reviews/ from the patch list too', async ()
     const diff = await getLocalDiff(work)
     const paths = diff.files.map((f) => f.path).sort()
     assert.deepEqual(paths, ['src.js'], 'only the user code file should be in the patch list')
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('getLocalDiff separates staged and unstaged changes', async () => {
+  const { root, work, g } = makeRepo()
+  try {
+    writeFileSync(join(work, 'staged.txt'), 'before staged\n')
+    writeFileSync(join(work, 'unstaged.txt'), 'before unstaged\n')
+    g(work, ['add', 'staged.txt', 'unstaged.txt'])
+    g(work, ['commit', '-m', 'add fixtures'])
+
+    writeFileSync(join(work, 'staged.txt'), 'after staged\n')
+    g(work, ['add', 'staged.txt'])
+    writeFileSync(join(work, 'unstaged.txt'), 'after unstaged\n')
+    writeFileSync(join(work, 'untracked.txt'), 'not tracked\n')
+
+    const staged = await getLocalDiff(work, 'staged')
+    assert.equal(staged.scope, 'staged')
+    assert.equal(staged.new_ref, 'INDEX')
+    assert.deepEqual(staged.files.map((f) => f.path), ['staged.txt'])
+    assert.deepEqual(staged.untracked_files, [])
+
+    const unstaged = await getLocalDiff(work, 'unstaged')
+    assert.equal(unstaged.scope, 'unstaged')
+    assert.equal(unstaged.new_ref, 'WORKTREE')
+    assert.deepEqual(unstaged.files.map((f) => f.path), ['unstaged.txt'])
+    assert.deepEqual(unstaged.untracked_files, ['untracked.txt'])
+
+    const all = await getLocalDiff(work)
+    assert.equal(all.scope, 'all')
+    assert.deepEqual(all.files.map((f) => f.path).sort(), ['staged.txt', 'unstaged.txt'])
+    assert.deepEqual(all.untracked_files, ['untracked.txt'])
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('getFileLines reads staged content from the index', async () => {
+  const { root, work, g } = makeRepo()
+  try {
+    writeFileSync(join(work, 'README.md'), 'staged version\n')
+    g(work, ['add', 'README.md'])
+    writeFileSync(join(work, 'README.md'), 'working tree version\n')
+
+    const lines = await getFileLines(work, 'INDEX', 'README.md', 1, 1)
+    assert.deepEqual(lines.lines, ['staged version'])
   } finally {
     rmSync(root, { recursive: true, force: true })
   }

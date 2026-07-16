@@ -19,7 +19,7 @@ export function disposeDiffPage() {
  *
  * `parsed` is the router's parsed-hash record:
  *   { kind: 'diff', variant: 'full' }
- *   { kind: 'diff', variant: 'local' }
+ *   { kind: 'diff', variant: 'local', scope: 'staged' | 'unstaged' }
  *   { kind: 'diff', variant: 'commit', sha: '<sha-prefix>' }
  */
 export async function renderDiffPage(parsed = { variant: 'full' }, isCurrent = () => true) {
@@ -103,7 +103,9 @@ export async function renderDiffPage(parsed = { variant: 'full' }, isCurrent = (
   let initialIndex = null
 
   // (1) Explicit variants from the URL.
-  if (parsed.variant === 'local' && hasLocal) initialIndex = commits.length + 1
+  if (parsed.variant === 'local' && hasLocal) {
+    initialIndex = commits.length + (parsed.scope === 'staged' ? 1 : 2)
+  }
   else if (parsed.variant === 'commit' && parsed.sha) {
     const idx = commits.findIndex((c) => (c.sha || '').startsWith(parsed.sha))
     if (idx >= 0) initialIndex = idx
@@ -111,12 +113,18 @@ export async function renderDiffPage(parsed = { variant: 'full' }, isCurrent = (
 
   // (2) Saved last-visited view — only kicks in for bare `#/diff` (the
   // router collapses `#/` and `#/diff` both to variant 'full'). Stored
-  // shape: 'full' | 'local' | 'commit:<sha>'. Anything else, or a sha
+  // shape: 'full' | 'local' | 'local:<scope>' | 'commit:<sha>'. Anything else, or a sha
   // that no longer resolves, falls through.
   if (initialIndex === null && parsed.variant === 'full') {
     const saved = store.state?.config?.repo_ui_state?.[repo.id]?.[`last_view:${branchId}`]
     if (saved === 'full') initialIndex = commits.length
-    else if (saved === 'local' && hasLocal) initialIndex = commits.length + 1
+    else if (saved === 'local' && hasLocal) initialIndex = commits.length + 2
+    else if (typeof saved === 'string' && saved.startsWith('local:') && hasLocal) {
+      const scope = saved.slice('local:'.length)
+      if (['staged', 'unstaged'].includes(scope)) {
+        initialIndex = commits.length + (scope === 'staged' ? 1 : 2)
+      }
+    }
     else if (typeof saved === 'string' && saved.startsWith('commit:')) {
       const sha = saved.slice('commit:'.length)
       const idx = commits.findIndex((c) => (c.sha || '').startsWith(sha))
@@ -136,13 +144,14 @@ export async function renderDiffPage(parsed = { variant: 'full' }, isCurrent = (
   //                       (whole repo history), so anchoring at the
   //                       dawn of the project is rarely useful — the
   //                       most recent change is.
-  if (initialIndex === null) {
+  const usingSmartDefault = initialIndex === null
+  if (usingSmartDefault) {
     initialIndex = commits.length                                 // fallback: Full
     if (commits.length > 0) initialIndex = branchInfo.on_base ? commits.length - 1 : 0
   }
 
-  // On the base branch with only local changes → land on local view.
-  if (branchInfo.on_base && hasLocal) initialIndex = commits.length + (hasLocal ? 1 : 0)
+  // On the base branch with only local changes → land on Unstaged.
+  if (usingSmartDefault && branchInfo.on_base && hasLocal) initialIndex = commits.length + 2
 
   // `?resume=1` (from `slop --sync --browser/--carbonyl`) is an opinionated
   // open: always land on the Full diff, where synced GitHub threads live, so

@@ -11,7 +11,8 @@ let routeRunId = 0
 //
 //   #/             → aliased to #/diff (full)
 //   #/diff         → full diff
-//   #/diff/local   → local diff
+//   #/diff/local   → unstaged changes (legacy alias)
+//   #/diff/local/staged | /unstaged → scoped local changes
 //   #/diff/<sha>   → per-commit diff (sha = SHA_RE)
 //
 // Anything else redirects to #/diff. The active repo is always the
@@ -41,7 +42,13 @@ export function parseHash() {
   if (parts.length === 0) return { kind: 'diff', variant: 'full', file, threadId, resume }
   if (parts[0] === 'diff') {
     if (parts.length === 1) return { kind: 'diff', variant: 'full', file, threadId, resume }
-    if (parts[1] === 'local') return { kind: 'diff', variant: 'local', file, threadId, resume }
+    if (parts[1] === 'local') {
+      const scope = parts[2] || 'unstaged'
+      if (parts.length <= 3 && ['all', 'staged', 'unstaged'].includes(scope)) {
+        return { kind: 'diff', variant: 'local', scope: scope === 'staged' ? 'staged' : 'unstaged', file, threadId, resume }
+      }
+      return { kind: 'unknown' }
+    }
     if (SHA_RE.test(parts[1])) return { kind: 'diff', variant: 'commit', sha: parts[1], file, threadId, resume }
   }
   return { kind: 'unknown' }

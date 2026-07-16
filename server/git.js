@@ -306,11 +306,10 @@ export async function getFileWindowAt(repoPath, ref, path, line, context) {
  * given a gap of unchanged lines between two hunks, the client asks for
  * the slice and splices it in as context rows.
  *
- * `ref` may be a git ref (sha, branch, 'HEAD') OR the sentinel
- * 'WORKTREE', which reads from disk instead of `git show`. The local
- * diff has no ref for its new side — the working tree IS the new side —
- * so WORKTREE is the only way to expand context there. Same binary +
- * missing-file flag shape as getFileWindowAt for caller symmetry.
+ * `ref` may be a git ref (sha, branch, 'HEAD'), 'INDEX' for staged
+ * content, or the sentinel 'WORKTREE', which reads from disk instead of
+ * `git show`. Same binary + missing-file flag shape as getFileWindowAt
+ * for caller symmetry.
  *
  * Path traversal is blocked when reading from WORKTREE: a relative
  * path is joined onto repoPath and the resolved path must stay under
@@ -338,7 +337,8 @@ export async function getFileLines(repoPath, ref, path, start, end) {
     }
   } else {
     try {
-      const res = await git(repoPath, ['show', `${ref}:${path}`], { encoding: 'buffer' })
+      const spec = ref === 'INDEX' ? `:${path}` : `${ref}:${path}`
+      const res = await git(repoPath, ['show', spec], { encoding: 'buffer' })
       raw = res.stdout
     } catch {
       return { missing: true, binary: false, start: 0, end: 0, lines: [], total_lines: 0 }
@@ -744,25 +744,38 @@ export async function getFullDiff(repoPath, mergeBase, head) {
 }
 
 /**
- * Local diff = `git diff HEAD` (tracked changes) + `git ls-files --others`
- * for untracked. Untracked are NOT synthesized into add patches; they're
- * surfaced as a banner via `untracked_files`.
+ * Local diff supports three scopes: HEAD → worktree (`all`), HEAD → index
+ * (`staged`), and index → worktree (`unstaged`). Untracked files accompany
+ * all/unstaged but are not synthesized into add patches; they're surfaced
+ * as a banner via `untracked_files`.
  *
  * `.reviews/` is excluded from both sides — slop-review's own thread store
  * isn't user-authored code, and surfacing thread JSONs in the Local view
  * is noise (the threads themselves are visible on the Threads page).
  */
-export async function getLocalDiff(repoPath) {
-  const files = await getDiffFiles(repoPath, ['HEAD', '--', '.', ':(exclude).reviews/**'])
+export async function getLocalDiff(repoPath, scope = 'all') {
+  if (!['all', 'staged', 'unstaged'].includes(scope)) {
+    throw new Error('invalid local diff scope')
+  }
+
+  const pathspec = ['--', '.', ':(exclude).reviews/**']
+  const diffArgs = scope === 'staged'
+    ? ['--cached', 'HEAD', ...pathspec]
+    : scope === 'unstaged'
+      ? pathspec
+      : ['HEAD', ...pathspec]
+  const files = await getDiffFiles(repoPath, diffArgs)
 
   let untracked_files = []
-  try {
-    const { stdout } = await git(repoPath, [
-      'ls-files', '--others', '--exclude-standard', '-z',
-      '--', '.', ':(exclude).reviews/**',
-    ])
-    untracked_files = stdout.split('\0').filter(Boolean)
-  } catch {}
+  if (scope !== 'staged') {
+    try {
+      const { stdout } = await git(repoPath, [
+        'ls-files', '--others', '--exclude-standard', '-z',
+        '--', '.', ':(exclude).reviews/**',
+      ])
+      untracked_files = stdout.split('\0').filter(Boolean)
+    } catch {}
+  }
 
   let head_sha = null
   let branch = null
@@ -778,6 +791,8 @@ export async function getLocalDiff(repoPath) {
   return {
     sha: head_sha,
     branch,
+    scope,
+    new_ref: scope === 'staged' ? 'INDEX' : 'WORKTREE',
     files,
     untracked_files,
     truncated: false,
