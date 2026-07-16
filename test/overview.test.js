@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { buildOverviewPrompt } from '../server/overview.js'
+import { buildOverviewPrompt, openCodeConfig } from '../server/overview.js'
 
 function context() {
   return {
@@ -39,4 +39,24 @@ test('overview prompt omits the additional-preferences block when empty', () => 
   )
 
   assert.doesNotMatch(prompt, /<additional-preferences>/)
+})
+
+test('OpenCode can write scratch output but not the repository or bundled skill', () => {
+  const config = openCodeConfig('/tmp/example-repo')
+  const permission = config.permission
+
+  assert.equal(permission.external_directory['/tmp/example-repo/**'], 'allow')
+  assert.equal(permission.edit['/tmp/example-repo/**'], 'deny')
+  assert.equal(permission.edit['*'], 'allow')
+  assert.equal(permission.bash['*'], 'deny')
+  assert.equal(permission.bash['git -C *'], 'allow')
+  assert.equal(permission.bash['python3 *build_explanation.py *'], 'allow')
+  assert.equal(permission.task, 'deny')
+  assert.equal(permission.webfetch, 'deny')
+  assert.equal(permission.websearch, 'deny')
+
+  const skillPattern = Object.keys(permission.external_directory)
+    .find((pattern) => pattern.endsWith('/skills/explain-diff-html/**'))
+  assert.ok(skillPattern)
+  assert.equal(permission.edit[skillPattern], 'deny')
 })

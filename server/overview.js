@@ -32,8 +32,9 @@ const LOG_LIMIT = 16000
 const jobs = new Map()
 let codexAvailabilityPromise = null
 let claudeAvailabilityPromise = null
+let opencodeAvailabilityPromise = null
 
-const SUPPORTED_TOOLS = ['codex', 'claude']
+const SUPPORTED_TOOLS = ['codex', 'claude', 'opencode']
 const SKILL_DIR = join(dirname(fileURLToPath(import.meta.url)), '..', 'skills', 'explain-diff-html')
 
 function sha1(value) {
@@ -135,9 +136,20 @@ async function claudeAvailability() {
   return claudeAvailabilityPromise
 }
 
+async function opencodeAvailability() {
+  if (!opencodeAvailabilityPromise) {
+    opencodeAvailabilityPromise = probeCli('opencode', 'OpenCode CLI')
+  }
+  return opencodeAvailabilityPromise
+}
+
 async function toolAvailability() {
-  const [codex, claude] = await Promise.all([codexAvailability(), claudeAvailability()])
-  return { codex, claude }
+  const [codex, claude, opencode] = await Promise.all([
+    codexAvailability(),
+    claudeAvailability(),
+    opencodeAvailability(),
+  ])
+  return { codex, claude, opencode }
 }
 
 async function localChangeFingerprint(repoPath) {
@@ -220,9 +232,11 @@ function stateForClient(context, data, statusOverride = null, tools = null) {
   const readiness = generationReadiness(context.branchInfo)
   const codex = tools?.codex || null
   const claude = tools?.claude || null
+  const opencode = tools?.opencode || null
   const availableTools = []
   if (codex?.available) availableTools.push('codex')
   if (claude?.available) availableTools.push('claude')
+  if (opencode?.available) availableTools.push('opencode')
   return {
     status: statusOverride || data?.status || 'idle',
     can_generate: readiness.can_generate,
@@ -233,6 +247,9 @@ function stateForClient(context, data, statusOverride = null, tools = null) {
     claude_available: claude?.available ?? null,
     claude_version: claude?.version || null,
     claude_error: claude?.error || null,
+    opencode_available: opencode?.available ?? null,
+    opencode_version: opencode?.version || null,
+    opencode_error: opencode?.error || null,
     available_tools: availableTools,
     ...clientMeta(context),
     started_at: data?.started_at || null,
@@ -306,10 +323,12 @@ function resolveTool(requested, tools) {
   if (requested && SUPPORTED_TOOLS.includes(requested)) {
     if (requested === 'codex' && tools.codex.available) return 'codex'
     if (requested === 'claude' && tools.claude.available) return 'claude'
+    if (requested === 'opencode' && tools.opencode.available) return 'opencode'
     return null
   }
   if (tools.codex.available) return 'codex'
   if (tools.claude.available) return 'claude'
+  if (tools.opencode.available) return 'opencode'
   return null
 }
 
@@ -329,7 +348,11 @@ function startOverviewGeneration(repoPath, context, tool, additionalPrompt) {
   }
   jobs.set(key, job)
 
-  const runner = tool === 'claude' ? runClaudeOverview : runCodexOverview
+  const runner = {
+    codex: runCodexOverview,
+    claude: runClaudeOverview,
+    opencode: runOpenCodeOverview,
+  }[tool]
   job.promise = (async () => {
     try {
       const content = await runner(repoPath, context, additionalPrompt, job)
@@ -473,6 +496,54 @@ async function runCodexOverview(repoPath, context, additionalPrompt, job) {
     throw lastError || new Error('Codex overview failed.')
   } finally {
     try { await rm(tmpDir, { recursive: true, force: true }) } catch {}
+  }
+}
+
+async function runOpenCodeOverview(repoPath, context, additionalPrompt, job) {
+  const tmpDir = await mkdtemp(join(tmpdir(), 'slop-overview-opencode-'))
+  const outputFile = join(tmpDir, 'overview.html')
+  const prompt = buildOverviewPrompt(repoPath, context, outputFile, additionalPrompt)
+  try {
+    await writeFile(
+      join(tmpDir, 'opencode.json'),
+      JSON.stringify(openCodeConfig(repoPath), null, 2)
+    )
+    await runProcess(
+      'opencode',
+      ['run', '--pure', '--dir', tmpDir, '--format', 'json', prompt],
+      '',
+      tmpDir,
+      job,
+      'OpenCode'
+    )
+    return await readGeneratedOverview(outputFile, 'OpenCode')
+  } finally {
+    try { await rm(tmpDir, { recursive: true, force: true }) } catch {}
+  }
+}
+
+export function openCodeConfig(repoPath) {
+  return {
+    $schema: 'https://opencode.ai/config.json',
+    permission: {
+      external_directory: {
+        [`${repoPath}/**`]: 'allow',
+        [`${SKILL_DIR}/**`]: 'allow',
+      },
+      edit: {
+        '*': 'allow',
+        [`${repoPath}/**`]: 'deny',
+        [`${SKILL_DIR}/**`]: 'deny',
+      },
+      bash: {
+        '*': 'deny',
+        'git -C *': 'allow',
+        'python3 *build_explanation.py *': 'allow',
+      },
+      task: 'deny',
+      webfetch: 'deny',
+      websearch: 'deny',
+    },
   }
 }
 
@@ -721,7 +792,7 @@ function appendCapped(current, chunk) {
   return next.length > LOG_LIMIT ? next.slice(next.length - LOG_LIMIT) : next
 }
 
-function runProcess(command, args, stdin, cwd, job) {
+function runProcess(command, args, stdin, cwd, job, label = 'Codex') {
   return new Promise((resolve, reject) => {
     const child = spawn(command, args, {
       cwd,
@@ -747,19 +818,19 @@ function runProcess(command, args, stdin, cwd, job) {
       if (settled) return
       settled = true
       clearTimeout(timer)
-      reject(new Error(`Failed to start Codex CLI: ${e.message}`))
+      reject(new Error(`Failed to start ${label} CLI: ${e.message}`))
     })
     child.on('close', (code, signal) => {
       if (settled) return
       settled = true
       clearTimeout(timer)
       if (timedOut) {
-        reject(new Error(`Codex overview timed out after ${Math.round(CODEX_TIMEOUT_MS / 60000)} minutes.`))
+        reject(new Error(`${label} overview timed out after ${Math.round(CODEX_TIMEOUT_MS / 60000)} minutes.`))
         return
       }
       if (code !== 0) {
         const detail = (stderr || stdout || `exit ${code}${signal ? ` (${signal})` : ''}`).trim()
-        const err = new Error(`Codex overview failed: ${detail}`)
+        const err = new Error(`${label} overview failed: ${detail}`)
         err.stdout = stdout
         err.stderr = stderr
         err.code = code

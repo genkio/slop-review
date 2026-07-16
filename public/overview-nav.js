@@ -103,7 +103,7 @@ export function setupOverviewNav(container, repoId) {
 
   function hasAnyTool(status) {
     if (Array.isArray(status?.available_tools)) return status.available_tools.length > 0
-    return !!(status?.codex_available || status?.claude_available)
+    return !!(status?.codex_available || status?.claude_available || status?.opencode_available)
   }
 
   refresh()

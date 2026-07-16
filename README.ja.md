@@ -60,7 +60,7 @@ cwd が自動的にレビュー対象としてブートストラップされ、�
 
 前提条件: Node ≥ 20、`PATH` 上の `git`、Overview 生成時は Python 3。ランタイム依存はありません。サーバーは `node:http` + 標準ライブラリのみなので、`npx slop-review` は推移的なパッケージを一切引き込みません。
 
-Overview モーダルは、同梱の `explain-diff-html` skill を `codex exec` または `claude` で実行し、背景、直感的な説明、コード解説、必要に応じた図、インタラクティブなクイズを含む自己完結型 HTML を生成します。生成ツールの選択画面では「英語と日本語の両方で説明して」のような追加指示も入力でき、skill の多言語表示を利用できます。生成 HTML は `.reviews/` にキャッシュされ、sandbox 化された frame 内に表示されます。
+Overview モーダルは、同梱の `explain-diff-html` skill を `codex exec`、`claude`、または `opencode run` で実行し、背景、直感的な説明、コード解説、必要に応じた図、インタラクティブなクイズを含む自己完結型 HTML を生成します。生成ツールの選択画面では「英語と日本語の両方で説明して」のような追加指示も入力でき、skill の多言語表示を利用できます。生成 HTML は `.reviews/` にキャッシュされ、sandbox 化された frame 内に表示されます。
 
 状態は `~/.config/slop-review/state.json` に置かれます (`XDG_CONFIG_HOME` を尊重)。スキーマバージョンと、リポジトリごとの UI 状態 (最後のビュー + スレッドレジューム用のカーソル) が含まれます。
 

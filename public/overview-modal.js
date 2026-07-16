@@ -7,6 +7,7 @@ const POLL_MS = 2500
 const TOOL_LABELS = {
   codex: 'Codex CLI',
   claude: 'Claude Code CLI',
+  opencode: 'OpenCode CLI',
 }
 
 /**
@@ -26,6 +27,7 @@ export function confirmOverviewTool(status) {
     const versions = {
       codex: status?.codex_version || '',
       claude: status?.claude_version || '',
+      opencode: status?.opencode_version || '',
     }
     const additionalPrompt = escapeHtml(status?.additional_prompt || '')
     const promptField = `
@@ -253,14 +255,15 @@ export function openOverviewModal(repoId) {
 
 function hasAnyTool(status) {
   if (Array.isArray(status?.available_tools)) return status.available_tools.length > 0
-  return !!(status?.codex_available || status?.claude_available)
+  return !!(status?.codex_available || status?.claude_available || status?.opencode_available)
 }
 
 function unavailableReason(status) {
   const parts = []
   if (status?.codex_error) parts.push(status.codex_error)
   if (status?.claude_error) parts.push(status.claude_error)
-  return parts.join(' ') || 'No supported CLI (Codex or Claude Code) is available on PATH.'
+  if (status?.opencode_error) parts.push(status.opencode_error)
+  return parts.join(' ') || 'No supported CLI (Codex, Claude Code, or OpenCode) is available on PATH.'
 }
 
 function renderOverviewFrame(repoId, status) {
