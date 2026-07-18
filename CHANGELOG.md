@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.24.0](https://github.com/genkio/slop-review/compare/v0.23.0...v0.24.0) (2026-07-18)
+
+
+### Features
+
+* **explain-diff-html:** syntax-highlight code samples ([67199d5](https://github.com/genkio/slop-review/commit/67199d5570fed011a123720d997e48024274ff9e))
+* generate and compare results from multiple agents ([d4c2499](https://github.com/genkio/slop-review/commit/d4c2499f11d0249bd50a518e0d2faf8451b398f3))
+* generate branch overview from the terminal with --overview/-o ([ff7972c](https://github.com/genkio/slop-review/commit/ff7972c24962b367602a2d27785153a4c57d4294))
+* generate branch overviews with explain-diff-html ([ba9807a](https://github.com/genkio/slop-review/commit/ba9807aa825326cfda84a60324c7084c6811ec09))
+* overview generation with opencode ([e335370](https://github.com/genkio/slop-review/commit/e335370cc7433eefbdf8095cb4855375114b7e0d))
+* split local changes into staged and unstaged diff views ([2956bee](https://github.com/genkio/slop-review/commit/2956bee3054c3c14264a884d7cf7bd7393e027ab))
+
+
+### Bug Fixes
+
+* **explain-diff-html:** keep diagrams renderable by grok-mermaid ([7f6b637](https://github.com/genkio/slop-review/commit/7f6b637d4791da462b359ceb0590c5e70d3d6e5f))
+
 ## [0.23.0](https://github.com/genkio/slop-review/compare/v0.22.0...v0.23.0) (2026-06-13)
 
 
