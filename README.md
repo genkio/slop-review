@@ -54,6 +54,7 @@ All flags are optional:
 | `--sync`     | `-s`  |            | Mirror unresolved GitHub PR review threads into local threads, then exit. Needs `gh`. See [sync](#github-review-thread-sync) |
 | `--browser`  | `-b`  |            | Chain after `--sync` to open the UI in your default browser once the sync finishes                            |
 | `--threads`  | `-t`  |            | Open straight into the thread walk (full diff, first unresolved thread surfaced) without syncing              |
+| `--overview` | `-o`  |            | Generate the branch overview in the terminal (pick generators + optional instructions), then open the UI on it. Needs an interactive terminal |
 | `--help`     | `-h`  |            | Show help                                                                                                     |
 
 `--sync` exits after mirroring unless you chain `--browser`, `--carbonyl`, or `--threads` - those open the UI and keep re-syncing every 5 min. `--threads` reaches that same resume view without syncing.
@@ -61,6 +62,8 @@ All flags are optional:
 Prerequisites: Node ≥ 20, `git` on `PATH`, and Python 3 when generating an Overview. No runtime dependencies - the server is `node:http` + the standard library only, so `npx slop-review` pulls no transitive packages.
 
 The Overview modal uses the bundled `explain-diff-html` skill with `codex exec`, `claude`, or `opencode run` to generate a self-contained branch explainer with background, intuition, a code walkthrough, diagrams where useful, and an interactive quiz. The generator picker is multi-select: run any combination concurrently, then switch between their results using tabs in the Overview header. It also accepts optional instructions such as “Explain it in both English and Chinese”; the skill turns requested languages into a complete multilingual reading mode. Generated HTML is cached per generator under `.reviews/` and displayed in a sandboxed frame. Generation errors include the captured CLI output without hiding successful sibling results.
+
+You can drive the same generation from the terminal without the UI: `slop-review --overview` (`-o`) detects the available agent CLIs, presents a checkbox picker (space to toggle, `a` for all) plus an optional-instructions prompt, runs the selected generators with live progress, then launches the app straight into the Overview modal. It composes with the launch flags (`--carbonyl`, `--port`, `--no-open`, …).
 
 State lives at `~/.config/slop-review/state.json` (honors `XDG_CONFIG_HOME`): schema version plus per-repo UI state (last view + thread-resume cursors).
 

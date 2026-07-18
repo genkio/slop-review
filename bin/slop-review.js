@@ -50,6 +50,11 @@ Options:
                       (full diff, first unresolved thread surfaced) without
                       syncing. The no-sync counterpart to --sync's resume view;
                       composes with --carbonyl / --browser / --port.
+      --overview, -o  Generate the branch overview from the terminal before
+                      launching: detect the available coding-agent CLIs, pick
+                      generators and add optional instructions interactively,
+                      run them, then open the UI on the ready overview. Needs
+                      an interactive terminal. Composes with the launch flags.
   -h, --help          Show this help
 `)
   process.exit(0)
@@ -125,6 +130,17 @@ const threadsIdx = (() => {
 const doThreads = threadsIdx >= 0
 if (doThreads) args.splice(threadsIdx, 1)
 
+// `--overview` / `-o` runs the interactive overview flow (pick coding agents +
+// optional instructions, generate, show progress) right before the normal
+// launch, so the browser opens on a ready overview. Handled after the git-repo
+// guard; generation needs no port, so it runs ahead of the port dance.
+const overviewIdx = (() => {
+  const long = args.indexOf('--overview')
+  return long >= 0 ? long : args.indexOf('-o')   // `-o`: short alias, like `-c` for --carbonyl
+})()
+const doOverview = overviewIdx >= 0
+if (doOverview) args.splice(overviewIdx, 1)
+
 // Fail loud on anything left over so typos like `--arbonyl` surface
 // immediately instead of silently dropping through to the default-browser
 // branch. Positional args (URLs, repo paths, etc.) aren't a thing here:
@@ -167,7 +183,7 @@ let syncSeed = null
 // header).
 if (doSync) {
   const { runSync, formatSyncStats } = await import(join(PACKAGE_ROOT, 'server', 'sync.js'))
-  const openAfterSync = useBrowser || useCarbonyl || doThreads
+  const openAfterSync = useBrowser || useCarbonyl || doThreads || doOverview
   syncEnabled = openAfterSync
   try {
     const result = await runSync(repoRoot, { log: (m) => process.stdout.write(`${m}\n`) })
@@ -190,6 +206,19 @@ if (doSync) {
   // through to start the server (which then runs the recurring sync) and open
   // the resume view.
   if (!openAfterSync) process.exit(0)
+}
+
+// --overview: interactively pick coding agents + optional instructions, then
+// generate the branch overview(s) up front (blocking, with terminal progress)
+// so the launch below opens on a ready overview. The result is cached in
+// <repo>/.reviews/. Cancelling the picker exits quietly; a pre-flight problem
+// (no diff, no CLI, no TTY) exits with an error. Any actual generation attempt
+// falls through to the normal launch, even if a generator failed.
+if (doOverview) {
+  const { runOverviewCli } = await import(join(PACKAGE_ROOT, 'bin', 'overview-cli.js'))
+  const action = await runOverviewCli(repoRoot)
+  if (action === 'cancel') process.exit(0)
+  if (action === 'error') process.exit(1)
 }
 
 // 2. Pick a port. If --port is given, use it (fail loudly if taken). Otherwise
@@ -263,10 +292,15 @@ if (!noOpen) {
   // --sync (when it opens afterwards) and --threads both deep-link to the full
   // diff with the first unresolved thread surfaced (?resume=1, consumed by the
   // diff page). --threads is the no-sync route to that same resume view.
-  const resumeHash = (doSync || doThreads) ? '#/diff?resume=1' : ''
+  // --overview adds ?overview=1 so the diff page auto-opens the (just-generated)
+  // overview modal on mount. Both params ride the SPA hash and compose.
+  const hashParams = []
+  if (doSync || doThreads) hashParams.push('resume=1')
+  if (doOverview) hashParams.push('overview=1')
+  const routeHash = hashParams.length ? `#/diff?${hashParams.join('&')}` : ''
   const url = useCarbonyl
-    ? `http://localhost:${port}/?carbonyl=1${resumeHash}`
-    : `http://localhost:${port}/${resumeHash}`
+    ? `http://localhost:${port}/?carbonyl=1${routeHash}`
+    : `http://localhost:${port}/${routeHash}`
   if (useCarbonyl) {
     let binary
     if (carbonylArg) {

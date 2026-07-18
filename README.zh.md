@@ -54,6 +54,7 @@ npx slop-review
 | `--sync`     | `-s`  |            | 将 GitHub PR 中未解决的评审线程镜像为本地线程后退出。需要 `gh`。参见 [sync](#github-评审线程同步)             |
 | `--browser`  | `-b`  |            | 接在 `--sync` 之后，在同步完成后用默认浏览器打开界面                                                          |
 | `--threads`  | `-t`  |            | 不同步，直接进入线程巡览（完整 diff，浮现第一个未解决线程）                                                   |
+| `--overview` | `-o`  |            | 在终端生成分支概览（选择生成器与可选附加指令），然后打开界面并直接浮现该概览。需要可交互终端                    |
 | `--help`     | `-h`  |            | 显示帮助                                                                                                      |
 
 `--sync` 在镜像完成后会退出，除非你接上 `--browser`、`--carbonyl` 或 `--threads`，这些会打开界面并每 5 分钟持续重新同步。`--threads` 无需同步即可到达同一个续看视图。
@@ -61,6 +62,8 @@ npx slop-review
 前置条件：Node ≥ 20，`PATH` 中有 `git`；生成概览时还需要 Python 3。无运行时依赖，服务器仅由 `node:http` 加标准库构成，因此 `npx slop-review` 不会拉取任何间接依赖包。
 
 概览模态框会通过 `codex exec`、`claude` 或 `opencode run` 运行内置的 `explain-diff-html` skill，生成包含背景、直觉说明、代码导读、必要的图表和交互式测验的自包含 HTML。生成器支持多选，所选 CLI 会并行运行，完成后可通过 Overview 标题栏中的标签页切换结果。选择界面还可填写“同时使用英文和中文说明”等附加指令。每个生成器的 HTML 分别缓存在 `.reviews/` 下，并显示在沙箱化的 frame 中。
+
+你也可以完全在终端中完成同样的生成，无需界面：`slop-review --overview`（`-o`）会检测可用的 agent CLI，弹出复选框选择器（空格切换、`a` 全选）以及可选的附加指令输入，带实时进度地运行所选生成器，然后打开应用并直接浮现 Overview 模态框。它可与启动类参数（`--carbonyl`、`--port`、`--no-open` 等）组合使用。
 
 状态保存在 `~/.config/slop-review/state.json`（遵循 `XDG_CONFIG_HOME`）：包含 schema 版本以及每个仓库的 UI 状态（最近视图 + 线程续看游标）。
 

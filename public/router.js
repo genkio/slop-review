@@ -35,21 +35,24 @@ export function parseHash() {
   // One-shot resume hint set by `slop --sync --browser/--carbonyl`: after the
   // diff mounts, open the first unresolved thread's modal (see renderDiffView).
   const resume   = query.resume === '1'
+  // One-shot hint set by `slop --overview`: after the diff mounts, open the
+  // (just-generated) overview modal (see renderDiffPage).
+  const overview = query.overview === '1'
 
   // Bare `#/` is the only non-diff path left — alias to the full diff so
   // bookmarks against the pre-collapse threads/overview homepages keep
   // landing somewhere useful.
-  if (parts.length === 0) return { kind: 'diff', variant: 'full', file, threadId, resume }
+  if (parts.length === 0) return { kind: 'diff', variant: 'full', file, threadId, resume, overview }
   if (parts[0] === 'diff') {
-    if (parts.length === 1) return { kind: 'diff', variant: 'full', file, threadId, resume }
+    if (parts.length === 1) return { kind: 'diff', variant: 'full', file, threadId, resume, overview }
     if (parts[1] === 'local') {
       const scope = parts[2] || 'unstaged'
       if (parts.length <= 3 && ['all', 'staged', 'unstaged'].includes(scope)) {
-        return { kind: 'diff', variant: 'local', scope: scope === 'staged' ? 'staged' : 'unstaged', file, threadId, resume }
+        return { kind: 'diff', variant: 'local', scope: scope === 'staged' ? 'staged' : 'unstaged', file, threadId, resume, overview }
       }
       return { kind: 'unknown' }
     }
-    if (SHA_RE.test(parts[1])) return { kind: 'diff', variant: 'commit', sha: parts[1], file, threadId, resume }
+    if (SHA_RE.test(parts[1])) return { kind: 'diff', variant: 'commit', sha: parts[1], file, threadId, resume, overview }
   }
   return { kind: 'unknown' }
 }

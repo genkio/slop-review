@@ -3,6 +3,7 @@ import { store } from '../store.js'
 import { escapeHtml, sanitizeBranchId } from '../util.js'
 import { renderDiffView, disposeDiffView } from '../diff.js'
 import { setupOverviewNav } from '../overview-nav.js'
+import { openOverviewModal } from '../overview-modal.js'
 
 let emptyOverviewNavDispose = null
 
@@ -72,6 +73,7 @@ export async function renderDiffPage(parsed = { variant: 'full' }, isCurrent = (
         <div class="branch-card">${renderBranchCard(branchInfo)}</div>
       </div>`
     emptyOverviewNavDispose = setupOverviewNav(main.querySelector('[data-overview-nav]'), repo.id)
+    if (parsed.overview) openOverviewModal(repo.id)   // slop --overview: surface the just-generated overview
     return
   }
 
@@ -183,6 +185,11 @@ export async function renderDiffPage(parsed = { variant: 'full' }, isCurrent = (
     resumeThreads,
     isCurrent,
   })
+
+  // slop --overview deep-link: open the overview modal once the diff is mounted
+  // so it stacks on top. One-shot — the flag rides the initial URL only, so
+  // in-app navigation (which drops ?overview=1) never reopens it.
+  if (parsed.overview && isCurrent()) openOverviewModal(repo.id)
 }
 
 function renderBranchCard(info) {
