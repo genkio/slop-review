@@ -60,6 +60,12 @@ Useful supplied classes include `.callout`, `.warning`, `.danger`, `.cards`,
 `.step-num`, `.file-ref`, `.tests`, and `.scope-note`. Use only the patterns
 the explanation needs.
 
+Write code samples as `<pre><code class="language-ts">…</code></pre>`. The
+template applies inline syntax highlighting; the `language-*` class selects the
+comment style (`language-ts` / `js` and the C family are the default, plus
+`language-python`, `language-sql`, and similar). Omit it and it falls back to
+the JS/TS ruleset. Put the code as plain text — the highlighter adds the colors.
+
 ## Mermaid placeholder
 
 Put each diagram at the point where it resolves a reader's question:

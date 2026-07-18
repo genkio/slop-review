@@ -178,6 +178,15 @@
     code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
     :not(pre) > code { padding: 2px 5px; border-radius: 5px; color: #0b5b55; background: #e4f0ed; font-size: .88em; }
 
+    /* Syntax tokens for code samples (applied by the inline highlighter). */
+    pre code .tok-comment { color: #7d8590; font-style: italic; }
+    pre code .tok-keyword { color: #ff7b72; }
+    pre code .tok-string  { color: #a5d6ff; }
+    pre code .tok-number,
+    pre code .tok-literal { color: #79c0ff; }
+    pre code .tok-type    { color: #ffa657; }
+    pre code .tok-func    { color: #d2a8ff; }
+
     .diagram-card { margin: 30px 0; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); overflow: hidden; box-shadow: var(--shadow); }
     .diagram-heading { margin: 0; padding: 18px 20px 0; font-size: 1.15rem; }
     .mermaid-render { padding: 18px 20px 6px; }
@@ -448,8 +457,76 @@
         });
       }
 
+      // Lightweight, dependency-free syntax highlighter for code samples. The
+      // page is offline and CSP-restricted, so a bundled library is out; this
+      // colors comments/strings/numbers/keywords/types/calls well enough for the
+      // JS/TS-heavy diffs these overviews cover. Language comes from a
+      // `language-*` class on the <code>, defaulting to the C/JS family.
+      function highlightCode() {
+        const KEYWORDS = /\b(?:abstract|as|async|await|break|case|catch|class|const|continue|def|default|delete|do|elif|else|enum|export|extends|finally|for|from|func|function|go|if|implements|import|in|instanceof|interface|is|keyof|let|match|namespace|new|of|package|private|protected|public|raise|readonly|return|satisfies|static|struct|switch|super|this|throw|throws|try|type|typeof|var|void|while|with|yield)\b/;
+        const STRING = /"(?:\\.|[^"\\\n])*"|'(?:\\.|[^'\\\n])*'|`(?:\\.|[^`\\])*`/;
+        const NUMBER = /\b0[xX][0-9a-fA-F]+\b|\b\d[\d_]*(?:\.\d+)?(?:[eE][+-]?\d+)?\b/;
+        const LITERAL = /\b(?:true|false|null|undefined|None|True|False|nil|NaN)\b/;
+        const TYPE = /\b[A-Z][A-Za-z0-9_]*\b/;
+        const FUNC = /\b[A-Za-z_$][\w$]*\b(?=\s*\()/;
+        const COMMENT_C = /\/\/[^\n]*|\/\*[\s\S]*?\*\//;
+        const COMMENT_HASH = /#[^\n]*/;
+        const COMMENT_SQL = /--[^\n]*|\/\*[\s\S]*?\*\//;
+        const HASH_LANGS = new Set(["py", "python", "rb", "ruby", "sh", "bash", "shell", "zsh", "yaml", "yml", "toml", "r", "perl", "makefile"]);
+
+        function commentRuleFor(lang) {
+          if (lang === "sql") return COMMENT_SQL;
+          if (HASH_LANGS.has(lang)) return COMMENT_HASH;
+          return COMMENT_C;
+        }
+        function buildRegex(commentRe) {
+          const group = (name, re) => "(?<" + name + ">" + re.source + ")";
+          return new RegExp([
+            group("comment", commentRe),
+            group("string", STRING),
+            group("number", NUMBER),
+            group("literal", LITERAL),
+            group("keyword", KEYWORDS),
+            group("type", TYPE),
+            group("func", FUNC),
+          ].join("|"), "g");
+        }
+        function esc(value) {
+          return value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+        }
+        function langOf(code) {
+          const match = (code.className || "").match(/(?:language|lang)-([\w+#-]+)/i);
+          return match ? match[1].toLowerCase() : "";
+        }
+
+        document.querySelectorAll("pre > code").forEach(code => {
+          // Skip the Mermaid-source disclosure blocks; only real code samples.
+          if (code.closest(".diagram-source") || code.dataset.highlighted) return;
+          const text = code.textContent;
+          if (!text.trim()) return;
+          try {
+            const regex = buildRegex(commentRuleFor(langOf(code)));
+            let html = "";
+            let last = 0;
+            let match;
+            while ((match = regex.exec(text))) {
+              if (match.index > last) html += esc(text.slice(last, match.index));
+              const kind = Object.keys(match.groups).find(key => match.groups[key] !== undefined);
+              html += '<span class="tok-' + kind + '">' + esc(match[0]) + "</span>";
+              last = regex.lastIndex;
+            }
+            if (last < text.length) html += esc(text.slice(last));
+            code.innerHTML = html;
+            code.dataset.highlighted = "1";
+          } catch (error) {
+            /* leave the sample as plain text on any tokenizer error */
+          }
+        });
+      }
+
       initializeLanguages();
       initializeQuiz();
+      highlightCode();
       initializeDiagrams();
     })();
   </script>
