@@ -149,6 +149,24 @@ use real domain terms and toy values, and derive every edge from inspected
 source or tests. Put nuance, evidence, and multilingual adaptation in the
 caption and prose rather than crowding the diagram.
 
-The bundled renderer supports flowcharts/subgraphs, sequence, state, class,
-and ER diagrams. Other Mermaid types render as a framed source fallback, so do
-not use them for a required explanatory visual.
+## Renderer constraints (grok-mermaid)
+
+The bundled renderer is grok-mermaid, a compact offline WASM that draws a
+subset of Mermaid as Unicode box art. `build_explanation.py` rejects the
+deterministic breakers below; the rest are your responsibility, because an
+unrenderable diagram silently degrades to a framed source-code box:
+
+- Supported types only: `flowchart` / `graph` (incl. subgraphs),
+  `sequenceDiagram`, `stateDiagram-v2`, `classDiagram`, `erDiagram`. `pie`,
+  `gantt`, `journey`, `mindmap`, and the like are not drawn at all.
+- Keep it narrow. The most common fallback is width — a diagram too wide for
+  the reading column drops to a source box. Keep participant / node / edge /
+  note labels short (a few words), split long flows, and prefer `flowchart TD`
+  over wide `LR` layouts. `flowchart` is the most robust type: reach for it when
+  a sequence or state diagram would otherwise need long labels or many lanes.
+- Sequence diagrams: no `;` in any message or note. grok-mermaid reads `;` as a
+  statement separator, so `A->>DB: BEGIN; SELECT; COMMIT` collapses the whole
+  diagram. Use separate messages or commas.
+- State diagrams: omit the `direction` statement. Forcing a direction can fail
+  the layout on non-trivial (e.g. cyclic) graphs; the default top-down layout
+  renders reliably.

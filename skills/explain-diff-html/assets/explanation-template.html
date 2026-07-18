@@ -334,16 +334,34 @@
           );
         }
 
+        // grok-mermaid returns a boxed "mermaid: <type>" source dump (this exact
+        // header span) instead of throwing when it can't lay a diagram out — most
+        // often because it is too wide for the requested column budget.
+        function isSourceFallback(rendered) {
+          return rendered.includes('"t"> mermaid: ');
+        }
+
         function renderTarget(target) {
           const definition = definitions.get(target.dataset.diagramId);
           if (!definition) return;
           const output = target.querySelector(".mermaid-output");
           const wrap = target.querySelector(".diagram-output-wrap");
-          const maxWidth = Number.isInteger(definition.maxWidth)
-            ? definition.maxWidth
-            : Math.max(80, measureColumns(output, wrap));
+          const fixedWidth = Number.isInteger(definition.maxWidth);
+          const fitWidth = fixedWidth ? definition.maxWidth : Math.max(80, measureColumns(output, wrap));
           try {
-            output.innerHTML = renderHtml(definition.source, maxWidth);
+            let rendered = renderHtml(definition.source, fitWidth);
+            // Too wide to fit → grok-mermaid hands back the source box. Retry at
+            // progressively wider budgets and let the wrap scroll horizontally; a
+            // scrollable real diagram beats a raw-source dump. Skip when the author
+            // pinned an explicit maxWidth.
+            if (!fixedWidth && isSourceFallback(rendered)) {
+              for (const width of [140, 200, 280, 380]) {
+                if (width <= fitWidth) continue;
+                const wider = renderHtml(definition.source, width);
+                if (!isSourceFallback(wider)) { rendered = wider; break; }
+              }
+            }
+            output.innerHTML = rendered;
           } catch (error) {
             WebAssembly.instantiate(module, {}).then(fresh => { instance = fresh; });
             renderFallback(target, definition, error);

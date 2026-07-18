@@ -57,6 +57,59 @@ def require_list(value: Any, path: str) -> list[Any]:
     return value
 
 
+# Diagram types the bundled grok-mermaid renderer actually draws. Anything else
+# (pie, gantt, journey, mindmap, timeline, ...) degrades to a framed source-code
+# box in the page, i.e. a non-diagram.
+RENDERABLE_DIAGRAM_TYPES = frozenset({
+    "flowchart",
+    "graph",
+    "sequenceDiagram",
+    "stateDiagram",
+    "stateDiagram-v2",
+    "classDiagram",
+    "erDiagram",
+})
+
+
+def diagram_type(source: str) -> str:
+    for line in source.splitlines():
+        stripped = line.strip()
+        if stripped:
+            return stripped.split()[0]
+    return ""
+
+
+def validate_diagram_source(source: str, path: str) -> None:
+    """Reject diagram sources grok-mermaid can't render.
+
+    An unrenderable source silently degrades to a framed source-code box on the
+    page. This build step is the one command every generator is allowed to run,
+    so catching the known breakers here forces a fix before the HTML ships,
+    rather than the reader discovering a raw-source box later.
+    """
+    kind = diagram_type(source)
+    if kind not in RENDERABLE_DIAGRAM_TYPES:
+        supported = ", ".join(sorted(RENDERABLE_DIAGRAM_TYPES))
+        raise ValueError(
+            f"{path}.source: grok-mermaid can't render '{kind or 'unknown'}' diagrams; "
+            f"they degrade to a source box. Use one of: {supported}."
+        )
+    if kind == "sequenceDiagram" and ";" in source:
+        raise ValueError(
+            f"{path}.source: remove ';' from the sequence diagram. grok-mermaid parses ';' as a "
+            "statement separator, so a message like 'BEGIN; SELECT; COMMIT' collapses the whole "
+            "diagram to a source box. Split it into separate messages or use commas."
+        )
+    if kind in {"stateDiagram", "stateDiagram-v2"}:
+        for line in source.splitlines():
+            if line.strip().startswith("direction "):
+                raise ValueError(
+                    f"{path}.source: drop the 'direction' statement from the state diagram. "
+                    "grok-mermaid's layout can fail on directed (e.g. cyclic) state graphs and fall "
+                    "back to a source box; the default top-down layout renders reliably."
+                )
+
+
 def validate_page_data(data: Any, inspector: ContentInspector) -> dict[str, Any]:
     if not isinstance(data, dict):
         raise ValueError("page data must be a JSON object")
@@ -84,7 +137,8 @@ def validate_page_data(data: Any, inspector: ContentInspector) -> dict[str, Any]
         if not isinstance(diagram, dict):
             raise ValueError(f"diagrams[{index}] must be an object")
         diagram_id = require_string(diagram.get("id"), f"diagrams[{index}].id")
-        require_string(diagram.get("source"), f"diagrams[{index}].source")
+        source = require_string(diagram.get("source"), f"diagrams[{index}].source")
+        validate_diagram_source(source, f"diagrams[{index}]")
         if diagram_id in diagram_ids:
             raise ValueError(f"duplicate diagram ID: {diagram_id}")
         diagram_ids.add(diagram_id)
