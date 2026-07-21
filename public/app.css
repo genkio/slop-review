@@ -1156,6 +1156,9 @@ a.card-file:hover .card-file-mark {
 }
 .overview-result-tabs[hidden] { display: none; }
 .overview-result-tab {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 5px;
   flex: 0 0 auto;
   min-height: 30px;
   padding: 5px 11px;
@@ -1165,6 +1168,11 @@ a.card-file:hover .card-file-mark {
   color: var(--fg-soft);
   font-size: 12px;
   font-weight: 600;
+}
+.overview-result-model {
+  color: var(--fg-muted);
+  font-size: 10px;
+  font-weight: 500;
 }
 .overview-result-tab[aria-selected="true"] {
   background: var(--card);

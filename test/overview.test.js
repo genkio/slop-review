@@ -2,10 +2,21 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import {
   buildOverviewPrompt,
+  codexModelFromConfig,
   mergeOverviewGenerations,
+  modelFromCodexOutput,
+  modelFromOpenCodeOutput,
   openCodeConfig,
   resolveTools,
 } from '../server/overview.js'
+
+test('overview model names are read from CLI output and Codex config', () => {
+  assert.equal(modelFromCodexOutput('workdir: /tmp\nmodel: gpt-5.6-sol\nprovider: openai'), 'gpt-5.6-sol')
+  assert.equal(modelFromOpenCodeOutput('> build · claude-sonnet-5\n\nDone'), 'claude-sonnet-5')
+  assert.equal(modelFromOpenCodeOutput('\u001b[0m> build · gpt-5.4\u001b[0m'), 'gpt-5.4')
+  assert.equal(codexModelFromConfig('model = "gpt-5.6-sol"\n[profiles.fast]\nmodel = "gpt-5.4"'), 'gpt-5.6-sol')
+  assert.equal(codexModelFromConfig('[profiles.fast]\nmodel = "gpt-5.4"'), null)
+})
 
 function context() {
   return {

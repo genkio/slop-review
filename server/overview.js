@@ -13,7 +13,7 @@ import {
   writeFile,
 } from 'node:fs/promises'
 import { join, dirname } from 'node:path'
-import { tmpdir } from 'node:os'
+import { homedir, tmpdir } from 'node:os'
 import { fileURLToPath } from 'node:url'
 import { getBranchInfo } from './git.js'
 import { branchDir, sanitizeBranchId } from './reviews.js'
@@ -390,13 +390,14 @@ function startOverviewGeneration(
   job.promise = (async () => {
     await Promise.all(selectedTools.map(async (tool) => {
       try {
-        const content = await runners[tool](repoPath, context, additionalPrompt, job)
+        const { content, model } = await runners[tool](repoPath, context, additionalPrompt, job)
         await writeOverviewDocument(repoPath, context.branchId, tool, content)
         job.generations[tool] = {
           ...job.generations[tool],
           status: 'ready',
           completed_at: new Date().toISOString(),
           has_content: true,
+          model,
         }
       } catch (e) {
         job.generations[tool] = {
@@ -526,14 +527,18 @@ async function runCodexOverview(repoPath, context, additionalPrompt, job) {
       const lastMessageFile = join(tmpDir, `last-message-${i}.txt`)
       try {
         await rm(outputFile, { force: true })
-        await runProcess(
+        const result = await runProcess(
           'codex',
           codexArgs({ repoPath, scratchDir: tmpDir, outputFile: lastMessageFile, ...attempt }),
           prompt,
           tmpDir,
           job
         )
-        return await readGeneratedOverview(outputFile, 'Codex')
+        return {
+          content: await readGeneratedOverview(outputFile, 'Codex'),
+          model: modelFromCodexOutput(`${result.stderrHead}\n${result.stderr}\n${result.stdoutHead}\n${result.stdout}`)
+            || await readCodexConfiguredModel(),
+        }
       } catch (e) {
         lastError = e
         if (!isArgParseError(e)) throw e
@@ -554,15 +559,18 @@ async function runOpenCodeOverview(repoPath, context, additionalPrompt, job) {
       join(tmpDir, 'opencode.json'),
       JSON.stringify(openCodeConfig(repoPath), null, 2)
     )
-    await runProcess(
+    const result = await runProcess(
       'opencode',
-      ['run', '--pure', '--dir', tmpDir, '--format', 'json', prompt],
+      ['run', '--pure', '--dir', tmpDir, prompt],
       '',
       tmpDir,
       job,
       'OpenCode'
     )
-    return await readGeneratedOverview(outputFile, 'OpenCode')
+    return {
+      content: await readGeneratedOverview(outputFile, 'OpenCode'),
+      model: modelFromOpenCodeOutput(`${result.stdoutHead}\n${result.stdout}`),
+    }
   } finally {
     try { await rm(tmpDir, { recursive: true, force: true }) } catch {}
   }
@@ -602,10 +610,52 @@ async function runClaudeOverview(repoPath, context, additionalPrompt, job) {
   const outputFile = join(tmpDir, 'overview.html')
   const prompt = buildOverviewPrompt(repoPath, context, outputFile, additionalPrompt)
   try {
-    return await driveClaudePty(repoPath, prompt, outputFile, tmpDir, job)
+    return {
+      content: await driveClaudePty(repoPath, prompt, outputFile, tmpDir, job),
+      model: await readClaudeConfiguredModel(repoPath),
+    }
   } finally {
     try { await rm(tmpDir, { recursive: true, force: true }) } catch {}
   }
+}
+
+export function modelFromCodexOutput(output) {
+  return stripAnsi(output).match(/^model:\s*(.+?)\s*$/mi)?.[1] || null
+}
+
+export function modelFromOpenCodeOutput(output) {
+  return stripAnsi(output).match(/^>\s*[^\n·]+·\s*(.+?)\s*$/m)?.[1] || null
+}
+
+export function codexModelFromConfig(config) {
+  const root = config.split(/^\s*\[/m, 1)[0]
+  const value = root.match(/^\s*model\s*=\s*(["'])(.*?)\1\s*(?:#.*)?$/m)?.[2]
+  return value || null
+}
+
+async function readCodexConfiguredModel() {
+  const configHome = process.env.CODEX_HOME || join(homedir(), '.codex')
+  try {
+    return codexModelFromConfig(await readFile(join(configHome, 'config.toml'), 'utf8'))
+  } catch {
+    return null
+  }
+}
+
+async function readClaudeConfiguredModel(repoPath) {
+  const paths = [
+    join(homedir(), '.claude', 'settings.json'),
+    join(repoPath, '.claude', 'settings.json'),
+    join(repoPath, '.claude', 'settings.local.json'),
+  ]
+  let model = null
+  for (const path of paths) {
+    try {
+      const data = JSON.parse(await readFile(path, 'utf8'))
+      if (typeof data?.model === 'string' && data.model.trim()) model = data.model.trim()
+    } catch {}
+  }
+  return model
 }
 
 // Python stdlib pty.fork(): opens its own PTY (no parent TTY required),
@@ -860,6 +910,8 @@ function runProcess(command, args, stdin, cwd, job, label = 'Codex') {
 
     let stdout = ''
     let stderr = ''
+    let stdoutHead = ''
+    let stderrHead = ''
     let settled = false
     let timedOut = false
     const timer = setTimeout(() => {
@@ -869,8 +921,16 @@ function runProcess(command, args, stdin, cwd, job, label = 'Codex') {
     }, CODEX_TIMEOUT_MS)
     timer.unref()
 
-    child.stdout.on('data', (d) => { stdout = appendCapped(stdout, d.toString()) })
-    child.stderr.on('data', (d) => { stderr = appendCapped(stderr, d.toString()) })
+    child.stdout.on('data', (d) => {
+      const chunk = d.toString()
+      stdout = appendCapped(stdout, chunk)
+      stdoutHead = appendHead(stdoutHead, chunk)
+    })
+    child.stderr.on('data', (d) => {
+      const chunk = d.toString()
+      stderr = appendCapped(stderr, chunk)
+      stderrHead = appendHead(stderrHead, chunk)
+    })
     child.on('error', (e) => {
       if (settled) return
       settled = true
@@ -897,11 +957,16 @@ function runProcess(command, args, stdin, cwd, job, label = 'Codex') {
         reject(err)
         return
       }
-      resolve({ stdout, stderr })
+      resolve({ stdout, stderr, stdoutHead, stderrHead })
     })
 
     child.stdin.end(stdin)
   })
+}
+
+function appendHead(current, chunk) {
+  if (current.length >= LOG_LIMIT) return current
+  return (current + chunk).slice(0, LOG_LIMIT)
 }
 
 function trackChild(job, child) {

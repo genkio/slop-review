@@ -262,10 +262,14 @@ export function openOverviewModal(repoId) {
     tabsEl.setAttribute('aria-label', 'Generated overviews')
     tabsEl.innerHTML = tools.map((tool) => {
       const generationStatus = status.generations[tool]?.status
+      const model = status.generations[tool]?.model
       const stateClass = generationStatus === 'ready'
         ? ' is-ready'
         : (generationStatus === 'error' ? ' is-error' : ' is-running')
-      return `<button type="button" role="tab" data-result-tool="${escapeHtml(tool)}" aria-selected="${tool === active}" class="overview-result-tab${stateClass}">${escapeHtml(toolLabel(tool))}</button>`
+      const modelLabel = model
+        ? `<span class="overview-result-model">${escapeHtml(model)}</span>`
+        : ''
+      return `<button type="button" role="tab" data-result-tool="${escapeHtml(tool)}" aria-selected="${tool === active}" class="overview-result-tab${stateClass}"><span>${escapeHtml(toolLabel(tool))}</span>${modelLabel}</button>`
     }).join('')
     tabsEl.querySelectorAll('[data-result-tool]').forEach((button) => {
       button.addEventListener('click', () => {
