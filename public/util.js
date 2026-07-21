@@ -170,6 +170,22 @@ export function formatLineRange(thread) {
 }
 
 /**
+ * Build the clipboard payload for a comment pinned to the diff. Keep the
+ * first line compatible with the diff page's existing `path:line` copy
+ * format, then separate the original comment body with a blank line so the
+ * result is ready to paste into an editor, issue, or agent chat.
+ */
+export function formatPinnedComment(thread, comment) {
+  if (!thread?.file || thread.pr_level || thread.line == null || typeof comment?.body !== 'string') return ''
+  const end = thread.line_end
+  const range = end == null || end === thread.line
+    ? String(thread.line)
+    : `${thread.line}-${end}`
+  const side = thread.side === 'old' ? ' (old)' : ''
+  return `${thread.file}:${range}${side}\n\n${comment.body}`
+}
+
+/**
  * Sanitize a branch name into a filesystem-safe directory name. SPEC §5:
  * anything outside `[A-Za-z0-9_-]` collapses to `-`, leading/trailing `-`
  * stripped, capped at 80 chars. Must stay in lockstep with the server's
@@ -250,4 +266,3 @@ export function buildForgeDeepLinkFromSha({ host, prUrl, pathSha256, lineStart, 
       return null
   }
 }
-

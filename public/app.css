@@ -1058,6 +1058,37 @@ a.card-file:hover .card-file-mark {
   color: var(--accent);
   border-radius: 2px;
 }
+.msg-content > .msg-body:not(.msg-edit-form) { display: inline; }
+.msg-copy-reference {
+  display: inline;
+  margin-left: 6px;
+  padding: 0;
+  border: 0;
+  border-bottom: 1px dotted color-mix(in srgb, currentColor 50%, transparent);
+  border-radius: 0;
+  background: transparent;
+  color: var(--fg-muted);
+  font-family: var(--font-sans);
+  font-size: 11px;
+  font-weight: 400;
+  letter-spacing: 0;
+  line-height: 1.4;
+  text-transform: none;
+  cursor: pointer;
+  vertical-align: baseline;
+}
+.msg-copy-reference:hover {
+  color: var(--accent);
+  border-bottom-style: solid;
+}
+.msg-copy-reference:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+.msg-copy-reference.is-copied {
+  color: var(--lane-done);
+  border-bottom-style: solid;
+}
 .code-block {
   font-family: var(--font-mono);
   font-size: 12px;

@@ -1,5 +1,5 @@
 import { api } from './api.js'
-import { escapeHtml, inlineCode, relTime, toast, copyToClipboard, formatLineRange, buildForgeDeepLinkFromSha } from './util.js'
+import { escapeHtml, inlineCode, relTime, toast, copyToClipboard, formatLineRange, formatPinnedComment, buildForgeDeepLinkFromSha } from './util.js'
 import { languageForPath, highlightLine } from './syntax.js'
 
 export function makeModal(innerHtml, opts = {}) {
@@ -78,7 +78,7 @@ export function makeModal(innerHtml, opts = {}) {
   return backdrop
 }
 
-function commentHtml(c, interactive = false) {
+function commentHtml(c, interactive = false, hasCodeAnchor = false) {
   // Edit + remove sit together at the right edge of the meta row. The first
   // one carries `margin-left: auto` (in CSS) so both get pushed right while
   // staying flush to each other. Body is rendered as raw text via
@@ -94,10 +94,13 @@ function commentHtml(c, interactive = false) {
   const whenHtml = c.github_url
     ? `<a class="msg-when" href="${escapeHtml(c.github_url)}" target="_blank" rel="noopener noreferrer" title="Open this comment on GitHub">${when}</a>`
     : `<span class="msg-when">${when}</span>`
+  const copyAction = interactive && hasCodeAnchor
+    ? `<button type="button" class="msg-copy-reference" data-copy-comment data-comment-id="${escapeHtml(c.id)}" aria-label="Copy pinned path and comment" title="Copy the pinned path and this comment">Copy</button>`
+    : ''
   return `
     <div class="msg" data-comment-id="${escapeHtml(c.id)}">
       <div class="msg-head"><span class="msg-who">${escapeHtml(c.user)}</span>${whenHtml}${actions}</div>
-      <div class="msg-body" data-body>${inlineCode(c.body)}</div>
+      <div class="msg-content"><div class="msg-body" data-body>${inlineCode(c.body)}</div>${copyAction}</div>
     </div>`
 }
 
@@ -271,6 +274,11 @@ export function openThreadModal(threadId, opts = {}) {
   // breaking the relationship between modal and URL.
   let currentId = threadId
   let backdrop = null
+  // The modal mutates individual comments in place while the host refreshes
+  // its thread snapshot asynchronously. Keep the bodies shown in this modal
+  // immediately copyable after a reply or edit, without waiting for that
+  // background refresh to finish.
+  const visibleCommentBodies = new Map()
 
   /**
    * Shared "I'm done with this thread, move me along" advance step used
@@ -328,7 +336,9 @@ export function openThreadModal(threadId, opts = {}) {
       return hex ? `thread_${status}_${hex}.json` : ''
     })()
 
-    const msgs = (thread.comments || []).map((c) => commentHtml(c, true)).join('')
+    for (const comment of thread.comments || []) visibleCommentBodies.set(comment.id, comment.body)
+    const hasCodeAnchor = !!thread.file && !thread.pr_level && thread.line != null
+    const msgs = (thread.comments || []).map((c) => commentHtml(c, true, hasCodeAnchor)).join('')
 
     // Resolution toggle. Label + class flip based on the current state so
     // a single click does whatever is locally meaningful: "✓ Resolve" on
@@ -710,7 +720,9 @@ export function openThreadModal(threadId, opts = {}) {
           { method: 'POST', body: JSON.stringify({ body }) }
         )
         const list = backdrop.querySelector('[data-thread-list]')
-        if (list && res.comment) list.insertAdjacentHTML('beforeend', commentHtml(res.comment, true))
+        const hasCodeAnchor = !!thread.file && !thread.pr_level && thread.line != null
+        if (res.comment) visibleCommentBodies.set(res.comment.id, res.comment.body)
+        if (list && res.comment) list.insertAdjacentHTML('beforeend', commentHtml(res.comment, true, hasCodeAnchor))
         ta.value = ''
         ta.focus()
         toast.ok('Reply added')
@@ -845,6 +857,27 @@ export function openThreadModal(threadId, opts = {}) {
   backdrop = null  // ensure first mountOrUpdate creates the backdrop
   mountOrUpdate()
   backdrop.addEventListener('click', (e) => {
+    const copyBtn = e.target.closest('[data-copy-comment]')
+    if (copyBtn) {
+      e.stopPropagation()
+      const thread = getThread(currentId)
+      const comment = (thread?.comments || []).find((item) => item.id === copyBtn.dataset.commentId)
+      const body = visibleCommentBodies.get(copyBtn.dataset.commentId) ?? comment?.body
+      const text = formatPinnedComment(thread, { body })
+      if (!text) return
+      copyToClipboard(text)
+        .then(() => {
+          toast.ok('Path and comment copied')
+          copyBtn.classList.add('is-copied')
+          copyBtn.textContent = '✓ Copied'
+          setTimeout(() => {
+            copyBtn.classList.remove('is-copied')
+            copyBtn.textContent = 'Copy'
+          }, 1200)
+        })
+        .catch((err) => toast('Copy failed: ' + (err.message || 'unknown')))
+      return
+    }
     const editBtn = e.target.closest('[data-edit-comment]')
     if (editBtn) {
       e.stopPropagation()
@@ -939,6 +972,7 @@ export function openThreadModal(threadId, opts = {}) {
         newBody.dataset.body = ''
         newBody.innerHTML = inlineCode(res?.comment?.body ?? text)
         form.replaceWith(newBody)
+        visibleCommentBodies.set(commentId, res?.comment?.body ?? text)
         toast.ok('Comment updated')
         onChanged?.(res)
       } catch (err) {
@@ -992,4 +1026,3 @@ function modalScrollStep(key, el) {
   const magnitude = big ? Math.max(200, h * 0.85) : Math.max(48, h * 0.15)
   return key === 'j' || key === 'J' ? magnitude : -magnitude
 }
-
