@@ -4,6 +4,8 @@ import {
   buildToolChoices,
   unavailableReason,
   summarizeGenerations,
+  parseAgents,
+  missingAgentReason,
 } from '../bin/overview-cli.js'
 
 test('buildToolChoices maps available tools with version + prior-run suffix', () => {
@@ -40,6 +42,35 @@ test('unavailableReason concatenates CLI errors, else a default hint', () => {
     'no codex no opencode'
   )
   assert.match(unavailableReason({}), /No supported CLI/)
+})
+
+test('parseAgents accepts repeated and comma-separated names, case-insensitively', () => {
+  assert.deepEqual(parseAgents(['opencode']), { tools: ['opencode'], unknown: [] })
+  assert.deepEqual(parseAgents(['codex', 'claude']), { tools: ['codex', 'claude'], unknown: [] })
+  assert.deepEqual(parseAgents(['Codex, OpenCode']), { tools: ['codex', 'opencode'], unknown: [] })
+})
+
+test('parseAgents dedupes and drops empty entries', () => {
+  assert.deepEqual(parseAgents(['codex,,codex', 'codex']), { tools: ['codex'], unknown: [] })
+  assert.deepEqual(parseAgents([]), { tools: [], unknown: [] })
+})
+
+test('parseAgents reports unrecognized names instead of dropping them', () => {
+  assert.deepEqual(parseAgents(['claud,opencode']), { tools: ['opencode'], unknown: ['claud'] })
+})
+
+test('missingAgentReason prefers the probe error and lists what is available', () => {
+  assert.equal(
+    missingAgentReason(
+      { opencode_error: 'OpenCode CLI is not available on PATH.', available_tools: ['codex'] },
+      ['opencode']
+    ),
+    'OpenCode CLI is not available on PATH. Available: Codex.'
+  )
+  assert.equal(
+    missingAgentReason({ available_tools: [] }, ['claude']),
+    'Claude is not available on PATH.'
+  )
 })
 
 test('summarizeGenerations classifies by this run status, not preserved content', () => {

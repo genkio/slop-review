@@ -262,6 +262,16 @@ function stateForClient(context, data, statusOverride = null, tools = null) {
   }
 }
 
+// For callers that started a job in their own process (bin/overview-cli.js):
+// watch the live job instead of re-deriving status from disk. getOverviewStatus
+// recomputes the branch cache key on every call, and any working-tree churn
+// during the run (build output, an agent's log, a redirected stdout) stops it
+// matching this job — the watcher would then see 'idle' and call a still-running
+// generation failed. branchId is content-independent, so this lookup is stable.
+export function getOverviewJob(repoPath, branchId) {
+  return jobs.get(jobKey(repoPath, branchId)) || null
+}
+
 export async function getOverviewStatus(repoPath) {
   const context = await getOverviewContext(repoPath)
   const tools = await toolAvailability()

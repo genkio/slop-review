@@ -55,6 +55,9 @@ npx slop-review
 | `--browser`  | `-b`  |            | 接在 `--sync` 之后，在同步完成后用默认浏览器打开界面                                                          |
 | `--threads`  | `-t`  |            | 不同步，直接进入线程巡览（完整 diff，浮现第一个未解决线程）                                                   |
 | `--overview` | `-o`  |            | 在终端生成分支概览（选择生成器与可选附加指令），然后打开界面并直接浮现该概览。需要可交互终端                    |
+| `--agent`    | `-a`  | `<name>`   | 直接指定生成器（`codex`、`claude`、`opencode`），不再交互选择。可重复传入或用逗号分隔。隐含 `--overview`，跳过两个提示，因此不需要 TTY |
+| `--detach`   | `-d`  |            | 把服务器交给后台进程，确认可访问后即退出；界面继续运行，shell 立刻可用。会打印 pid。不能与 `--carbonyl` 同用    |
+| `--kill`     | `-k`  |            | 停止当前仓库正在运行的服务器后退出（不再启动）。没有可停止的进程时也返回 0                                      |
 | `--help`     | `-h`  |            | 显示帮助                                                                                                      |
 
 `--sync` 在镜像完成后会退出，除非你接上 `--browser`、`--carbonyl` 或 `--threads`，这些会打开界面并每 5 分钟持续重新同步。`--threads` 无需同步即可到达同一个续看视图。
@@ -64,6 +67,31 @@ npx slop-review
 概览模态框会通过 `codex exec`、`claude` 或 `opencode run` 运行内置的 `explain-diff-html` skill，生成包含背景、直觉说明、代码导读、必要的图表和交互式测验的自包含 HTML。生成器支持多选，所选 CLI 会并行运行，完成后可通过 Overview 标题栏中的标签页切换结果。选择界面还可填写“同时使用英文和中文说明”等附加指令。每个生成器的 HTML 分别缓存在 `.reviews/` 下，并显示在沙箱化的 frame 中。
 
 你也可以完全在终端中完成同样的生成，无需界面：`slop-review --overview`（`-o`）会检测可用的 agent CLI，弹出复选框选择器（空格切换、`a` 全选）以及可选的附加指令输入，带实时进度地运行所选生成器，然后打开应用并直接浮现 Overview 模态框。它可与启动类参数（`--carbonyl`、`--port`、`--no-open` 等）组合使用。
+
+用 `--agent`（`-a`）指定生成器即可跳过两个提示，全程非交互运行；不需要 TTY，因此可以嵌入 shell 函数或脚本中：
+
+```bash
+slop-review -o -a opencode              # 单个生成器，无提示
+slop-review -a codex,claude --no-open   # 两个生成器；-a 隐含 -o
+```
+
+名称拼错或 `PATH` 中找不到对应 agent 时，会在开始生成之前就报错退出。
+
+若希望概览就绪后继续往下执行，加上 `--detach`（`-d`）：它会把服务器交给后台进程、打开浏览器并立刻交还 shell，于是你可以在同一条命令链里接一个耗时较久的命令，同时阅读概览：
+
+```bash
+slop-review -o -a opencode -d && your-long-review-command
+```
+
+命令会打印 pid，看完界面后用它结束进程。`--detach` 可与 `--port`、`--host`、`--threads`、`--sync`、`--no-open`（后台运行但不开浏览器）组合；但不能与 `--carbonyl` 同用，后者需要启动它的那个终端。
+
+收尾用 `--kill`（`-k`），不必去找那个 pid：
+
+```bash
+slop-review -k          # 停止当前仓库的服务器后退出
+```
+
+它会停止当前仓库下所有正在运行的 slop-review 服务器（后台的，以及留在别的终端里的前台会话）；没有可停止的进程时同样返回 0，因此可以放在脚本末尾无条件调用。服务器记录在 `<repo>/.reviews/_servers.json` 中，所以 `-k` 以仓库为范围，不会影响服务其他 checkout 的进程。发送信号前会与真实进程核对（先 SIGTERM，3 秒后 SIGKILL），因此不会误杀被复用的 pid；未能自行清理就退出的条目只会被清除。
 
 状态保存在 `~/.config/slop-review/state.json`（遵循 `XDG_CONFIG_HOME`）：包含 schema 版本以及每个仓库的 UI 状态（最近视图 + 线程续看游标）。
 

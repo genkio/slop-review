@@ -3,20 +3,25 @@
 // Mirrors the web Overview flow (public/overview-modal.js) without a browser:
 // detect the available coding-agent CLIs, let the user pick generators and add
 // optional instructions in the terminal, then run the same
-// ensureOverviewGeneration job and poll it to completion with live progress.
+// ensureOverviewGeneration job and watch it to completion with live progress.
 // The result is cached under <repo>/.reviews/, so the browser the bin shim
 // opens afterwards shows the ready overview.
+//
+// `--agent` / `-a` names the generators up front, which skips both prompts and
+// makes the whole run non-interactive (no TTY needed) so it can be chained
+// inside a shell function or script.
 
 import { multiSelect, promptLine, PROMPT_CANCELLED } from './prompt.js'
 import {
   getOverviewStatus,
+  getOverviewJob,
   ensureOverviewGeneration,
   shutdownAllOverviewJobs,
+  SUPPORTED_TOOLS,
 } from '../server/overview.js'
 
 const TOOL_LABELS = { codex: 'Codex', claude: 'Claude', opencode: 'OpenCode' }
 const MAX_ADDITIONAL_PROMPT_LENGTH = 2000
-const STATUS_POLL_MS = 1500
 const SPIN_MS = 120
 const SPINNER = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏']
 
@@ -65,6 +70,33 @@ export function unavailableReason(status) {
   return parts.join(' ') || 'No supported CLI (Codex, Claude Code, or OpenCode) is available on PATH.'
 }
 
+// `-a codex -a claude` and `-a codex,claude` request the same pair. Names match
+// case-insensitively; unrecognized ones come back in `unknown` so the caller can
+// report a typo instead of silently generating with fewer agents.
+export function parseAgents(values = []) {
+  const tools = []
+  const unknown = []
+  for (const value of values) {
+    for (const part of String(value).split(',')) {
+      const name = part.trim().toLowerCase()
+      if (!name) continue
+      const bucket = SUPPORTED_TOOLS.includes(name) ? tools : unknown
+      if (!bucket.includes(name)) bucket.push(name)
+    }
+  }
+  return { tools, unknown }
+}
+
+// Why a named agent couldn't run: prefer the probe's own error (wrong PATH,
+// broken install) over a generic "not on PATH", then point at what is usable.
+export function missingAgentReason(status, missing) {
+  const details = missing.map((tool) => (
+    status?.[`${tool}_error`] || `${toolLabel(tool)} is not available on PATH.`
+  ))
+  const available = (status?.available_tools || []).map(toolLabel)
+  return details.join(' ') + (available.length ? ` Available: ${available.join(', ')}.` : '')
+}
+
 // Classify by THIS run's per-tool status, not has_content: a regeneration that
 // fails keeps the prior document's has_content=true, but for the CLI report it
 // still failed this time.
@@ -75,14 +107,22 @@ export function summarizeGenerations(requestedTools, generations = {}) {
 }
 
 /**
- * Run the interactive overview flow. Returns one of:
+ * Run the overview flow. With `options.agents` (from `--agent`) it is
+ * non-interactive: no picker, no instructions prompt, no TTY required.
+ * Otherwise it prompts for both. Returns one of:
  *   'launch' — generation was attempted (any outcome); proceed to open the app
  *   'cancel' — the user aborted the picker/prompt; the bin shim exits quietly
- *   'error'  — nothing could be generated (no diff / no CLI / no TTY)
+ *   'error'  — nothing could be generated (no diff / no CLI / no TTY / bad agent)
  * All user-facing messaging happens here via `log`.
  */
-export async function runOverviewCli(repoRoot, io = {}) {
-  const log = io.log || ((m) => process.stdout.write(`${m}\n`))
+export async function runOverviewCli(repoRoot, options = {}) {
+  const log = options.log || ((m) => process.stdout.write(`${m}\n`))
+
+  const { tools: agents, unknown } = parseAgents(options.agents || [])
+  if (unknown.length) {
+    log(`slop-review: unknown agent${unknown.length === 1 ? '' : 's'}: ${unknown.join(', ')} (supported: ${SUPPORTED_TOOLS.join(', ')})`)
+    return 'error'
+  }
 
   let status
   try {
@@ -103,8 +143,20 @@ export async function runOverviewCli(repoRoot, io = {}) {
     return 'error'
   }
 
+  if (agents.length) {
+    const missing = agents.filter((tool) => !(status.available_tools || []).includes(tool))
+    if (missing.length) {
+      log(`slop-review: ${missingAgentReason(status, missing)}`)
+      return 'error'
+    }
+    log(`Branch overview · ${status.branch || 'current branch'}`)
+    log(`Generators: ${agents.map(toolLabel).join(', ')}`)
+    await generateOverview(repoRoot, agents, '', log)
+    return 'launch'
+  }
+
   if (!process.stdin.isTTY || !process.stdout.isTTY) {
-    log('slop-review: --overview needs an interactive terminal to pick coding agents.')
+    log('slop-review: --overview needs an interactive terminal to pick coding agents. Pass --agent <name> to run without prompts.')
     return 'error'
   }
 
@@ -153,53 +205,57 @@ async function generateOverview(repoRoot, requestedTools, additionalPrompt, log)
   const clearSpinner = () => { if (isTTY) process.stdout.write(CLEAR_LINE) }
 
   try {
-    await ensureOverviewGeneration(repoRoot, {
+    const started = await ensureOverviewGeneration(repoRoot, {
       force: true,
       requestedTools,
       additionalPrompt,
     })
+    // The job runs in this process, so watch it directly rather than re-reading
+    // status from disk (see getOverviewJob). No job means generation never
+    // started; report from the state we got back.
+    const job = getOverviewJob(repoRoot, started.branch_id)
+    const generations = () => (job ? job.generations : started.generations) || {}
 
     const reported = new Set()
     let frame = 0
     let pending = requestedTools.map(toolLabel)
-    let sinceFetch = STATUS_POLL_MS   // fetch on the first iteration
-    let last = null
+    // Piped (`-a` in a script): no spinner, so announce the wait once instead
+    // of leaving stdout silent for the whole multi-minute run.
+    if (job && !isTTY) log(`generating ${pending.join(', ')}…`)
 
-    // One loop animates the spinner every SPIN_MS and re-polls status every
-    // STATUS_POLL_MS. Keeping both on the same loop avoids a spinner tick
-    // interleaving with a just-completed tool's result line.
+    let settled = !job
+    job?.promise.then(() => { settled = true }, () => { settled = true })
+
+    // One loop animates the spinner and reports each tool the moment it flips to
+    // ready/error. The report runs before the spinner tick so a result line
+    // never interleaves with a half-drawn spinner.
     while (true) {
-      if (sinceFetch >= STATUS_POLL_MS) {
-        sinceFetch = 0
-        last = await getOverviewStatus(repoRoot)
-        const generations = last.generations || {}
-        let clearedForReport = false
-        for (const tool of requestedTools) {
-          const generation = generations[tool]
-          if (!generation || reported.has(tool)) continue
-          if (generation.status === 'ready' || generation.status === 'error') {
-            reported.add(tool)
-            if (!clearedForReport) { clearSpinner(); clearedForReport = true }
-            if (generation.status === 'ready') {
-              log(`  ${GREEN}✓${RESET} ${toolLabel(tool)}`)
-            } else {
-              log(`  ${RED}✗${RESET} ${toolLabel(tool)}: ${firstLine(generation.error) || 'generation failed'}`)
-            }
+      let clearedForReport = false
+      for (const tool of requestedTools) {
+        const generation = generations()[tool]
+        if (!generation || reported.has(tool)) continue
+        if (generation.status === 'ready' || generation.status === 'error') {
+          reported.add(tool)
+          if (!clearedForReport) { clearSpinner(); clearedForReport = true }
+          if (generation.status === 'ready') {
+            log(`  ${GREEN}✓${RESET} ${toolLabel(tool)}`)
+          } else {
+            log(`  ${RED}✗${RESET} ${toolLabel(tool)}: ${firstLine(generation.error) || 'generation failed'}`)
           }
         }
-        pending = requestedTools.filter((tool) => !reported.has(tool)).map(toolLabel)
-        if (last.status !== 'generating') break
       }
+      pending = requestedTools.filter((tool) => !reported.has(tool)).map(toolLabel)
+      // Settled is checked after reporting so the final results always print.
+      if (settled) break
       if (isTTY && pending.length) {
         frame = (frame + 1) % SPINNER.length
         process.stdout.write(`${CLEAR_LINE}${DIM}${SPINNER[frame]} generating ${pending.join(', ')}…${RESET}`)
       }
       await delay(SPIN_MS)
-      sinceFetch += SPIN_MS
     }
     clearSpinner()
 
-    const { succeeded } = summarizeGenerations(requestedTools, last?.generations || {})
+    const { succeeded } = summarizeGenerations(requestedTools, generations())
     if (succeeded.length) {
       log(`Overview ready: ${succeeded.map(toolLabel).join(', ')}.`)
     } else {

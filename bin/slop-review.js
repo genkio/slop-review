@@ -2,7 +2,7 @@
 import { execFileSync, spawn } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
-import { createServer } from 'node:net'
+import { createServer, connect } from 'node:net'
 import { statSync } from 'node:fs'
 
 // ----------------------------------------------------------------------
@@ -55,6 +55,23 @@ Options:
                       generators and add optional instructions interactively,
                       run them, then open the UI on the ready overview. Needs
                       an interactive terminal. Composes with the launch flags.
+      --agent <name>, -a <name>
+                      Name the overview generator(s) instead of picking them
+                      interactively (codex, claude, opencode). Repeatable and
+                      comma-separated: \`-a codex -a claude\` == \`-a codex,claude\`.
+                      Implies --overview and skips both prompts, so the run
+                      needs no TTY and can be chained inside a script.
+      --detach, -d    Leave the server running in a background process and exit
+                      once it answers, instead of holding the terminal. The
+                      browser still opens. Chains as
+                      \`slop-review -o -a opencode -d && next-command\`: waits for
+                      generation to finish, then the UI stays up while the next
+                      command runs. Prints the pid to \`kill\` when you're done.
+                      Not compatible with --carbonyl.
+      --kill, -k      Stop the slop-review server(s) running for this repo, then
+                      exit without launching. The teardown counterpart to
+                      --detach; also stops a foreground session started in
+                      another terminal. Exits 0 when nothing is running.
   -h, --help          Show this help
 `)
   process.exit(0)
@@ -138,8 +155,54 @@ const overviewIdx = (() => {
   const long = args.indexOf('--overview')
   return long >= 0 ? long : args.indexOf('-o')   // `-o`: short alias, like `-c` for --carbonyl
 })()
-const doOverview = overviewIdx >= 0
-if (doOverview) args.splice(overviewIdx, 1)
+const wantOverview = overviewIdx >= 0
+if (wantOverview) args.splice(overviewIdx, 1)
+
+// `--agent` / `-a` names the generators up front, which makes --overview
+// non-interactive (no picker, no instructions prompt, no TTY needed) so it can
+// be chained inside a shell function. Repeatable, and each occurrence also
+// accepts a comma-separated list; validation of the names happens in
+// runOverviewCli, next to the CLI-availability probe. Naming an agent is a
+// request to generate, so it implies --overview on its own.
+const agentArgs = []
+for (const flag of ['--agent', '-a']) {
+  let i
+  while ((i = args.indexOf(flag)) >= 0) {
+    const value = args[i + 1]
+    if (!value || value.startsWith('-')) {
+      console.error(`slop-review: ${flag} needs an agent name (codex, claude, opencode)`)
+      process.exit(1)
+    }
+    agentArgs.push(value)
+    args.splice(i, 2)
+  }
+}
+const doOverview = wantOverview || agentArgs.length > 0
+
+// `--detach` / `-d` hands the server off to a background process and gives the
+// shell its prompt back, so `slop -o -a opencode -d && next-command` blocks on
+// generation (the exit code gates the chain) but leaves the UI serving while the
+// next command runs. Incompatible with --carbonyl, which needs this terminal.
+const detachIdx = (() => {
+  const long = args.indexOf('--detach')
+  return long >= 0 ? long : args.indexOf('-d')   // `-d`: short alias, like `-c` for --carbonyl
+})()
+const doDetach = detachIdx >= 0
+if (doDetach) args.splice(detachIdx, 1)
+if (doDetach && useCarbonyl) {
+  console.error(`slop-review: --detach can't be combined with --carbonyl (the terminal browser needs this terminal).`)
+  process.exit(1)
+}
+
+// `--kill` / `-k` is the teardown counterpart to --detach: stop the server(s)
+// running for this repo and exit without launching anything. Handled after the
+// git-repo guard, since the registry it reads lives in <repo>/.reviews/.
+const killIdx = (() => {
+  const long = args.indexOf('--kill')
+  return long >= 0 ? long : args.indexOf('-k')   // `-k`: short alias, like `-c` for --carbonyl
+})()
+const doKill = killIdx >= 0
+if (doKill) args.splice(killIdx, 1)
 
 // Fail loud on anything left over so typos like `--arbonyl` surface
 // immediately instead of silently dropping through to the default-browser
@@ -166,6 +229,25 @@ try {
   process.exit(1)
 }
 
+// --kill: stop every slop-review server registered for this repo (see
+// server/servers.js) and exit. A one-shot like --sync, but it never falls through
+// to a launch: it's teardown, and `slop-review -k && …` shouldn't start a server
+// on the way out. Exits 0 when nothing was running so it's safe to call blind.
+if (doKill) {
+  const { killServers } = await import(join(PACKAGE_ROOT, 'server', 'servers.js'))
+  const { stopped, survived } = await killServers(repoRoot)
+  for (const server of stopped) {
+    process.stdout.write(`slop-review: stopped pid ${server.pid}${server.port ? ` (port ${server.port})` : ''}\n`)
+  }
+  for (const server of survived) {
+    console.error(`slop-review: pid ${server.pid} did not exit`)
+  }
+  if (!stopped.length && !survived.length) {
+    process.stdout.write(`slop-review: no server running for ${repoRoot}\n`)
+  }
+  process.exit(survived.length ? 1 : 0)
+}
+
 // Handed to the server (start() below): syncEnabled turns on the recurring
 // re-sync loop for this session, syncSeed carries the launch sync's result so
 // the loop's status starts populated instead of "never synced". Both are inert
@@ -183,7 +265,7 @@ let syncSeed = null
 // header).
 if (doSync) {
   const { runSync, formatSyncStats } = await import(join(PACKAGE_ROOT, 'server', 'sync.js'))
-  const openAfterSync = useBrowser || useCarbonyl || doThreads || doOverview
+  const openAfterSync = useBrowser || useCarbonyl || doThreads || doOverview || doDetach
   syncEnabled = openAfterSync
   try {
     const result = await runSync(repoRoot, { log: (m) => process.stdout.write(`${m}\n`) })
@@ -208,15 +290,16 @@ if (doSync) {
   if (!openAfterSync) process.exit(0)
 }
 
-// --overview: interactively pick coding agents + optional instructions, then
-// generate the branch overview(s) up front (blocking, with terminal progress)
-// so the launch below opens on a ready overview. The result is cached in
-// <repo>/.reviews/. Cancelling the picker exits quietly; a pre-flight problem
-// (no diff, no CLI, no TTY) exits with an error. Any actual generation attempt
-// falls through to the normal launch, even if a generator failed.
+// --overview: interactively pick coding agents + optional instructions (or take
+// them from --agent), then generate the branch overview(s) up front (blocking,
+// with terminal progress) so the launch below opens on a ready overview. The
+// result is cached in <repo>/.reviews/. Cancelling the picker exits quietly; a
+// pre-flight problem (no diff, no CLI, no TTY, unknown agent) exits with an
+// error. Any actual generation attempt falls through to the normal launch, even
+// if a generator failed.
 if (doOverview) {
   const { runOverviewCli } = await import(join(PACKAGE_ROOT, 'bin', 'overview-cli.js'))
-  const action = await runOverviewCli(repoRoot)
+  const action = await runOverviewCli(repoRoot, { agents: agentArgs })
   if (action === 'cancel') process.exit(0)
   if (action === 'error') process.exit(1)
 }
@@ -268,6 +351,57 @@ if (portArg) {
   if (port == null) port = await findFreePort(hostArg)
 }
 
+// 2b. --detach: re-exec ourselves as a background process that owns the server
+//     and the browser open, then exit 0. A process can't background itself out
+//     of the shell's job control, so the hand-off has to be a new one. The child
+//     gets the launch flags only — never -o/-a, since the overview it would open
+//     on is already generated and cached above; SLOP_REVIEW_OPEN_OVERVIEW passes
+//     the deep link on without re-running the generators. The port is picked here
+//     so the URL can be printed before exiting.
+if (doDetach) {
+  const detachArgs = [process.argv[1], '--port', String(port), '--host', hostArg]
+  // `--sync` in the child keeps the recurring re-sync loop alive; --threads is
+  // what makes both open on the resume view (see openAfterSync above).
+  if (doSync) detachArgs.push('--sync', '--threads')
+  else if (doThreads) detachArgs.push('--threads')
+  if (noOpen) detachArgs.push('--no-open')
+
+  const childEnv = { ...process.env }
+  if (doOverview) childEnv.SLOP_REVIEW_OPEN_OVERVIEW = '1'
+  else delete childEnv.SLOP_REVIEW_OPEN_OVERVIEW
+
+  const child = spawn(process.execPath, detachArgs, {
+    cwd: process.cwd(),
+    env: childEnv,
+    detached: true,      // own session: survives Ctrl-C and the terminal closing
+    stdio: 'ignore',
+  })
+  child.unref()
+
+  // Wait for the port to answer before exiting: `slop -d && next` should only
+  // advance once the UI is actually reachable, and with stdio ignored a failed
+  // bind would otherwise be silent.
+  const DETACH_READY_MS = 5000
+  const deadline = Date.now() + DETACH_READY_MS
+  let serving = false
+  while (!serving && Date.now() < deadline) {
+    serving = await new Promise((resolve) => {
+      const probe = connect({ port, host: 'localhost' })
+      const done = (result) => { probe.destroy(); resolve(result) }
+      probe.once('connect', () => done(true))
+      probe.once('error', () => done(false))
+      probe.setTimeout(500, () => done(false))
+    })
+    if (!serving) await new Promise((r) => setTimeout(r, 100))
+  }
+  if (!serving) {
+    console.error(`slop-review: the detached server didn't come up on port ${port}.`)
+    process.exit(1)
+  }
+  process.stdout.write(`slop-review: serving http://localhost:${port}/ in the background (pid ${child.pid}); \`kill ${child.pid}\` to stop.\n`)
+  process.exit(0)
+}
+
 // 3. Hand off to the server. Setting env vars before the dynamic import
 //    is what plumbs the bootstrap repo + port through to state.js + index.js.
 process.env.SLOP_REVIEW_REPO = repoRoot
@@ -294,9 +428,11 @@ if (!noOpen) {
   // diff page). --threads is the no-sync route to that same resume view.
   // --overview adds ?overview=1 so the diff page auto-opens the (just-generated)
   // overview modal on mount. Both params ride the SPA hash and compose.
+  // SLOP_REVIEW_OPEN_OVERVIEW: set by the --detach parent, whose already-cached
+  // overview the child should open on without generating anything itself.
   const hashParams = []
   if (doSync || doThreads) hashParams.push('resume=1')
-  if (doOverview) hashParams.push('overview=1')
+  if (doOverview || process.env.SLOP_REVIEW_OPEN_OVERVIEW === '1') hashParams.push('overview=1')
   const routeHash = hashParams.length ? `#/diff?${hashParams.join('&')}` : ''
   const url = useCarbonyl
     ? `http://localhost:${port}/?carbonyl=1${routeHash}`

@@ -7,6 +7,7 @@ import { registerThreadRoutes } from './routes/threads.js'
 import { registerOverviewRoutes } from './routes/overview.js'
 import { shutdownAllOverviewJobs } from './overview.js'
 import { startSyncLoop } from './sync.js'
+import { registerServer, unregisterServer } from './servers.js'
 import { markSyncEnabled, recordSyncResult, recordSyncError, getSyncStatus } from './sync-status.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
@@ -95,6 +96,11 @@ export async function start({ port = DEFAULT_PORT, hostname = '0.0.0.0', startSy
   return new Promise((resolve) => {
     const server = serve({ app, port, hostname }, (info) => {
       console.log(`slop-review running on http://${hostname}:${info.port}`)
+      // Record the bound port (not the requested one) so `--kill` can stop this
+      // session from another terminal — the only way to reach a `--detach`ed one.
+      try {
+        registerServer(process.env.SLOP_REVIEW_REPO, { port: info.port })
+      } catch {}   // a read-only .reviews/ shouldn't stop the server from serving
       resolve({ server, info })
     })
 
@@ -120,6 +126,7 @@ export async function start({ port = DEFAULT_PORT, hostname = '0.0.0.0', startSy
       process.on(sig, () => {
         if (stopSync) stopSync()
         shutdownAllOverviewJobs()
+        try { unregisterServer(process.env.SLOP_REVIEW_REPO) } catch {}
         process.exit(0)
       })
     }

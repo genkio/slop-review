@@ -55,6 +55,9 @@ All flags are optional:
 | `--browser`  | `-b`  |            | Chain after `--sync` to open the UI in your default browser once the sync finishes                            |
 | `--threads`  | `-t`  |            | Open straight into the thread walk (full diff, first unresolved thread surfaced) without syncing              |
 | `--overview` | `-o`  |            | Generate the branch overview in the terminal (pick generators + optional instructions), then open the UI on it. Needs an interactive terminal |
+| `--agent`    | `-a`  | `<name>`   | Name the generator(s) - `codex`, `claude`, `opencode` - instead of picking them. Repeatable / comma-separated. Implies `--overview`, skips both prompts, needs no TTY |
+| `--detach`   | `-d`  |            | Hand the server to a background process and exit once it answers, so the shell moves on with the UI still up. Prints the pid. Not compatible with `--carbonyl` |
+| `--kill`     | `-k`  |            | Stop the server(s) running for this repo, then exit without launching. Exits 0 when nothing is running        |
 | `--help`     | `-h`  |            | Show help                                                                                                     |
 
 `--sync` exits after mirroring unless you chain `--browser`, `--carbonyl`, or `--threads` - those open the UI and keep re-syncing every 5 min. `--threads` reaches that same resume view without syncing.
@@ -64,6 +67,31 @@ Prerequisites: Node ≥ 20, `git` on `PATH`, and Python 3 when generating an Ove
 The Overview modal uses the bundled `explain-diff-html` skill with `codex exec`, `claude`, or `opencode run` to generate a self-contained branch explainer with background, intuition, a code walkthrough, diagrams where useful, and an interactive quiz. The generator picker is multi-select: run any combination concurrently, then switch between their results using tabs in the Overview header. It also accepts optional instructions such as “Explain it in both English and Chinese”; the skill turns requested languages into a complete multilingual reading mode. Generated HTML is cached per generator under `.reviews/` and displayed in a sandboxed frame. Generation errors include the captured CLI output without hiding successful sibling results.
 
 You can drive the same generation from the terminal without the UI: `slop-review --overview` (`-o`) detects the available agent CLIs, presents a checkbox picker (space to toggle, `a` for all) plus an optional-instructions prompt, runs the selected generators with live progress, then launches the app straight into the Overview modal. It composes with the launch flags (`--carbonyl`, `--port`, `--no-open`, …).
+
+Name the generators with `--agent` (`-a`) to skip both prompts and make the run non-interactive - no TTY required, so it can sit inside a shell function or script:
+
+```bash
+slop-review -o -a opencode              # single generator, no prompts
+slop-review -a codex,claude --no-open   # two generators; -a implies -o
+```
+
+Unknown names and agents missing from `PATH` fail before anything is generated.
+
+Add `--detach` (`-d`) to keep going once the overview is up. It hands the server to a background process, opens the browser, and returns the prompt, so a long-running command can follow in the same chain while you read the overview:
+
+```bash
+slop-review -o -a opencode -d && your-long-review-command
+```
+
+It prints the pid to `kill` when you're done with the UI. `--detach` composes with `--port`, `--host`, `--threads`, `--sync`, and `--no-open` (background server, no browser); it can't be combined with `--carbonyl`, which needs the terminal it was launched from.
+
+`--kill` (`-k`) is the teardown, so you never need to hunt for that pid:
+
+```bash
+slop-review -k          # stop this repo's server(s), then exit
+```
+
+It stops every slop-review server running for the current repo - detached ones and a foreground session left in another terminal - and exits 0 when there's nothing to stop, so it's safe to call blind at the end of a script. Servers are tracked in `<repo>/.reviews/_servers.json`, which makes `-k` repo-scoped: it never touches a server serving a different checkout. Entries are verified against the live process table before anything is signalled (SIGTERM, then SIGKILL after a 3s grace), so a recycled pid can't be hit by mistake, and a server that died without cleaning up is just pruned.
 
 State lives at `~/.config/slop-review/state.json` (honors `XDG_CONFIG_HOME`): schema version plus per-repo UI state (last view + thread-resume cursors).
 
