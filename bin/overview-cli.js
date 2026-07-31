@@ -9,7 +9,9 @@
 //
 // `--agent` / `-a` names the generators up front, which skips both prompts and
 // makes the whole run non-interactive (no TTY needed) so it can be chained
-// inside a shell function or script.
+// inside a shell function or script. `--prompt` / `-P` supplies the additional
+// instructions the interactive flow asks for, so a scripted run can steer the
+// generators the same way (e.g. multilingual output).
 
 import { multiSelect, promptLine, PROMPT_CANCELLED } from './prompt.js'
 import {
@@ -106,10 +108,20 @@ export function summarizeGenerations(requestedTools, generations = {}) {
   return { succeeded, failed }
 }
 
+// The web route rejects an over-long additional_prompt with a 400; the CLI has
+// nobody to hand that error back to mid-run, so it trims and says so instead.
+export function normalizeAdditionalPrompt(value, log) {
+  const prompt = (value || '').trim()
+  if (prompt.length <= MAX_ADDITIONAL_PROMPT_LENGTH) return prompt
+  log?.(`(instructions trimmed to ${MAX_ADDITIONAL_PROMPT_LENGTH} characters)`)
+  return prompt.slice(0, MAX_ADDITIONAL_PROMPT_LENGTH)
+}
+
 /**
  * Run the overview flow. With `options.agents` (from `--agent`) it is
  * non-interactive: no picker, no instructions prompt, no TTY required.
- * Otherwise it prompts for both. Returns one of:
+ * `options.additionalPrompt` (from `--prompt`) supplies the instructions
+ * either path would otherwise ask for. Returns one of:
  *   'launch' — generation was attempted (any outcome); proceed to open the app
  *   'cancel' — the user aborted the picker/prompt; the bin shim exits quietly
  *   'error'  — nothing could be generated (no diff / no CLI / no TTY / bad agent)
@@ -117,6 +129,8 @@ export function summarizeGenerations(requestedTools, generations = {}) {
  */
 export async function runOverviewCli(repoRoot, options = {}) {
   const log = options.log || ((m) => process.stdout.write(`${m}\n`))
+
+  const suppliedPrompt = normalizeAdditionalPrompt(options.additionalPrompt, log)
 
   const { tools: agents, unknown } = parseAgents(options.agents || [])
   if (unknown.length) {
@@ -151,7 +165,8 @@ export async function runOverviewCli(repoRoot, options = {}) {
     }
     log(`Branch overview · ${status.branch || 'current branch'}`)
     log(`Generators: ${agents.map(toolLabel).join(', ')}`)
-    await generateOverview(repoRoot, agents, '', log)
+    if (suppliedPrompt) log(`Instructions: ${firstLine(suppliedPrompt)}`)
+    await generateOverview(repoRoot, agents, suppliedPrompt, log)
     return 'launch'
   }
 
@@ -172,17 +187,20 @@ export async function runOverviewCli(repoRoot, options = {}) {
   }
   log(`Generators: ${selected.map(toolLabel).join(', ')}`)
 
-  const answer = await promptLine({
-    message: 'Additional instructions (optional, press enter to skip): ',
-  })
-  if (answer === PROMPT_CANCELLED) {
-    log('slop-review: overview cancelled.')
-    return 'cancel'
-  }
-  let additionalPrompt = (answer || '').trim()
-  if (additionalPrompt.length > MAX_ADDITIONAL_PROMPT_LENGTH) {
-    additionalPrompt = additionalPrompt.slice(0, MAX_ADDITIONAL_PROMPT_LENGTH)
-    log(`(instructions trimmed to ${MAX_ADDITIONAL_PROMPT_LENGTH} characters)`)
+  // `--prompt` already answered this; asking again would just invite a
+  // conflicting second answer.
+  let additionalPrompt = suppliedPrompt
+  if (additionalPrompt) {
+    log(`Instructions: ${firstLine(additionalPrompt)}`)
+  } else {
+    const answer = await promptLine({
+      message: 'Additional instructions (optional, press enter to skip): ',
+    })
+    if (answer === PROMPT_CANCELLED) {
+      log('slop-review: overview cancelled.')
+      return 'cancel'
+    }
+    additionalPrompt = normalizeAdditionalPrompt(answer, log)
   }
 
   await generateOverview(repoRoot, selected, additionalPrompt, log)

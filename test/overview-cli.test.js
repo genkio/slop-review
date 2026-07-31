@@ -6,6 +6,7 @@ import {
   summarizeGenerations,
   parseAgents,
   missingAgentReason,
+  normalizeAdditionalPrompt,
 } from '../bin/overview-cli.js'
 
 test('buildToolChoices maps available tools with version + prior-run suffix', () => {
@@ -71,6 +72,27 @@ test('missingAgentReason prefers the probe error and lists what is available', (
     missingAgentReason({ available_tools: [] }, ['claude']),
     'Claude is not available on PATH.'
   )
+})
+
+test('normalizeAdditionalPrompt trims whitespace and treats blank as absent', () => {
+  assert.equal(normalizeAdditionalPrompt('  in both Chinese and English  '), 'in both Chinese and English')
+  assert.equal(normalizeAdditionalPrompt('   '), '')
+  assert.equal(normalizeAdditionalPrompt(null), '')
+  assert.equal(normalizeAdditionalPrompt(undefined), '')
+})
+
+test('normalizeAdditionalPrompt caps at 2000 characters and reports the trim', () => {
+  const logged = []
+  const result = normalizeAdditionalPrompt('x'.repeat(2500), (m) => logged.push(m))
+
+  assert.equal(result.length, 2000)
+  assert.deepEqual(logged, ['(instructions trimmed to 2000 characters)'])
+})
+
+test('normalizeAdditionalPrompt stays quiet at exactly the limit', () => {
+  const logged = []
+  assert.equal(normalizeAdditionalPrompt('x'.repeat(2000), (m) => logged.push(m)).length, 2000)
+  assert.deepEqual(logged, [])
 })
 
 test('summarizeGenerations classifies by this run status, not preserved content', () => {

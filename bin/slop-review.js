@@ -61,6 +61,12 @@ Options:
                       comma-separated: \`-a codex -a claude\` == \`-a codex,claude\`.
                       Implies --overview and skips both prompts, so the run
                       needs no TTY and can be chained inside a script.
+      --prompt <text>, -P <text>
+                      Additional instructions for the overview generators, the
+                      flag form of the interactive prompt: e.g.
+                      \`-P 'in both Chinese and English'\`. Implies --overview and
+                      replaces the instructions prompt (\`-p\` is --port, hence
+                      the capital).
       --detach, -d    Leave the server running in a background process and exit
                       once it answers, instead of holding the terminal. The
                       browser still opens. Chains as
@@ -177,7 +183,25 @@ for (const flag of ['--agent', '-a']) {
     args.splice(i, 2)
   }
 }
-const doOverview = wantOverview || agentArgs.length > 0
+// `--prompt` / `-P` is the flag form of the interactive instructions prompt, so
+// an `-a` run can steer the generators too (multilingual output, focus areas).
+// `-p` is already --port, hence the capital. Asking for instructions is a
+// request to generate, so it implies --overview like --agent does; supplied
+// here, the interactive flow skips its instructions prompt.
+let promptArg = null
+for (const flag of ['--prompt', '-P']) {
+  const i = args.indexOf(flag)
+  if (i < 0) continue
+  const value = args[i + 1]
+  if (value == null || value.startsWith('-')) {
+    console.error(`slop-review: ${flag} needs the instructions to pass to the generators`)
+    process.exit(1)
+  }
+  promptArg = value
+  args.splice(i, 2)
+}
+
+const doOverview = wantOverview || agentArgs.length > 0 || promptArg != null
 
 // `--detach` / `-d` hands the server off to a background process and gives the
 // shell its prompt back, so `slop -o -a opencode -d && next-command` blocks on
@@ -299,7 +323,7 @@ if (doSync) {
 // if a generator failed.
 if (doOverview) {
   const { runOverviewCli } = await import(join(PACKAGE_ROOT, 'bin', 'overview-cli.js'))
-  const action = await runOverviewCli(repoRoot, { agents: agentArgs })
+  const action = await runOverviewCli(repoRoot, { agents: agentArgs, additionalPrompt: promptArg })
   if (action === 'cancel') process.exit(0)
   if (action === 'error') process.exit(1)
 }

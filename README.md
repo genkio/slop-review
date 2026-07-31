@@ -56,6 +56,7 @@ All flags are optional:
 | `--threads`  | `-t`  |            | Open straight into the thread walk (full diff, first unresolved thread surfaced) without syncing              |
 | `--overview` | `-o`  |            | Generate the branch overview in the terminal (pick generators + optional instructions), then open the UI on it. Needs an interactive terminal |
 | `--agent`    | `-a`  | `<name>`   | Name the generator(s) - `codex`, `claude`, `opencode` - instead of picking them. Repeatable / comma-separated. Implies `--overview`, skips both prompts, needs no TTY |
+| `--prompt`   | `-P`  | `<text>`   | Additional instructions for the generators, e.g. `-P 'in both Chinese and English'`. Implies `--overview` and replaces the instructions prompt (`-p` is `--port`, hence the capital) |
 | `--detach`   | `-d`  |            | Hand the server to a background process and exit once it answers, so the shell moves on with the UI still up. Prints the pid. Not compatible with `--carbonyl` |
 | `--kill`     | `-k`  |            | Stop the server(s) running for this repo, then exit without launching. Exits 0 when nothing is running        |
 | `--help`     | `-h`  |            | Show help                                                                                                     |
@@ -76,6 +77,15 @@ slop-review -a codex,claude --no-open   # two generators; -a implies -o
 ```
 
 Unknown names and agents missing from `PATH` fail before anything is generated.
+
+`--prompt` (`-P`) is the flag form of the instructions prompt, so a scripted run can steer the generators too - the same field the modal fills, honored for requested languages or a focus area:
+
+```bash
+slop-review -o -a opencode -P 'in both Chinese and English'
+slop-review -P 'focus on the migration' -a codex   # picker skipped by -a, prompt skipped by -P
+```
+
+Instructions are capped at 2000 characters (trimmed with a notice). Supplying `-P` also implies `-o`; in an interactive run it replaces the instructions prompt but still shows the generator picker. Note the capital: `-p` is `--port`.
 
 Add `--detach` (`-d`) to keep going once the overview is up. It hands the server to a background process, opens the browser, and returns the prompt, so a long-running command can follow in the same chain while you read the overview:
 
