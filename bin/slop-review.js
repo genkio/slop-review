@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
 import { createServer, connect } from 'node:net'
 import { statSync } from 'node:fs'
+import { networkInterfaces } from 'node:os'
 
 // ----------------------------------------------------------------------
 // CLI for slop-review. Run inside a git repo — the cwd is auto-bootstrapped
@@ -78,6 +79,12 @@ Options:
                       exit without launching. The teardown counterpart to
                       --detach; also stops a foreground session started in
                       another terminal. Exits 0 when nothing is running.
+      --url, -u       Print the URL(s) of the server(s) running for this repo,
+                      then exit without launching. One line per external IPv4
+                      address per server, so the lines work from another
+                      machine (the server binds 0.0.0.0 by default); localhost
+                      when the machine has no external interface. Exits 1 when
+                      nothing is running, so it doubles as an is-it-up check.
   -h, --help          Show this help
 `)
   process.exit(0)
@@ -228,6 +235,17 @@ const killIdx = (() => {
 const doKill = killIdx >= 0
 if (doKill) args.splice(killIdx, 1)
 
+// `--url` / `-u` is the lookup counterpart to --kill: same registry, but it
+// reports where the server(s) are instead of stopping them. Exists because the
+// launch-time URL print is easy to lose (a full-screen TUI starts right after
+// and scrolls it away); this re-answers "where is the UI" from any terminal.
+const urlIdx = (() => {
+  const long = args.indexOf('--url')
+  return long >= 0 ? long : args.indexOf('-u')   // `-u`: short alias, like `-k` for --kill
+})()
+const doUrl = urlIdx >= 0
+if (doUrl) args.splice(urlIdx, 1)
+
 // Fail loud on anything left over so typos like `--arbonyl` surface
 // immediately instead of silently dropping through to the default-browser
 // branch. Positional args (URLs, repo paths, etc.) aren't a thing here:
@@ -270,6 +288,30 @@ if (doKill) {
     process.stdout.write(`slop-review: no server running for ${repoRoot}\n`)
   }
   process.exit(survived.length ? 1 : 0)
+}
+
+// --url: print where the running server(s) for this repo are reachable, then
+// exit. Bare URLs on stdout so they paste into a browser on the machine you
+// ssh'd in from. One line per external IPv4 per server — a multi-homed machine
+// (LAN + VPN/tailscale) can't know which network the reader is on, so it lists
+// them all; localhost is the fallback when there is no external interface.
+if (doUrl) {
+  const { listServers } = await import(join(PACKAGE_ROOT, 'server', 'servers.js'))
+  const servers = listServers(repoRoot).filter((s) => s.port)
+  if (!servers.length) {
+    console.error(`slop-review: no server running for ${repoRoot}`)
+    process.exit(1)
+  }
+  const hosts = [...new Set(
+    Object.values(networkInterfaces()).flat()
+      .filter((iface) => iface && !iface.internal && iface.family === 'IPv4')
+      .map((iface) => iface.address),
+  )]
+  if (!hosts.length) hosts.push('localhost')
+  for (const server of servers) {
+    for (const host of hosts) process.stdout.write(`http://${host}:${server.port}/\n`)
+  }
+  process.exit(0)
 }
 
 // Handed to the server (start() below): syncEnabled turns on the recurring
