@@ -159,6 +159,7 @@ The diff view is fully keyboard-driven. The same bindings work in a regular brow
 |-----------------------|----------------------------------------------------|--------------------------------|
 | `j` / `k`             | Move cursor down / up one line                     | yes                            |
 | `J` / `K`             | Move cursor down / up five lines                   | yes                            |
+| `gg` / `G`            | Move cursor to the first / last line of the diff   | yes                            |
 | `c` / `C`             | Open comment editor on new-side / old-side line    | yes                            |
 | `v` / `V`             | Start visual-line selection (new / old side)       | yes                            |
 | `y` / `Y`             | Copy a `path:line` reference to the cursor line (new / old side) | yes               |

@@ -836,6 +836,7 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
     if (disposeOverviewNav) { try { disposeOverviewNav() } catch {}; disposeOverviewNav = null }
     if (disposeSyncStatus) { try { disposeSyncStatus() } catch {}; disposeSyncStatus = null }
     if (flashTimer) { clearTimeout(flashTimer); flashTimer = null }
+    clearPendingG()
   }
   activeDispose = dispose
 
@@ -1229,19 +1230,24 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
       .catch((e) => toast('Copy failed: ' + (e.message || 'unknown')))
   }
 
-  function moveCursor (delta) {
-    let rows = getNavigableRows()
-    // CTA mode: j/k extends the selection rather than just moving the
-    // cursor. Restrict navigable rows to ones with a gutter on the same
-    // (path, side) as the selection — this way j/k always lands on a
-    // line we can include in the range, skipping hunk headers and rows
-    // from other files that would otherwise force a fresh selection.
+  // Rows the cursor may land on right now. CTA mode: j/k (and gg/G)
+  // extend the selection rather than just moving the cursor, so restrict
+  // to rows with a gutter on the same (path, side) as the selection —
+  // this way every landing is a line we can include in the range,
+  // skipping hunk headers and rows from other files that would otherwise
+  // force a fresh selection.
+  function getCursorTargetRows () {
+    const rows = getNavigableRows()
     const sel = state.commentSelection
-    if (sel) {
-      rows = rows.filter((r) => r.querySelector(
-        `[data-side="${sel.side}"][data-line][data-path="${cssEscape(sel.path)}"]`
-      ))
-    }
+    if (!sel) return rows
+    return rows.filter((r) => r.querySelector(
+      `[data-side="${sel.side}"][data-line][data-path="${cssEscape(sel.path)}"]`
+    ))
+  }
+
+  function moveCursor (delta) {
+    const rows = getCursorTargetRows()
+    const sel = state.commentSelection
     if (rows.length === 0) return
     const body = $('[data-body]')
     const current = body?.querySelector('tr.diff-row.is-cursor')
@@ -1298,8 +1304,40 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
       }
       else nextIdx = Math.max(0, Math.min(rows.length - 1, idx + delta))
     }
+    placeCursor(rows[nextIdx], sel)
+  }
+
+  // `gg` chord state. Armed by a bare `g`, disarmed by the next key
+  // (whatever it is) or by the timeout — so a stray `g` never leaves the
+  // keymap in a mode the user can't see. 600ms is roughly vim's default
+  // 'timeoutlen'.
+  let pendingG = false
+  let pendingGTimer = null
+  function armPendingG () {
+    pendingG = true
+    pendingGTimer = setTimeout(() => { pendingG = false; pendingGTimer = null }, 600)
+  }
+  function clearPendingG () {
+    pendingG = false
+    if (pendingGTimer) { clearTimeout(pendingGTimer); pendingGTimer = null }
+  }
+
+  // Move the cursor to the first / last navigable row — vim's gg / G.
+  // Shares placeCursor with j/k, so an in-progress visual-line selection
+  // stretches to the top / bottom of the selectable range instead of
+  // being dropped.
+  function moveCursorToEdge (edge) {
+    const rows = getCursorTargetRows()
+    if (rows.length === 0) return
+    placeCursor(edge > 0 ? rows[rows.length - 1] : rows[0], state.commentSelection)
+  }
+
+  // Paint `next` as the cursor row, scroll it into view, and (in CTA
+  // mode) re-derive the selection range from the anchor.
+  function placeCursor (next, sel) {
+    const body = $('[data-body]')
+    const current = body?.querySelector('tr.diff-row.is-cursor')
     if (current) current.classList.remove('is-cursor')
-    const next = rows[nextIdx]
     next.classList.add('is-cursor')
     next.scrollIntoView({ block: 'nearest', behavior: 'auto' })
     // Extend the selection to span [anchor, new cursor line]. Mirrors
@@ -1399,6 +1437,11 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
   const onKey = (e) => {
     if (disposed) return
     if (e.target?.closest?.('input, textarea')) return
+    // Consume the armed `g` up front so every branch below is chord-free:
+    // only the `g` handler reads `hadPendingG`, and any other key both
+    // disarms and runs its own binding normally.
+    const hadPendingG = pendingG
+    clearPendingG()
     // j/k cursor nav — single-line. Bare letters only; Ctrl/Cmd/Alt
     // variants fall through so browser defaults (Ctrl+J downloads, etc.)
     // aren't shadowed. Shift goes to the J/K handler immediately below.
@@ -1416,6 +1459,28 @@ export async function renderDiffView({ repo, branch, branchId, branchInfo, commi
     // browser-level chords (DevTools, etc.) intact.
     if ((e.key === 'J' || e.key === 'K') && !e.metaKey && !e.ctrlKey && !e.altKey) {
       moveCursor(e.key === 'J' ? 5 : -5)
+      revealKeymapHint()
+      e.preventDefault()
+      return
+    }
+    // gg / G — first / last navigable row, vim's document-edge motions.
+    // `gg` is the only chord in the diff keymap: the first `g` arms
+    // pendingG (a no-op on its own), the second within the window fires.
+    // Any other key clears it (handled at the bottom of onKey), so `gj`
+    // is a plain `j` rather than a swallowed press. Un-advertised in the
+    // hint bar, same as J/K — power motions that would crowd the bar.
+    if (e.key === 'g' && !e.metaKey && !e.ctrlKey && !e.altKey) {
+      if (hadPendingG) {
+        moveCursorToEdge(-1)
+        revealKeymapHint()
+      } else {
+        armPendingG()
+      }
+      e.preventDefault()
+      return
+    }
+    if (e.key === 'G' && !e.metaKey && !e.ctrlKey && !e.altKey) {
+      moveCursorToEdge(1)
       revealKeymapHint()
       e.preventDefault()
       return
