@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.25.0](https://github.com/genkio/slop-review/compare/v0.24.0...v0.25.0) (2026-08-25)
+
+
+### Features
+
+* --prompt/-P for overview instructions ([4254a86](https://github.com/genkio/slop-review/commit/4254a86ae16304042118c68c810487cf0e4c06f4))
+* --url/-u prints the running server's URL(s) ([a32947a](https://github.com/genkio/slop-review/commit/a32947afc37b4ed64e58201b3c82bb919f707f42))
+* copy path-and-comment to clipboard ([e817e48](https://github.com/genkio/slop-review/commit/e817e484094434dae41258ce1728ece9bbdf7f26))
+* drop auto-mark-reviewed on scroll-past ([7b3d35b](https://github.com/genkio/slop-review/commit/7b3d35b693dc75e1aee1b11690cc9fac776cb08e))
+* gg/G jump to first/last line of the diff ([0ca9d1f](https://github.com/genkio/slop-review/commit/0ca9d1ff53686c6a6ebf7653284d0f17b0825194))
+* non-interactive overview (--agent), --detach, --kill ([4ce7d99](https://github.com/genkio/slop-review/commit/4ce7d99529af0f819411f10d95a431db3fba0b27))
+* show model name in overview ([a0e18c0](https://github.com/genkio/slop-review/commit/a0e18c071d8d3d3eb0025d0cfde1c827e800800a))
+
 ## [0.24.0](https://github.com/genkio/slop-review/compare/v0.23.0...v0.24.0) (2026-07-18)
 
 
