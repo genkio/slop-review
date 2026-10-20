@@ -3,7 +3,7 @@ import { escapeHtml } from './util.js'
 /**
  * Minimal per-line syntax highlighter for the diff modal. Supports the
  * languages that show up in the user's PR review work — TS/JS family,
- * JSON, YAML, Python, Go, Bash, Markdown, CSS. No third-party deps.
+ * JSON, YAML, Python, Go, Bash, Markdown, CSS, PHP. No third-party deps.
  *
  * Per-line scope: each line is tokenized independently, so multi-line
  * constructs (block comments, multi-line template strings) lose context
@@ -91,7 +91,25 @@ const EXT_TO_LANG = {
   c: 'c', h: 'c', cpp: 'c', cc: 'c', cxx: 'c', hpp: 'c', hxx: 'c',
   java: 'java', kt: 'java', scala: 'java', cs: 'java',
   rs: 'rust',
+  php: 'php', phtml: 'php',
 }
+
+const PHP_KEYWORDS = new Set([
+  'abstract', 'and', 'as', 'break', 'case', 'catch', 'class', 'clone',
+  'const', 'continue', 'declare', 'default', 'do', 'echo', 'else', 'elseif',
+  'enum', 'extends', 'final', 'finally', 'fn', 'for', 'foreach', 'function',
+  'global', 'goto', 'if', 'implements', 'include', 'include_once',
+  'instanceof', 'insteadof', 'interface', 'match', 'namespace', 'new', 'or',
+  'print', 'private', 'protected', 'public', 'readonly', 'require',
+  'require_once', 'return', 'static', 'switch', 'throw', 'trait', 'try',
+  'use', 'var', 'while', 'xor', 'yield',
+])
+const PHP_LITERALS = new Set(['true', 'false', 'null', 'TRUE', 'FALSE', 'NULL', '$this', 'self', 'parent'])
+const PHP_BUILTINS = new Set([
+  'array', 'bool', 'int', 'float', 'string', 'mixed', 'void', 'never',
+  'object', 'iterable', 'callable', 'isset', 'unset', 'empty', 'list',
+  'die', 'exit',
+])
 
 const RUST_KEYWORDS = new Set([
   'as', 'async', 'await', 'break', 'const', 'continue', 'crate', 'dyn',
@@ -132,6 +150,8 @@ const LANG_CONFIG = {
   java:       { keywords: JAVA_KEYWORDS, literals: new Set(['true', 'false', 'null']), builtins: new Set(), line: '//', block: ['/*', '*/'], regex: false },
   c:          { keywords: C_KEYWORDS, literals: new Set(['true', 'false', 'NULL', 'nullptr']), builtins: new Set(), line: '//', block: ['/*', '*/'], regex: false },
   css:        { keywords: new Set(), literals: new Set(), builtins: new Set(), line: null, block: ['/*', '*/'], regex: false, css: true },
+  // PHP has two line-comment markers; `#[` opens a PHP 8 attribute, not a comment.
+  php:        { keywords: PHP_KEYWORDS, literals: PHP_LITERALS, builtins: PHP_BUILTINS, line: ['//', '#'], notLine: '#[', block: ['/*', '*/'], regex: false },
 }
 
 export function languageForPath(path) {
@@ -171,14 +191,15 @@ export function highlightLine(text, lang) {
 function cStyleTokenize(line, cfg) {
   const out = []
   const len = line.length
+  const lineMarkers = [].concat(cfg.line ?? [])
   let i = 0
 
   while (i < len) {
     const ch = line[i]
 
-    // Single-line comment — if we see the line marker, the rest of the
+    // Single-line comment — if we see a line marker, the rest of the
     // line is a comment. Greedy take-to-end-of-line.
-    if (cfg.line && line.startsWith(cfg.line, i)) {
+    if (lineMarkers.some((m) => line.startsWith(m, i)) && !(cfg.notLine && line.startsWith(cfg.notLine, i))) {
       out.push(span('comment', line.slice(i)))
       break
     }

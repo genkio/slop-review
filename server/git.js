@@ -516,6 +516,7 @@ function langForPath(path) {
     case 'java': case 'kt': case 'scala': case 'cs': return 'java'
     case 'c': case 'h': case 'cpp': case 'cc': case 'cxx': case 'hpp': case 'hxx': return 'c'
     case 'sh': case 'bash': case 'zsh': case 'ksh': return 'bash'
+    case 'php': case 'phtml': return 'php'
     default: return null
   }
 }
